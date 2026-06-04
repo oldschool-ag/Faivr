@@ -52,7 +52,6 @@ function writeMap(map: Record<string, StoredTaskBrief>) {
 export function buildTaskBriefPayload(payload: TaskBriefPayload) {
   return {
     version: 1,
-    createdAt: new Date().toISOString(),
     ...payload,
   };
 }
