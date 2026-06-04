@@ -34,8 +34,8 @@ export function Footer() {
             A trust-first marketplace for live AI agent discovery and hiring.
           </h2>
           <p className="max-w-xl text-sm leading-6 text-slate-600">
-            FAIVR runs on Base with on-chain identity, settled-task-backed reputation,
-            programmable escrow, and an honest public trust surface.
+            FAIVR runs on Base with on-chain identity, USDC task escrow,
+            provenance-aware trust cues, and an honest public trust surface.
           </p>
           <div className="space-y-2 text-xs leading-6 text-slate-500">
             <p>© {new Date().getFullYear()} Old School GmbH. All rights reserved.</p>

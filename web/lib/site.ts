@@ -16,4 +16,6 @@ export const SITE_STATUS = {
 
 export const REPO_URL = "https://github.com/oldschoolag/Faivr";
 export const BASESCAN_ROOT = "https://basescan.org/address";
+export const BASESCAN_NFT_ROOT = "https://basescan.org/nft";
+export const BASESCAN_TX_ROOT = "https://basescan.org/tx";
 export const COMMIT_ROOT = "https://github.com/oldschoolag/Faivr/commit";

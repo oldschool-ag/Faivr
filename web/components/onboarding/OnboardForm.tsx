@@ -6,13 +6,17 @@ import { useAccount, useWaitForTransactionReceipt, useWriteContract } from "wagm
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { CONTRACTS, IDENTITY_ABI } from "@/lib/contracts";
+import { TOKENS } from "@/lib/tokens";
 
 const CATEGORIES = ["DeFi", "Security", "Data", "Trading", "Marketing", "Other"];
+const PRICING_MODES = ["Fixed price", "Request quote"] as const;
 
 export function OnboardForm() {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("DeFi");
   const [description, setDescription] = useState("");
+  const [deliveryDescription, setDeliveryDescription] = useState("");
+  const [pricingMode, setPricingMode] = useState<(typeof PRICING_MODES)[number]>("Fixed price");
   const [mcpEndpoint, setMcpEndpoint] = useState("");
   const [a2aEndpoint, setA2aEndpoint] = useState("");
   const [agentId, setAgentId] = useState<number | null>(null);
@@ -21,7 +25,10 @@ export function OnboardForm() {
   const { writeContract, data: txHash, isPending, error: writeError, reset } = useWriteContract();
   const { isLoading: isConfirming, isSuccess, data: receipt } = useWaitForTransactionReceipt({ hash: txHash });
 
-  const isValid = name.trim().length > 0 && description.trim().length > 0;
+  const isValid =
+    name.trim().length > 0 &&
+    description.trim().length > 0 &&
+    deliveryDescription.trim().length > 0;
   const minting = isPending || isConfirming;
 
   useEffect(() => {
@@ -43,6 +50,9 @@ export function OnboardForm() {
       name: name.trim(),
       description: description.trim(),
       category,
+      pricingMode,
+      primaryToken: TOKENS.USDC.symbol,
+      deliveryDescription: deliveryDescription.trim(),
       mcpEndpoint: mcpEndpoint.trim() || undefined,
       a2aEndpoint: a2aEndpoint.trim() || undefined,
     });
@@ -66,11 +76,17 @@ export function OnboardForm() {
           <p className="text-slate-600">
             Your agent <span className="font-semibold text-slate-950">{name}</span> is now minted on Base.
             {agentId && (
-              <span className="mt-1 block font-mono font-semibold text-emerald-700">
-                Agent ID: #{agentId}
-              </span>
+              <span className="mt-1 block font-mono font-semibold text-emerald-700">Agent ID: #{agentId}</span>
             )}
           </p>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left text-sm text-slate-600">
+            <p className="font-semibold text-slate-950">Recommended next steps</p>
+            <ul className="mt-2 space-y-1">
+              <li>• Verify the domain or operator surface behind the agent</li>
+              <li>• Keep payment expectations aligned to USDC on Base</li>
+              <li>• Only publish endpoints that are ready for public use</li>
+            </ul>
+          </div>
           <div className="flex flex-col justify-center gap-3 pt-2 sm:flex-row">
             <Button
               variant="secondary"
@@ -84,6 +100,8 @@ export function OnboardForm() {
                 setAgentId(null);
                 setName("");
                 setDescription("");
+                setDeliveryDescription("");
+                setPricingMode("Fixed price");
                 setMcpEndpoint("");
                 setA2aEndpoint("");
               }}
@@ -101,13 +119,16 @@ export function OnboardForm() {
       {!isConnected && (
         <div className="mb-6 flex items-center gap-3 rounded-[24px] border border-amber-200 bg-amber-50 p-4">
           <Wallet className="h-5 w-5 shrink-0 text-amber-600" />
-          <p className="text-sm text-amber-800">
-            Connect your wallet to mint an identity NFT for your agent.
-          </p>
+          <p className="text-sm text-amber-800">Connect your wallet to mint an identity NFT for your agent.</p>
         </div>
       )}
 
       <Card padding="lg" className="space-y-6">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">About your agent</p>
+          <p className="mt-1 text-sm text-slate-500">Start with the service itself, not the endpoint wiring.</p>
+        </div>
+
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <label htmlFor="agent-name" className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
@@ -143,61 +164,103 @@ export function OnboardForm() {
 
         <div className="space-y-2">
           <label htmlFor="agent-description" className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
-            Description
+            Service description
           </label>
           <textarea
             id="agent-description"
             rows={4}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="What does your agent do, and why should a buyer trust it?"
+            placeholder="What does your agent do, and who is it for?"
             className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-sky-300 focus:bg-white focus:outline-none"
           />
-        </div>
-
-        <div className="space-y-3 rounded-[24px] border border-emerald-200 bg-emerald-50 p-5">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Zap className="h-4 w-4 text-emerald-600" aria-hidden="true" />
-              <span className="text-sm font-semibold text-slate-950">MCP endpoint</span>
-            </div>
-            <span className="rounded-full border border-emerald-200 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-tight text-emerald-700">
-              Recommended
-            </span>
-          </div>
-          <input
-            type="url"
-            value={mcpEndpoint}
-            onChange={(e) => setMcpEndpoint(e.target.value)}
-            placeholder="https://mcp.your-agent.com/v1"
-            aria-label="MCP endpoint URL"
-            className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-emerald-300 focus:outline-none"
-          />
-          <p className="text-[11px] leading-relaxed text-emerald-800/80">
-            Add a public MCP endpoint if your agent supports programmatic invocation.
-          </p>
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="a2a-endpoint" className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
-            A2A endpoint <span className="normal-case text-slate-400">(optional)</span>
+          <label htmlFor="delivery-description" className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+            What the buyer receives
           </label>
-          <input
-            id="a2a-endpoint"
-            type="url"
-            value={a2aEndpoint}
-            onChange={(e) => setA2aEndpoint(e.target.value)}
-            placeholder="https://a2a.your-agent.com/v1"
+          <textarea
+            id="delivery-description"
+            rows={3}
+            value={deliveryDescription}
+            onChange={(e) => setDeliveryDescription(e.target.value)}
+            placeholder="Describe deliverables, response expectations, and how work is handed back."
             className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-sky-300 focus:bg-white focus:outline-none"
           />
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <label htmlFor="pricing-mode" className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+              Pricing mode
+            </label>
+            <select
+              id="pricing-mode"
+              value={pricingMode}
+              onChange={(e) => setPricingMode(e.target.value as (typeof PRICING_MODES)[number])}
+              className="w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 transition-colors focus:border-sky-300 focus:bg-white focus:outline-none"
+            >
+              {PRICING_MODES.map((mode) => (
+                <option key={mode} value={mode}>
+                  {mode}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">Primary payment rail</label>
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+              {TOKENS.USDC.symbol} on Base
+            </div>
+          </div>
+        </div>
+
+        <div className="border-t border-slate-200 pt-6">
+          <div className="mb-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Technical access</p>
+            <p className="mt-1 text-sm text-slate-500">Optional. Add these only if the service already supports programmatic access.</p>
+          </div>
+
+          <div className="space-y-3 rounded-[24px] border border-emerald-200 bg-emerald-50 p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Zap className="h-4 w-4 text-emerald-600" aria-hidden="true" />
+                <span className="text-sm font-semibold text-slate-950">MCP endpoint</span>
+              </div>
+              <span className="rounded-full border border-emerald-200 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-tight text-emerald-700">
+                Optional
+              </span>
+            </div>
+            <input
+              type="url"
+              value={mcpEndpoint}
+              onChange={(e) => setMcpEndpoint(e.target.value)}
+              placeholder="https://mcp.your-agent.com/v1"
+              aria-label="MCP endpoint URL"
+              className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-emerald-300 focus:outline-none"
+            />
+          </div>
+
+          <div className="mt-4 space-y-2">
+            <label htmlFor="a2a-endpoint" className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+              A2A endpoint <span className="normal-case text-slate-400">(optional)</span>
+            </label>
+            <input
+              id="a2a-endpoint"
+              type="url"
+              value={a2aEndpoint}
+              onChange={(e) => setA2aEndpoint(e.target.value)}
+              placeholder="https://a2a.your-agent.com/v1"
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-sky-300 focus:bg-white focus:outline-none"
+            />
+          </div>
         </div>
 
         {writeError && (
           <div className="rounded-2xl border border-red-200 bg-red-50 p-3">
             <p className="text-sm text-red-700">
-              {writeError.message.includes("User rejected")
-                ? "Transaction rejected."
-                : "Transaction failed. Please try again."}
+              {writeError.message.includes("User rejected") ? "Transaction rejected." : "Transaction failed. Please try again."}
             </p>
           </div>
         )}

@@ -93,7 +93,7 @@ export default function Home() {
 
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <SignalPill label="On-chain identity" tone="blue" />
-              <SignalPill label="Programmable escrow" tone="gold" />
+              <SignalPill label="USDC escrow on Base" tone="gold" />
               <SignalPill label="Settled-task-backed trust" tone="green" />
               <SignalPill label="Base mainnet" tone="blue" />
             </div>

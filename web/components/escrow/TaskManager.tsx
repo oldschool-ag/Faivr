@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAccount } from "wagmi";
-import { formatEther } from "viem";
-import { AlertCircle, CheckCircle2, Clock, Loader2, RotateCcw } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock, ExternalLink, Loader2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { STATUS_LABELS, useReclaimTask, useSettleTask, useUserTasks } from "@/hooks/useEscrow";
+import { STATUS_LABELS, formatTaskAmount, useReclaimTask, useSettleTask, useUserTasks } from "@/hooks/useEscrow";
 import type { TaskInfo } from "@/hooks/useEscrow";
+import { getAllTaskBriefs, type StoredTaskBrief } from "@/lib/taskBriefs";
+import { txUrl } from "@/lib/explorer";
 
 function deadlineCountdown(deadline: bigint): string {
   const now = BigInt(Math.floor(Date.now() / 1000));
@@ -27,40 +28,58 @@ function statusColor(status: number): string {
   return "text-slate-500";
 }
 
-function TaskCard({ task }: { task: TaskInfo }) {
+function TaskCard({ task, brief }: { task: TaskInfo; brief?: StoredTaskBrief }) {
   const { settleTask, isPending: settlingPending, isConfirming: settlingConfirming, error: settleError } = useSettleTask();
   const { reclaimTask, isPending: reclaimPending, isConfirming: reclaimConfirming, error: reclaimError } = useReclaimTask();
   const [actionError] = useState<string | null>(null);
 
   const isFunded = task.status === 0;
   const now = BigInt(Math.floor(Date.now() / 1000));
-  const isPastDeadline = task.fundedAt + task.deadline <= now;
+  const isPastDeadline = task.deadline <= now;
   const settling = settlingPending || settlingConfirming;
   const reclaiming = reclaimPending || reclaimConfirming;
 
   const error = actionError || settleError || reclaimError;
+  const amountLabel = formatTaskAmount(task.amount, task.token);
 
   return (
     <div className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-[0_20px_60px_-36px_rgba(15,23,42,0.35)]">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <h4 className="text-sm font-bold text-slate-950">
-            {task.agentName || `Agent #${task.agentId.toString()}`}
-          </h4>
+          <h4 className="text-sm font-bold text-slate-950">{brief?.title || task.agentName || `Agent #${task.agentId.toString()}`}</h4>
           <p className="font-mono text-xs text-slate-400">Task #{task.taskId.toString()}</p>
         </div>
-        <span className={`text-xs font-semibold ${statusColor(task.status)}`}>
-          {STATUS_LABELS[task.status] ?? "Unknown"}
+        <span className={`text-xs font-semibold ${statusColor(task.status)}`}>{STATUS_LABELS[task.status] ?? "Unknown"}</span>
+      </div>
+
+      {brief?.objective && <p className="mb-3 line-clamp-3 text-sm leading-6 text-slate-600">{brief.objective}</p>}
+
+      <div className="mb-3 flex items-center justify-between text-sm">
+        <span className="font-medium text-slate-950">{amountLabel}</span>
+        <span className="flex items-center gap-1 text-xs text-slate-500">
+          <Clock className="h-3 w-3" />
+          {isFunded ? deadlineCountdown(task.deadline) : STATUS_LABELS[task.status]}
         </span>
       </div>
 
-      <div className="mb-3 flex items-center justify-between text-sm">
-        <span className="font-medium text-slate-950">{formatEther(task.amount)} ETH</span>
-        <span className="flex items-center gap-1 text-xs text-slate-500">
-          <Clock className="h-3 w-3" />
-          {isFunded ? deadlineCountdown(task.fundedAt + task.deadline) : STATUS_LABELS[task.status]}
-        </span>
-      </div>
+      {brief?.acceptanceCriteria && (
+        <div className="mb-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+          <p className="font-semibold uppercase tracking-[0.16em] text-slate-500">Acceptance criteria</p>
+          <p className="mt-1">{brief.acceptanceCriteria}</p>
+        </div>
+      )}
+
+      {(brief?.txHash || task.fundingTxHash) && (
+        <a
+          href={txUrl((brief?.txHash || task.fundingTxHash)!)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mb-3 inline-flex items-center gap-1 text-xs font-medium text-sky-700 transition-colors hover:text-sky-900"
+        >
+          View funding tx
+          <ExternalLink className="h-3 w-3" />
+        </a>
+      )}
 
       {error && (
         <div className="mb-2 flex items-center gap-1.5 text-xs text-red-700">
@@ -100,6 +119,11 @@ function TaskCard({ task }: { task: TaskInfo }) {
 export function TaskManager() {
   const { isConnected } = useAccount();
   const { tasks, isLoading } = useUserTasks();
+  const [briefs, setBriefs] = useState<Record<string, StoredTaskBrief>>({});
+
+  useEffect(() => {
+    setBriefs(getAllTaskBriefs());
+  }, [tasks.length]);
 
   if (!isConnected) {
     return (
@@ -122,7 +146,7 @@ export function TaskManager() {
     return (
       <div className="rounded-[28px] border border-dashed border-slate-300 bg-white/80 py-16 text-center shadow-sm">
         <p className="mb-1 text-slate-500">No tasks yet</p>
-        <p className="text-xs text-slate-400">Hire an agent from the marketplace to get started.</p>
+        <p className="text-xs text-slate-400">Create a task from the marketplace to get started.</p>
       </div>
     );
   }
@@ -130,7 +154,7 @@ export function TaskManager() {
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {tasks.map((task) => (
-        <TaskCard key={task.taskId.toString()} task={task} />
+        <TaskCard key={task.taskId.toString()} task={task} brief={briefs[task.taskId.toString()]} />
       ))}
     </div>
   );

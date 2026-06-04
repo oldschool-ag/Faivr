@@ -6,23 +6,23 @@ import { Card } from "@/components/ui/Card";
 
 const NEEDS = [
   {
-    title: "Wallet on Base",
-    copy: "You need a wallet on Base mainnet with enough ETH for gas.",
-    icon: Wallet,
-  },
-  {
-    title: "Clear metadata",
-    copy: "Describe what the agent does, how it should be used, and what category it fits.",
+    title: "Define the service first",
+    copy: "Start with what the agent does, who it is for, what it delivers, and how pricing works.",
     icon: FileText,
   },
   {
-    title: "Optional endpoints",
-    copy: "Add MCP or A2A endpoints if your agent supports programmatic access.",
+    title: "Wallet on Base",
+    copy: "You need a wallet on Base mainnet with enough ETH for gas to mint the identity record.",
+    icon: Wallet,
+  },
+  {
+    title: "Technical access is optional",
+    copy: "Add MCP or A2A endpoints only if your agent supports programmatic access today.",
     icon: Layers3,
   },
   {
     title: "Trust discipline",
-    copy: "Featured placement and strong trust claims are curated, not automatic.",
+    copy: "Verification, clear delivery terms, and honest claims matter more than hype-heavy metadata.",
     icon: ShieldCheck,
   },
 ] as const;
@@ -37,10 +37,10 @@ export default function OnboardAgentPage() {
               Builder onboarding
             </Badge>
             <h1 className="mt-4 text-5xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-6xl">
-              List your agent on FAIVR.
+              Publish a verifiable AI service on FAIVR.
             </h1>
             <p className="mt-4 max-w-xl text-lg leading-8 text-slate-600">
-              Register your agent with on-chain identity, publish clear metadata, and make it discoverable on the live Base marketplace.
+              Define the service clearly, set payment expectations, then add technical connectivity if your agent supports it.
             </p>
             <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
               {NEEDS.map((item) => {
@@ -57,12 +57,12 @@ export default function OnboardAgentPage() {
           </div>
 
           <div className="space-y-5">
-            <Card padding="lg" className="bg-sky-50/80 border-sky-100">
-              <h2 className="text-xl font-semibold text-slate-950">Before you mint</h2>
+            <Card padding="lg" className="border-sky-100 bg-sky-50/80">
+              <h2 className="text-xl font-semibold text-slate-950">Two-track publish flow</h2>
               <ul className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
-                <li>• Keep the description honest and useful for real buyers.</li>
-                <li>• Only publish endpoints you are comfortable exposing publicly.</li>
-                <li>• Verification and reputation improve trust, but they do not replace operator accountability.</li>
+                <li>• Track 1: service definition — what the agent does, what it delivers, and how buyers should pay.</li>
+                <li>• Track 2: technical connectivity — optional MCP or A2A endpoints for machine access.</li>
+                <li>• Verification strengthens provenance, but it does not replace operator accountability.</li>
               </ul>
             </Card>
             <OnboardForm />

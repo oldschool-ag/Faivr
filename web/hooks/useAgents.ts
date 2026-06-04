@@ -1,55 +1,39 @@
 import { useMemo } from "react";
 import { useReadContract, useReadContracts } from "wagmi";
-import { CONTRACTS, IDENTITY_ABI } from "@/lib/contracts";
+import { CONTRACTS, IDENTITY_ABI, VERIFICATION_ABI } from "@/lib/contracts";
+import { parseAgentMetadata } from "@/lib/agentMetadata";
 import type { AgentData } from "@/components/agent/AgentCard";
 
-function decodeAgentURI(uri: string): string {
-  if (uri.startsWith("data:application/json;base64,")) {
-    return atob(uri.slice("data:application/json;base64,".length));
-  }
+function parseAgentURI(uri: string, id: number): AgentData {
+  const parsed = parseAgentMetadata(uri);
 
-  if (uri.startsWith("data:application/json;utf8,")) {
-    return decodeURIComponent(uri.slice("data:application/json;utf8,".length));
-  }
-
-  return uri;
-}
-
-function parseAgentURI(uri: string, id: number): AgentData | null {
-  const decoded = decodeAgentURI(uri);
-
-  try {
-    const parsed = JSON.parse(decoded);
-    const tags = Array.isArray(parsed.tags)
-      ? parsed.tags.filter((tag: unknown): tag is string => typeof tag === "string")
-      : typeof parsed.category === "string"
-        ? [parsed.category]
-        : [];
-
-    return {
-      id,
-      name: parsed.name || `Agent #${id}`,
-      description: parsed.description || "",
-      rating: 0,
-      reviews: 0,
-      tags,
-      validated: Boolean(parsed.validated),
-      verified: Boolean(parsed.verified),
-      isExample: false,
-    };
-  } catch {
+  if (!parsed) {
     return {
       id,
       name: `Agent #${id}`,
-      description: decoded.slice(0, 220),
+      description: uri.slice(0, 220),
       rating: 0,
       reviews: 0,
       tags: [],
       validated: false,
       verified: false,
+      active: true,
       isExample: false,
     };
   }
+
+  return {
+    id,
+    name: parsed.name || `Agent #${id}`,
+    description: parsed.description || "",
+    rating: 0,
+    reviews: 0,
+    tags: parsed.tags,
+    validated: Boolean(parsed.validated),
+    verified: false,
+    active: true,
+    isExample: false,
+  };
 }
 
 export function useAgents() {
@@ -71,8 +55,38 @@ export function useAgents() {
     }));
   }, [count]);
 
+  const activeCalls = useMemo(() => {
+    if (count === 0) return [];
+    return Array.from({ length: count }, (_, i) => ({
+      address: CONTRACTS.identity,
+      abi: IDENTITY_ABI,
+      functionName: "isActive" as const,
+      args: [BigInt(i + 1)] as const,
+    }));
+  }, [count]);
+
+  const verificationCalls = useMemo(() => {
+    if (count === 0) return [];
+    return Array.from({ length: count }, (_, i) => ({
+      address: CONTRACTS.verification,
+      abi: VERIFICATION_ABI,
+      functionName: "isVerified" as const,
+      args: [BigInt(i + 1)] as const,
+    }));
+  }, [count]);
+
   const { data: tokenURIs } = useReadContracts({
     contracts: tokenURICalls,
+    query: { enabled: count > 0 },
+  });
+
+  const { data: actives } = useReadContracts({
+    contracts: activeCalls,
+    query: { enabled: count > 0 },
+  });
+
+  const { data: verifications } = useReadContracts({
+    contracts: verificationCalls,
     query: { enabled: count > 0 },
   });
 
@@ -82,14 +96,19 @@ export function useAgents() {
     const onChainAgents: AgentData[] = [];
     for (let i = 0; i < tokenURIs.length; i++) {
       const result = tokenURIs[i];
-      if (result.status === "success" && typeof result.result === "string") {
-        const agent = parseAgentURI(result.result, i + 1);
-        if (agent) onChainAgents.push(agent);
-      }
+      if (result.status !== "success" || typeof result.result !== "string") continue;
+
+      const agent = parseAgentURI(result.result, i + 1);
+      const activeResult = actives?.[i];
+      const verificationResult = verifications?.[i];
+
+      agent.active = activeResult?.status === "success" ? Boolean(activeResult.result) : true;
+      agent.verified = verificationResult?.status === "success" ? Boolean(verificationResult.result) : false;
+      onChainAgents.push(agent);
     }
 
     return onChainAgents;
-  }, [count, tokenURIs]);
+  }, [actives, count, tokenURIs, verifications]);
 
   return { agents, isLoading, count };
 }

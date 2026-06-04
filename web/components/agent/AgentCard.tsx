@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { ExternalLink, Shield, Star, X, Zap } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { ExternalLink, ShieldCheck, X, Zap } from "lucide-react";
 import { VerifiedBadge } from "@/components/verification/VerifiedBadge";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { FundTaskForm } from "@/components/escrow/FundTaskForm";
+import { agentNftUrl } from "@/lib/explorer";
+import { cn } from "@/lib/utils";
 
 export interface AgentData {
   id: number;
@@ -17,6 +19,7 @@ export interface AgentData {
   tags: string[];
   validated: boolean;
   verified?: boolean;
+  active?: boolean;
   isExample?: boolean;
   isGenesis?: boolean;
 }
@@ -37,11 +40,26 @@ function getGradient(name: string): string {
   return GRADIENT_COLORS[Math.abs(hash) % GRADIENT_COLORS.length];
 }
 
+function TrustPill({ active = false, children }: { active?: boolean; children: React.ReactNode }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium",
+        active
+          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+          : "border-slate-200 bg-slate-50 text-slate-500",
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
 export function AgentCard({ agent }: { agent: AgentData }) {
   const gradient = getGradient(agent.name);
   const [showDetail, setShowDetail] = useState(false);
   const [showFundForm, setShowFundForm] = useState(false);
-  const hasVerification = agent.verified || agent.validated;
+  const explorerUrl = agentNftUrl(agent.id);
 
   return (
     <>
@@ -55,17 +73,10 @@ export function AgentCard({ agent }: { agent: AgentData }) {
           </div>
 
           <div className="flex flex-col items-end gap-2 text-right">
-            <div className="flex items-center gap-1 text-xs text-slate-500">
-              <Star className="h-3 w-3 fill-amber-400 text-amber-400" aria-hidden="true" />
-              <span className="font-semibold text-slate-950">{agent.rating.toFixed(1)}</span>
-              <span>({agent.reviews} settled reviews)</span>
-            </div>
-            {hasVerification && (
-              <div className="flex items-center gap-1 text-xs text-emerald-700">
-                <Shield className="h-3 w-3" aria-hidden="true" />
-                Verified signal present
-              </div>
-            )}
+            <TrustPill active={agent.active !== false}>Identity minted</TrustPill>
+            <TrustPill active={Boolean(agent.verified)}>
+              {agent.verified ? "Domain verified" : "Not verified"}
+            </TrustPill>
           </div>
         </div>
 
@@ -84,9 +95,12 @@ export function AgentCard({ agent }: { agent: AgentData }) {
           )}
         </h3>
 
-        <p className="mb-6 line-clamp-3 text-sm leading-relaxed text-slate-600">
-          {agent.description}
-        </p>
+        <p className="mb-4 line-clamp-3 text-sm leading-relaxed text-slate-600">{agent.description}</p>
+
+        <div className="mb-6 flex flex-wrap gap-2">
+          <TrustPill active={false}>No settled tasks surfaced yet</TrustPill>
+          {agent.validated && <TrustPill active>Validation metadata present</TrustPill>}
+        </div>
 
         <div className="mt-auto flex items-end justify-between gap-3">
           <div className="flex flex-wrap gap-1.5">
@@ -112,7 +126,7 @@ export function AgentCard({ agent }: { agent: AgentData }) {
           onClick={() => setShowDetail(false)}
         >
           <div
-            className="relative w-full max-w-lg rounded-[30px] border border-slate-200 bg-white p-6 shadow-[0_40px_120px_-60px_rgba(15,23,42,0.5)] sm:p-8"
+            className="relative w-full max-w-xl rounded-[30px] border border-slate-200 bg-white p-6 shadow-[0_40px_120px_-60px_rgba(15,23,42,0.5)] sm:p-8"
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -136,25 +150,11 @@ export function AgentCard({ agent }: { agent: AgentData }) {
                       {agent.name}
                       {agent.verified && <VerifiedBadge size="md" />}
                     </h2>
-                    <div className="mt-1 flex items-center gap-3 text-sm">
-                      <div className="flex items-center gap-1 text-slate-500">
-                        <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-                        <span className="font-semibold text-slate-950">{agent.rating.toFixed(1)}</span>
-                        <span>({agent.reviews} settled reviews)</span>
-                      </div>
-                      {hasVerification && (
-                        <div className="flex items-center gap-1 text-emerald-700">
-                          <Shield className="h-3.5 w-3.5" />
-                          <span className="font-medium">Verification signal</span>
-                        </div>
-                      )}
-                    </div>
+                    <p className="mt-1 text-sm text-slate-500">ERC-8004 identity on Base mainnet</p>
                   </div>
                 </div>
 
-                <p className="mb-6 text-sm leading-relaxed text-slate-600">
-                  {agent.description}
-                </p>
+                <p className="mb-6 text-sm leading-relaxed text-slate-600">{agent.description}</p>
 
                 <div className="mb-6 flex flex-wrap gap-2">
                   {agent.tags.length > 0 ? (
@@ -162,6 +162,20 @@ export function AgentCard({ agent }: { agent: AgentData }) {
                   ) : (
                     <Badge>Uncategorized</Badge>
                   )}
+                </div>
+
+                <div className="mb-6 rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Trust state</p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <TrustPill active={agent.active !== false}>Identity minted</TrustPill>
+                    <TrustPill active={Boolean(agent.verified)}>
+                      {agent.verified ? "Verification complete" : "Verification pending"}
+                    </TrustPill>
+                    <TrustPill active={false}>No settled task count surfaced yet</TrustPill>
+                  </div>
+                  <p className="mt-4 text-sm leading-6 text-slate-500">
+                    Verification helps prove control. It does not guarantee outcome quality or service fit.
+                  </p>
                 </div>
 
                 <div className="mb-6 space-y-3 rounded-[24px] border border-slate-200 bg-slate-50 p-4">
@@ -174,8 +188,8 @@ export function AgentCard({ agent }: { agent: AgentData }) {
                     <span className="text-slate-950">Base mainnet</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-500">Standard</span>
-                    <span className="text-slate-950">ERC-8004</span>
+                    <span className="text-slate-500">Primary payment rail</span>
+                    <span className="text-slate-950">USDC on Base</span>
                   </div>
                 </div>
               </>
@@ -195,17 +209,12 @@ export function AgentCard({ agent }: { agent: AgentData }) {
               <div className="flex gap-3">
                 <Button className="flex-1" onClick={() => setShowFundForm(true)}>
                   <Zap className="mr-1.5 h-4 w-4" />
-                  Hire Agent
+                  Create task
                 </Button>
                 <Button
                   variant="secondary"
-                  onClick={() =>
-                    window.open(
-                      "https://basescan.org/address/0x8D97B74fA9bFa67Db1A8Cf315dA91390612B90F6",
-                      "_blank"
-                    )
-                  }
-                  aria-label="View on Basescan"
+                  onClick={() => window.open(explorerUrl, "_blank")}
+                  aria-label="View agent identity on Basescan"
                 >
                   <ExternalLink className="h-4 w-4" />
                 </Button>

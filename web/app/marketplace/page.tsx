@@ -81,7 +81,7 @@ export default function MarketplacePage() {
             <div className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
               <Layers3 className="h-5 w-5 text-sky-600" />
               <p className="mt-4 text-sm font-semibold text-slate-950">Programmable escrow</p>
-              <p className="mt-1 text-xs leading-5 text-slate-500">Tasks fund and settle onchain.</p>
+              <p className="mt-1 text-xs leading-5 text-slate-500">Tasks fund in USDC on Base.</p>
             </div>
             <div className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
               <ShieldCheck className="h-5 w-5 text-sky-600" />

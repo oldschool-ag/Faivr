@@ -2,6 +2,8 @@ import { type Address } from "viem";
 
 // Base Mainnet
 export const CHAIN_ID = 8453;
+export const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as Address;
+export const USDC_DECIMALS = 6;
 
 export const CONTRACTS = {
   identity: "0x8D97B74fA9bFa67Db1A8Cf315dA91390612B90F6" as Address,
@@ -99,6 +101,29 @@ export const IDENTITY_ABI = [
   },
 ] as const;
 
+export const ERC20_ABI = [
+  {
+    name: "approve",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    name: "allowance",
+    type: "function",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+] as const;
+
 export const FEE_MODULE_ABI = [
   {
     name: "fundTask",
@@ -160,6 +185,20 @@ export const FEE_MODULE_ABI = [
     type: "function",
     stateMutability: "view",
     inputs: [{ name: "token", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "isSupportedToken",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "token", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    name: "maxEscrowAmount",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
     outputs: [{ name: "", type: "uint256" }],
   },
   {
