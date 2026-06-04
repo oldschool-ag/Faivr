@@ -12,7 +12,7 @@ const SUPPORT_PATHS = [
   },
   {
     title: "Trust questions",
-    copy: "Read the audit and risk pages before relying on reputation or verification signals for a material decision.",
+    copy: "Final remediation review complete for the scoped Solidity snapshot at commit `988b9aa`. No open technical remediation findings remain. `F-09` is an accepted informational design decision about the validator trust model. Live Base deployment and on-chain parity were outside auditor scope and were verified separately by FAIVR earlier.",
     icon: ShieldCheck,
   },
   {
