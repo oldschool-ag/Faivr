@@ -254,7 +254,7 @@ export function AgentCard({ agent }: { agent: AgentData }) {
               <div className="flex gap-3">
                 <Button className="flex-1" onClick={() => setShowFundForm(true)}>
                   <Zap className="mr-1.5 h-4 w-4" />
-                  Create task
+                  {(agent.pricingMode || "").toLowerCase().includes("quote") ? "Request quote" : "Create task"}
                 </Button>
                 <Button
                   variant="secondary"

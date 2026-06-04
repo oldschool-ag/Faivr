@@ -111,6 +111,13 @@ function TaskCard({ task, brief }: { task: TaskInfo; brief?: StoredTaskBrief }) 
         </div>
       )}
 
+      {brief?.briefHash && (
+        <div className="mb-3 rounded-2xl border border-slate-200 bg-white p-3 text-xs leading-5 text-slate-500">
+          <p className="font-semibold uppercase tracking-[0.16em] text-slate-500">Brief hash</p>
+          <p className="mt-1 font-mono text-[11px] text-slate-600">{brief.briefHash}</p>
+        </div>
+      )}
+
       <div className="mb-3 flex flex-wrap gap-3">
         <ProofLink label="Funding tx" hash={brief?.fundingTxHash || task.fundingTxHash} />
         <ProofLink label="Settlement tx" hash={brief?.settlementTxHash || settleHash} />

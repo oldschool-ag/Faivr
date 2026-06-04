@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, ArrowLeft, CheckCircle2, ChevronRight, Loader2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, CheckCircle2, ChevronRight, Copy, Download, Loader2 } from "lucide-react";
 import { useAccount } from "wagmi";
 import { Button } from "@/components/ui/Button";
-import { saveTaskBrief } from "@/lib/taskBriefs";
+import { buildTaskBriefPayload, computeTaskBriefHash, downloadTaskBriefJson, saveTaskBrief } from "@/lib/taskBriefs";
 import { TOKENS } from "@/lib/tokens";
 import { useFundTaskUSDC } from "@/hooks/useEscrow";
 
@@ -20,6 +20,7 @@ const FEE_PCT = 2.5;
 interface FundTaskFormProps {
   agentId: number;
   agentName: string;
+  pricingMode?: string;
   onBack: () => void;
   onClose: () => void;
 }
@@ -45,7 +46,12 @@ function StepBadge({ step, active, done, label }: { step: number; active: boolea
   );
 }
 
-export function FundTaskForm({ agentId, agentName, onBack, onClose }: FundTaskFormProps) {
+function truncateHash(hash?: string | null): string {
+  if (!hash) return "Generating…";
+  return `${hash.slice(0, 10)}…${hash.slice(-10)}`;
+}
+
+export function FundTaskForm({ agentId, agentName, pricingMode, onBack, onClose }: FundTaskFormProps) {
   const { isConnected } = useAccount();
   const [step, setStep] = useState<Step>(1);
   const [title, setTitle] = useState("");
@@ -54,6 +60,10 @@ export function FundTaskForm({ agentId, agentName, onBack, onClose }: FundTaskFo
   const [acceptanceCriteria, setAcceptanceCriteria] = useState("");
   const [amount, setAmount] = useState("");
   const [deadlineIdx, setDeadlineIdx] = useState(1);
+  const [briefHash, setBriefHash] = useState<string | null>(null);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+
+  const isQuoteRequired = (pricingMode || "").toLowerCase().includes("quote");
 
   const { approve, fundTask, hash, isPending, isConfirming, isSuccess, taskId, needsApproval, error, reset } =
     useFundTaskUSDC({
@@ -71,9 +81,51 @@ export function FundTaskForm({ agentId, agentName, onBack, onClose }: FundTaskFo
   const agentReceives = parsedAmount - protocolFee;
 
   const briefIsValid = title.trim().length > 0 && objective.trim().length > 0;
-  const termsAreValid = parsedAmount > 0;
+  const termsAreValid = isQuoteRequired ? true : parsedAmount > 0;
   const isWorking = isPending || isConfirming;
   const deadlineLabel = DEADLINE_OPTIONS[deadlineIdx].label;
+
+  const briefPayload = useMemo(
+    () =>
+      buildTaskBriefPayload({
+        agentId,
+        agentName,
+        title: title.trim(),
+        objective: objective.trim(),
+        expectedOutput: expectedOutput.trim() || undefined,
+        acceptanceCriteria: acceptanceCriteria.trim() || undefined,
+        amount: amount.trim() || undefined,
+        tokenSymbol: TOKENS.USDC.symbol,
+        deadlineLabel,
+        pricingMode: pricingMode || (isQuoteRequired ? "Request quote" : "Fixed price"),
+      }),
+    [acceptanceCriteria, agentId, agentName, amount, deadlineLabel, expectedOutput, isQuoteRequired, objective, pricingMode, title],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function hashBrief() {
+      const computed = await computeTaskBriefHash({
+        agentId,
+        agentName,
+        title: title.trim(),
+        objective: objective.trim(),
+        expectedOutput: expectedOutput.trim() || undefined,
+        acceptanceCriteria: acceptanceCriteria.trim() || undefined,
+        amount: amount.trim() || undefined,
+        tokenSymbol: TOKENS.USDC.symbol,
+        deadlineLabel,
+        pricingMode: pricingMode || (isQuoteRequired ? "Request quote" : "Fixed price"),
+      });
+      if (!cancelled) setBriefHash(computed);
+    }
+
+    void hashBrief();
+    return () => {
+      cancelled = true;
+    };
+  }, [acceptanceCriteria, agentId, agentName, amount, deadlineLabel, expectedOutput, isQuoteRequired, objective, pricingMode, title]);
 
   useEffect(() => {
     if (!isSuccess || taskId === undefined) return;
@@ -86,13 +138,24 @@ export function FundTaskForm({ agentId, agentName, onBack, onClose }: FundTaskFo
       objective: objective.trim(),
       expectedOutput: expectedOutput.trim() || undefined,
       acceptanceCriteria: acceptanceCriteria.trim() || undefined,
-      amount,
+      amount: amount.trim() || undefined,
       tokenSymbol: TOKENS.USDC.symbol,
       deadlineLabel,
+      pricingMode: pricingMode || "Fixed price",
+      briefHash: briefHash || undefined,
       fundingTxHash: hash,
       createdAt: Date.now(),
     });
-  }, [acceptanceCriteria, agentId, agentName, amount, deadlineLabel, expectedOutput, hash, isSuccess, objective, taskId, title]);
+  }, [acceptanceCriteria, agentId, agentName, amount, briefHash, deadlineLabel, expectedOutput, hash, isSuccess, objective, pricingMode, taskId, title]);
+
+  async function copyBrief() {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(briefPayload, null, 2));
+      setCopyState("copied");
+    } catch {
+      setCopyState("failed");
+    }
+  }
 
   if (isSuccess) {
     return (
@@ -107,9 +170,10 @@ export function FundTaskForm({ agentId, agentName, onBack, onClose }: FundTaskFo
           </p>
         )}
         <p className="mb-2 text-sm font-medium text-slate-950">{title}</p>
-        <p className="mb-6 text-sm text-slate-500">
+        <p className="mb-3 text-sm text-slate-500">
           {parsedAmount.toFixed(2)} USDC escrowed for <span className="text-slate-950">{agentName}</span>
         </p>
+        <p className="mb-6 text-xs font-mono text-slate-400">Brief hash: {truncateHash(briefHash)}</p>
         <Button variant="secondary" onClick={onClose}>
           Done
         </Button>
@@ -137,14 +201,16 @@ export function FundTaskForm({ agentId, agentName, onBack, onClose }: FundTaskFo
       <div className="mb-6 flex flex-wrap gap-4 rounded-[24px] border border-slate-200 bg-slate-50 p-4">
         <StepBadge step={1} active={step === 1} done={step > 1} label="Brief" />
         <StepBadge step={2} active={step === 2} done={step > 2} label="Terms" />
-        <StepBadge step={3} active={step === 3} done={false} label="Fund" />
+        <StepBadge step={3} active={step === 3} done={false} label={isQuoteRequired ? "Request" : "Fund"} />
       </div>
 
       {step === 1 && (
         <div className="space-y-4">
           <div>
             <h3 className="text-lg font-bold text-slate-950">Task brief</h3>
-            <p className="mt-1 text-sm text-slate-500">Define what you need before committing funds.</p>
+            <p className="mt-1 text-sm text-slate-500">
+              Define what you need before {isQuoteRequired ? "requesting a quote" : "committing funds"}.
+            </p>
           </div>
 
           <div>
@@ -196,7 +262,7 @@ export function FundTaskForm({ agentId, agentName, onBack, onClose }: FundTaskFo
           </div>
 
           <Button className="w-full" variant="accent" disabled={!briefIsValid} onClick={() => setStep(2)}>
-            Set payment terms
+            {isQuoteRequired ? "Set request terms" : "Set payment terms"}
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
@@ -205,12 +271,18 @@ export function FundTaskForm({ agentId, agentName, onBack, onClose }: FundTaskFo
       {step === 2 && (
         <div className="space-y-4">
           <div>
-            <h3 className="text-lg font-bold text-slate-950">Payment terms</h3>
-            <p className="mt-1 text-sm text-slate-500">USDC on Base is the primary funding rail for FAIVR tasks.</p>
+            <h3 className="text-lg font-bold text-slate-950">{isQuoteRequired ? "Request terms" : "Payment terms"}</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              {isQuoteRequired
+                ? "This listing requires a quote before escrow funding."
+                : "USDC on Base is the primary funding rail for FAIVR tasks."}
+            </p>
           </div>
 
           <div>
-            <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.18em] text-slate-500">Amount</label>
+            <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+              {isQuoteRequired ? "Target budget (optional)" : "Amount"}
+            </label>
             <div className="relative">
               <input
                 type="number"
@@ -240,7 +312,7 @@ export function FundTaskForm({ agentId, agentName, onBack, onClose }: FundTaskFo
             </select>
           </div>
 
-          {parsedAmount > 0 && (
+          {!isQuoteRequired && parsedAmount > 0 && (
             <div className="space-y-1.5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
               <div className="flex justify-between">
                 <span className="text-slate-500">Agent receives</span>
@@ -264,7 +336,7 @@ export function FundTaskForm({ agentId, agentName, onBack, onClose }: FundTaskFo
           </div>
 
           <Button className="w-full" variant="accent" disabled={!termsAreValid} onClick={() => setStep(3)}>
-            Review and fund
+            {isQuoteRequired ? "Review quote request" : "Review and fund"}
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
@@ -273,8 +345,12 @@ export function FundTaskForm({ agentId, agentName, onBack, onClose }: FundTaskFo
       {step === 3 && (
         <div className="space-y-4">
           <div>
-            <h3 className="text-lg font-bold text-slate-950">Fund escrow</h3>
-            <p className="mt-1 text-sm text-slate-500">Review the task and fund it in USDC on Base.</p>
+            <h3 className="text-lg font-bold text-slate-950">{isQuoteRequired ? "Request quote" : "Fund escrow"}</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              {isQuoteRequired
+                ? "This agent requires a quote first. Build a structured request instead of sending funds blindly."
+                : "Review the task and fund it in USDC on Base."}
+            </p>
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -295,8 +371,8 @@ export function FundTaskForm({ agentId, agentName, onBack, onClose }: FundTaskFo
             )}
             <div className="mt-4 grid gap-2 rounded-xl border border-slate-200 bg-white p-3 text-sm sm:grid-cols-2">
               <div className="flex justify-between gap-3">
-                <span className="text-slate-500">Amount</span>
-                <span className="text-slate-950">{parsedAmount.toFixed(2)} USDC</span>
+                <span className="text-slate-500">{isQuoteRequired ? "Budget" : "Amount"}</span>
+                <span className="text-slate-950">{amount ? `${parsedAmount.toFixed(2)} USDC` : "Open"}</span>
               </div>
               <div className="flex justify-between gap-3">
                 <span className="text-slate-500">Deadline</span>
@@ -305,34 +381,62 @@ export function FundTaskForm({ agentId, agentName, onBack, onClose }: FundTaskFo
             </div>
           </div>
 
-          {!isConnected && (
-            <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>Connect your wallet to approve USDC and fund this task.</span>
-            </div>
-          )}
-
-          {error && (
-            <div className="flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span className="break-all">{(error as Error).message?.slice(0, 220) ?? "Transaction failed"}</span>
-            </div>
-          )}
-
           <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-600">
-            Funds are held by the escrow contract, not by FAIVR. If the deadline passes without settlement, the client can reclaim the funds.
+            <p className="font-medium text-slate-950">Brief proof anchor</p>
+            <p className="mt-2 font-mono text-xs text-slate-500">{truncateHash(briefHash)}</p>
+            <p className="mt-2 text-slate-500">
+              This hash gives the brief a stable local artifact even before settlement or quote acceptance.
+            </p>
           </div>
 
-          {needsApproval ? (
-            <Button className="w-full" variant="accent" disabled={!isConnected || !termsAreValid || isWorking} onClick={approve}>
-              {isWorking && <Loader2 className="h-4 w-4 animate-spin" />}
-              {isPending ? "Confirm approval in wallet…" : isConfirming ? "Approving USDC…" : "Approve USDC"}
-            </Button>
+          {isQuoteRequired ? (
+            <>
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+                Quote-required means instant funding is intentionally unavailable here. That is more honest than pretending every listing supports immediate escrow.
+              </div>
+              <div className="flex gap-3">
+                <Button className="flex-1" variant="accent" onClick={copyBrief}>
+                  <Copy className="h-4 w-4" />
+                  {copyState === "copied" ? "Copied brief" : "Copy quote brief"}
+                </Button>
+                <Button variant="secondary" onClick={() => downloadTaskBriefJson(briefPayload)}>
+                  <Download className="h-4 w-4" />
+                </Button>
+              </div>
+              {copyState === "failed" && <p className="text-xs text-red-700">Could not copy automatically. Use the downloaded JSON instead.</p>}
+            </>
           ) : (
-            <Button className="w-full" variant="accent" disabled={!isConnected || !termsAreValid || isWorking} onClick={fundTask}>
-              {isWorking && <Loader2 className="h-4 w-4 animate-spin" />}
-              {isPending ? "Confirm funding in wallet…" : isConfirming ? "Funding escrow…" : `Fund ${parsedAmount.toFixed(2)} USDC`}
-            </Button>
+            <>
+              {!isConnected && (
+                <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>Connect your wallet to approve USDC and fund this task.</span>
+                </div>
+              )}
+
+              {error && (
+                <div className="flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span className="break-all">{(error as Error).message?.slice(0, 220) ?? "Transaction failed"}</span>
+                </div>
+              )}
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-600">
+                Funds are held by the escrow contract, not by FAIVR. If the deadline passes without settlement, the client can reclaim the funds.
+              </div>
+
+              {needsApproval ? (
+                <Button className="w-full" variant="accent" disabled={!isConnected || !termsAreValid || isWorking} onClick={approve}>
+                  {isWorking && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {isPending ? "Confirm approval in wallet…" : isConfirming ? "Approving USDC…" : "Approve USDC"}
+                </Button>
+              ) : (
+                <Button className="w-full" variant="accent" disabled={!isConnected || !termsAreValid || isWorking} onClick={fundTask}>
+                  {isWorking && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {isPending ? "Confirm funding in wallet…" : isConfirming ? "Funding escrow…" : `Fund ${parsedAmount.toFixed(2)} USDC`}
+                </Button>
+              )}
+            </>
           )}
         </div>
       )}
