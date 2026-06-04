@@ -4,6 +4,9 @@ export type ParsedAgentMetadata = {
   tags: string[];
   category?: string;
   validated?: boolean;
+  pricingMode?: string;
+  primaryToken?: string;
+  deliveryDescription?: string;
 };
 
 export function decodeAgentURI(uri: string): string {
@@ -28,6 +31,9 @@ export function parseAgentMetadata(uri: string): ParsedAgentMetadata | null {
       tags?: unknown[];
       category?: string;
       validated?: boolean;
+      pricingMode?: string;
+      primaryToken?: string;
+      deliveryDescription?: string;
     };
 
     const tags = Array.isArray(parsed.tags)
@@ -42,6 +48,9 @@ export function parseAgentMetadata(uri: string): ParsedAgentMetadata | null {
       tags,
       category: parsed.category,
       validated: Boolean(parsed.validated),
+      pricingMode: parsed.pricingMode,
+      primaryToken: parsed.primaryToken,
+      deliveryDescription: parsed.deliveryDescription,
     };
   } catch {
     return null;

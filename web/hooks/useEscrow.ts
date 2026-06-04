@@ -157,7 +157,7 @@ export function useSettleTask() {
     [writeContract],
   );
 
-  return { settleTask, isPending, isConfirming, isSuccess: !!receipt, error, reset };
+  return { settleTask, hash, receipt, isPending, isConfirming, isSuccess: !!receipt, error, reset };
 }
 
 // ── Reclaim Task ───────────────────────────────────────────
@@ -178,7 +178,7 @@ export function useReclaimTask() {
     [writeContract],
   );
 
-  return { reclaimTask, isPending, isConfirming, isSuccess: !!receipt, error, reset };
+  return { reclaimTask, hash, receipt, isPending, isConfirming, isSuccess: !!receipt, error, reset };
 }
 
 // ── Task type ──────────────────────────────────────────────

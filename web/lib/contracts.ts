@@ -215,6 +215,30 @@ export const FEE_MODULE_ABI = [
   },
 ] as const;
 
+export const VALIDATION_ABI = [
+  {
+    name: "getSummary",
+    type: "function",
+    stateMutability: "view",
+    inputs: [
+      { name: "agentId", type: "uint256" },
+      { name: "validatorAddresses", type: "address[]" },
+      { name: "tag", type: "string" },
+    ],
+    outputs: [
+      { name: "count", type: "uint64" },
+      { name: "averageResponse", type: "uint8" },
+    ],
+  },
+  {
+    name: "getAgentValidations",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "agentId", type: "uint256" }],
+    outputs: [{ name: "", type: "bytes32[]" }],
+  },
+] as const;
+
 export const GENESIS_ABI = [
   {
     name: "isGenesisAgent",

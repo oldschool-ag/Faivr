@@ -6,7 +6,7 @@ import { AlertCircle, CheckCircle2, Clock, ExternalLink, Loader2, RotateCcw } fr
 import { Button } from "@/components/ui/Button";
 import { STATUS_LABELS, formatTaskAmount, useReclaimTask, useSettleTask, useUserTasks } from "@/hooks/useEscrow";
 import type { TaskInfo } from "@/hooks/useEscrow";
-import { getAllTaskBriefs, type StoredTaskBrief } from "@/lib/taskBriefs";
+import { getAllTaskBriefs, type StoredTaskBrief, updateTaskBriefProof } from "@/lib/taskBriefs";
 import { txUrl } from "@/lib/explorer";
 
 function deadlineCountdown(deadline: bigint): string {
@@ -28,10 +28,52 @@ function statusColor(status: number): string {
   return "text-slate-500";
 }
 
+function ProofLink({ label, hash }: { label: string; hash?: string }) {
+  if (!hash) return null;
+
+  return (
+    <a
+      href={txUrl(hash)}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1 text-xs font-medium text-sky-700 transition-colors hover:text-sky-900"
+    >
+      {label}
+      <ExternalLink className="h-3 w-3" />
+    </a>
+  );
+}
+
 function TaskCard({ task, brief }: { task: TaskInfo; brief?: StoredTaskBrief }) {
-  const { settleTask, isPending: settlingPending, isConfirming: settlingConfirming, error: settleError } = useSettleTask();
-  const { reclaimTask, isPending: reclaimPending, isConfirming: reclaimConfirming, error: reclaimError } = useReclaimTask();
+  const {
+    settleTask,
+    hash: settleHash,
+    isPending: settlingPending,
+    isConfirming: settlingConfirming,
+    isSuccess: settleSuccess,
+    error: settleError,
+  } = useSettleTask();
+  const {
+    reclaimTask,
+    hash: reclaimHash,
+    isPending: reclaimPending,
+    isConfirming: reclaimConfirming,
+    isSuccess: reclaimSuccess,
+    error: reclaimError,
+  } = useReclaimTask();
   const [actionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (settleSuccess && settleHash) {
+      updateTaskBriefProof(task.taskId.toString(), { settlementTxHash: settleHash });
+    }
+  }, [settleHash, settleSuccess, task.taskId]);
+
+  useEffect(() => {
+    if (reclaimSuccess && reclaimHash) {
+      updateTaskBriefProof(task.taskId.toString(), { reclaimTxHash: reclaimHash });
+    }
+  }, [reclaimHash, reclaimSuccess, task.taskId]);
 
   const isFunded = task.status === 0;
   const now = BigInt(Math.floor(Date.now() / 1000));
@@ -69,17 +111,11 @@ function TaskCard({ task, brief }: { task: TaskInfo; brief?: StoredTaskBrief }) 
         </div>
       )}
 
-      {(brief?.txHash || task.fundingTxHash) && (
-        <a
-          href={txUrl((brief?.txHash || task.fundingTxHash)!)}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mb-3 inline-flex items-center gap-1 text-xs font-medium text-sky-700 transition-colors hover:text-sky-900"
-        >
-          View funding tx
-          <ExternalLink className="h-3 w-3" />
-        </a>
-      )}
+      <div className="mb-3 flex flex-wrap gap-3">
+        <ProofLink label="Funding tx" hash={brief?.fundingTxHash || task.fundingTxHash} />
+        <ProofLink label="Settlement tx" hash={brief?.settlementTxHash || settleHash} />
+        <ProofLink label="Reclaim tx" hash={brief?.reclaimTxHash || reclaimHash} />
+      </div>
 
       {error && (
         <div className="mb-2 flex items-center gap-1.5 text-xs text-red-700">

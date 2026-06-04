@@ -9,7 +9,9 @@ export type StoredTaskBrief = {
   amount: string;
   tokenSymbol: string;
   deadlineLabel: string;
-  txHash?: string;
+  fundingTxHash?: string;
+  settlementTxHash?: string;
+  reclaimTxHash?: string;
   createdAt: number;
 };
 
@@ -35,6 +37,17 @@ function writeMap(map: Record<string, StoredTaskBrief>) {
 export function saveTaskBrief(brief: StoredTaskBrief) {
   const map = readMap();
   map[brief.taskId] = brief;
+  writeMap(map);
+}
+
+export function updateTaskBriefProof(
+  taskId: string,
+  patch: Partial<Pick<StoredTaskBrief, "fundingTxHash" | "settlementTxHash" | "reclaimTxHash">>,
+) {
+  const map = readMap();
+  const current = map[taskId];
+  if (!current) return;
+  map[taskId] = { ...current, ...patch };
   writeMap(map);
 }
 

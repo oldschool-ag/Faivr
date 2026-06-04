@@ -32,6 +32,9 @@ function parseAgentURI(uri: string, id: number): AgentData {
     validated: Boolean(parsed.validated),
     verified: false,
     active: true,
+    pricingMode: parsed.pricingMode,
+    primaryToken: parsed.primaryToken,
+    deliveryDescription: parsed.deliveryDescription,
     isExample: false,
   };
 }

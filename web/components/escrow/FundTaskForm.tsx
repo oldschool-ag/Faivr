@@ -89,7 +89,7 @@ export function FundTaskForm({ agentId, agentName, onBack, onClose }: FundTaskFo
       amount,
       tokenSymbol: TOKENS.USDC.symbol,
       deadlineLabel,
-      txHash: hash,
+      fundingTxHash: hash,
       createdAt: Date.now(),
     });
   }, [acceptanceCriteria, agentId, agentName, amount, deadlineLabel, expectedOutput, hash, isSuccess, objective, taskId, title]);
