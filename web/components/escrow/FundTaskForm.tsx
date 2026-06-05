@@ -8,6 +8,13 @@ import { buildTaskBriefPayload, computeTaskBriefHash, downloadTaskBriefJson, sav
 import { TOKENS } from "@/lib/tokens";
 import { useFundTaskUSDC } from "@/hooks/useEscrow";
 
+type QuoteRequestResponse = {
+  request?: {
+    requestId: string;
+  };
+  error?: string;
+};
+
 const DEADLINE_OPTIONS = [
   { label: "6 hours", seconds: 21600 },
   { label: "24 hours", seconds: 86400 },
@@ -52,7 +59,7 @@ function truncateHash(hash?: string | null): string {
 }
 
 export function FundTaskForm({ agentId, agentName, pricingMode, onBack, onClose }: FundTaskFormProps) {
-  const { isConnected } = useAccount();
+  const { address, isConnected } = useAccount();
   const [step, setStep] = useState<Step>(1);
   const [title, setTitle] = useState("");
   const [objective, setObjective] = useState("");
@@ -62,6 +69,9 @@ export function FundTaskForm({ agentId, agentName, pricingMode, onBack, onClose 
   const [deadlineIdx, setDeadlineIdx] = useState(1);
   const [briefHash, setBriefHash] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [quoteRequestId, setQuoteRequestId] = useState<string | null>(null);
+  const [quoteSubmitError, setQuoteSubmitError] = useState<string | null>(null);
+  const [isSubmittingQuote, setIsSubmittingQuote] = useState(false);
 
   const isQuoteRequired = (pricingMode || "").toLowerCase().includes("quote");
 
@@ -155,6 +165,75 @@ export function FundTaskForm({ agentId, agentName, pricingMode, onBack, onClose 
     } catch {
       setCopyState("failed");
     }
+  }
+
+  async function submitQuoteRequest() {
+    if (!address || !isConnected) {
+      setQuoteSubmitError("Connect your wallet to submit and track a quote request.");
+      return;
+    }
+
+    setIsSubmittingQuote(true);
+    setQuoteSubmitError(null);
+
+    try {
+      const res = await fetch("/api/quote-requests", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          requesterAddress: address,
+          agentId,
+          agentName,
+          briefHash,
+          briefPayload,
+        }),
+      });
+
+      const data = (await res.json()) as QuoteRequestResponse;
+      if (!res.ok || !data.request?.requestId) {
+        throw new Error(data.error || "Failed to submit quote request");
+      }
+
+      setQuoteRequestId(data.request.requestId);
+    } catch (err) {
+      setQuoteSubmitError(err instanceof Error ? err.message : "Failed to submit quote request");
+    } finally {
+      setIsSubmittingQuote(false);
+    }
+  }
+
+  if (isQuoteRequired && quoteRequestId) {
+    return (
+      <div className="py-6 text-center">
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50">
+          <CheckCircle2 className="h-8 w-8 text-emerald-600" />
+        </div>
+        <h3 className="mb-2 text-lg font-bold text-slate-950">Quote request submitted</h3>
+        <p className="mb-1 text-sm text-slate-600">
+          Request ID: <span className="font-mono font-semibold text-emerald-700">{quoteRequestId}</span>
+        </p>
+        <p className="mb-2 text-sm font-medium text-slate-950">{title}</p>
+        <p className="mb-3 text-sm text-slate-500">
+          Your request for <span className="text-slate-950">{agentName}</span> is now tracked under <span className="font-medium text-slate-950">My Requests</span>.
+        </p>
+        <p className="mb-6 text-xs font-mono text-slate-400">Brief hash: {truncateHash(briefHash)}</p>
+        <div className="flex flex-wrap justify-center gap-3">
+          <Button variant="secondary" onClick={copyBrief}>
+            <Copy className="h-4 w-4" />
+            {copyState === "copied" ? "Copied brief" : "Copy brief JSON"}
+          </Button>
+          <Button variant="secondary" onClick={() => downloadTaskBriefJson(briefPayload)}>
+            <Download className="h-4 w-4" />
+            Download JSON
+          </Button>
+          <Button variant="accent" onClick={onClose}>
+            Done
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   if (isSuccess) {
@@ -391,18 +470,40 @@ export function FundTaskForm({ agentId, agentName, pricingMode, onBack, onClose 
 
           {isQuoteRequired ? (
             <>
+              {!isConnected && (
+                <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>Connect your wallet to submit a quote request and track it under My Requests.</span>
+                </div>
+              )}
+
+              {quoteSubmitError && (
+                <div className="flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{quoteSubmitError}</span>
+                </div>
+              )}
+
               <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
                 Quote-required means instant funding is intentionally unavailable here. That is more honest than pretending every listing supports immediate escrow.
               </div>
+
+              <Button className="w-full" variant="accent" disabled={!isConnected || isSubmittingQuote} onClick={submitQuoteRequest}>
+                {isSubmittingQuote ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {isSubmittingQuote ? "Submitting request…" : "Submit quote request"}
+              </Button>
+
               <div className="flex gap-3">
-                <Button className="flex-1" variant="accent" onClick={copyBrief}>
+                <Button className="flex-1" variant="secondary" onClick={copyBrief}>
                   <Copy className="h-4 w-4" />
-                  {copyState === "copied" ? "Copied brief" : "Copy quote brief"}
+                  {copyState === "copied" ? "Copied brief" : "Copy brief JSON"}
                 </Button>
-                <Button variant="secondary" onClick={() => downloadTaskBriefJson(briefPayload)}>
+                <Button className="flex-1" variant="secondary" onClick={() => downloadTaskBriefJson(briefPayload)}>
                   <Download className="h-4 w-4" />
+                  Download JSON
                 </Button>
               </div>
+
               {copyState === "failed" && <p className="text-xs text-red-700">Could not copy automatically. Use the downloaded JSON instead.</p>}
             </>
           ) : (

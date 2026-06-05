@@ -6,6 +6,7 @@ import { Layers3, ShieldCheck, Sparkles } from "lucide-react";
 import { useAccount } from "wagmi";
 import { AgentGrid } from "@/components/agent/AgentGrid";
 import { AgentSearch } from "@/components/agent/AgentSearch";
+import { QuoteRequestManager } from "@/components/escrow/QuoteRequestManager";
 import { TaskManager } from "@/components/escrow/TaskManager";
 import { SiteShell } from "@/components/layout/SiteShell";
 import { Badge } from "@/components/ui/Badge";
@@ -14,7 +15,7 @@ import { useContractStats } from "@/hooks/useContractStats";
 import { SITE_STATUS } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
-const TABS = ["Marketplace", "My Tasks"] as const;
+const TABS = ["Marketplace", "My Tasks", "My Requests"] as const;
 type Tab = (typeof TABS)[number];
 
 export default function MarketplacePage() {
@@ -93,7 +94,7 @@ export default function MarketplacePage() {
 
         <div className="mt-12 inline-flex rounded-full border border-slate-200 bg-white p-1 shadow-sm">
           {TABS.map((tab) => {
-            if (tab === "My Tasks" && !isConnected) return null;
+            if ((tab === "My Tasks" || tab === "My Requests") && !isConnected) return null;
             return (
               <button
                 key={tab}
@@ -133,7 +134,7 @@ export default function MarketplacePage() {
               />
               <AgentGrid agents={filtered} loading={isLoading} />
             </motion.div>
-          ) : (
+          ) : activeTab === "My Tasks" ? (
             <motion.div
               key="tasks"
               initial={{ opacity: 0, y: 8 }}
@@ -143,6 +144,17 @@ export default function MarketplacePage() {
               className="pb-16 pt-8"
             >
               <TaskManager />
+            </motion.div>
+          ) : (
+            <motion.div
+              key="requests"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+              className="pb-16 pt-8"
+            >
+              <QuoteRequestManager />
             </motion.div>
           )}
         </AnimatePresence>
