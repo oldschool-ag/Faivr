@@ -23,10 +23,10 @@ function formatTimestamp(timestamp: number): string {
   }).format(new Date(timestamp));
 }
 
-function formatBudget(amount: string | undefined, tokenSymbol: string): string {
+function formatBudget(amount: string | null | undefined, tokenSymbol: string): string {
   if (!amount) return "Open";
   const parsed = Number.parseFloat(amount);
-  if (!Number.isFinite(parsed) || parsed <= 0) return `Open`;
+  if (!Number.isFinite(parsed) || parsed <= 0) return "Open";
   return `${parsed.toFixed(2)} ${tokenSymbol}`;
 }
 
@@ -152,6 +152,27 @@ export function QuoteRequestManager() {
               </div>
             </div>
 
+            {(request.quoteAmount || request.quoteMessage || request.operatorNote) && (
+              <div className="mb-3 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-3 text-sm leading-6 text-emerald-950">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">Operator response</p>
+                {request.quoteAmount && (
+                  <div className="mt-2 flex justify-between gap-3 text-sm">
+                    <span className="text-emerald-800/70">Quoted amount</span>
+                    <span className="font-medium text-emerald-950">
+                      {formatBudget(request.quoteAmount, request.briefPayload.tokenSymbol)}
+                    </span>
+                  </div>
+                )}
+                {request.quoteMessage && <p className="mt-2 text-sm leading-6 text-emerald-950">{request.quoteMessage}</p>}
+                {request.operatorNote && (
+                  <p className="mt-2 rounded-xl border border-emerald-200/80 bg-white/70 px-3 py-2 text-xs leading-5 text-emerald-900">
+                    <span className="font-semibold uppercase tracking-[0.14em] text-emerald-700">Operator note</span>
+                    <span className="mt-1 block normal-case tracking-normal text-emerald-900">{request.operatorNote}</span>
+                  </p>
+                )}
+              </div>
+            )}
+
             {request.briefHash && (
               <div className="mb-3 rounded-2xl border border-slate-200 bg-white p-3 text-xs leading-5 text-slate-500">
                 <p className="font-semibold uppercase tracking-[0.16em] text-slate-500">Brief hash</p>
@@ -159,9 +180,14 @@ export function QuoteRequestManager() {
               </div>
             )}
 
-            <div className="flex items-center gap-1.5 text-xs text-slate-500">
-              <Clock3 className="h-3 w-3" />
-              Submitted {formatTimestamp(request.createdAt)}
+            <div className="space-y-1.5 text-xs text-slate-500">
+              <div className="flex items-center gap-1.5">
+                <Clock3 className="h-3 w-3" />
+                Submitted {formatTimestamp(request.createdAt)}
+              </div>
+              {request.viewedAt && <p>Viewed {formatTimestamp(request.viewedAt)}</p>}
+              {request.respondedAt && <p>Quoted {formatTimestamp(request.respondedAt)}</p>}
+              {request.closedAt && <p>Closed {formatTimestamp(request.closedAt)}</p>}
             </div>
           </div>
         ))}

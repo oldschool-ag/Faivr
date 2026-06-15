@@ -6,6 +6,10 @@
 .env*.local
 .env.local
 
+# local runtime data
+.support-data/
+web/.support-data/
+
 # Workspace files
 SOUL.md
 IDENTITY.md
