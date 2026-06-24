@@ -53,6 +53,7 @@ function statusCount(requests: QuoteRequestRecord[], status: QuoteRequestStatus)
 }
 
 export function OperatorQuoteQueue() {
+  const [operatorKeyInput, setOperatorKeyInput] = useState("");
   const [operatorKey, setOperatorKey] = useState("");
   const [agentId, setAgentId] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | QuoteRequestStatus>("all");
@@ -63,6 +64,14 @@ export function OperatorQuoteQueue() {
   const [error, setError] = useState<string | null>(null);
 
   const loadRequests = useCallback(async () => {
+    if (!operatorKey.trim()) {
+      setRequests([]);
+      setDrafts({});
+      setError(null);
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 
@@ -73,11 +82,9 @@ export function OperatorQuoteQueue() {
 
       const res = await fetch(url, {
         cache: "no-store",
-        headers: operatorKey.trim()
-          ? {
-              "x-operator-key": operatorKey.trim(),
-            }
-          : undefined,
+        headers: {
+          "x-operator-key": operatorKey.trim(),
+        },
       });
 
       const data = (await res.json()) as QueueResponse;
@@ -108,8 +115,15 @@ export function OperatorQuoteQueue() {
   }, [agentId, operatorKey]);
 
   useEffect(() => {
+    if (!operatorKey.trim()) {
+      setRequests([]);
+      setDrafts({});
+      setError(null);
+      return;
+    }
+
     void loadRequests();
-  }, [loadRequests]);
+  }, [loadRequests, operatorKey]);
 
   const filteredRequests = useMemo(() => {
     if (statusFilter === "all") return requests;
@@ -175,10 +189,27 @@ export function OperatorQuoteQueue() {
               or close them. Set <span className="font-mono text-[12px] text-slate-700">QUOTE_REQUEST_OPERATOR_KEY</span> on the server and enter the same value here.
             </p>
           </div>
-          <Button variant="secondary" onClick={() => void loadRequests()} disabled={isLoading}>
-            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
-            Refresh
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                const nextKey = operatorKeyInput.trim();
+                setOperatorKey(nextKey);
+                setError(null);
+                if (!nextKey) {
+                  setRequests([]);
+                  setDrafts({});
+                }
+              }}
+              disabled={isLoading}
+            >
+              Unlock queue
+            </Button>
+            <Button variant="secondary" onClick={() => void loadRequests()} disabled={isLoading || !operatorKey.trim()}>
+              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+              Refresh
+            </Button>
+          </div>
         </div>
 
         <div className="mt-5 grid gap-3 lg:grid-cols-[1.1fr_0.6fr_0.6fr]">
@@ -186,8 +217,19 @@ export function OperatorQuoteQueue() {
             <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.18em] text-slate-500">Operator key</span>
             <input
               type="password"
-              value={operatorKey}
-              onChange={(event) => setOperatorKey(event.target.value)}
+              value={operatorKeyInput}
+              onChange={(event) => setOperatorKeyInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  const nextKey = operatorKeyInput.trim();
+                  setOperatorKey(nextKey);
+                  setError(null);
+                  if (!nextKey) {
+                    setRequests([]);
+                    setDrafts({});
+                  }
+                }
+              }}
               placeholder="Required for queue access"
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 placeholder:text-slate-400 outline-none transition-colors focus:border-sky-300 focus:bg-white"
             />
@@ -218,6 +260,12 @@ export function OperatorQuoteQueue() {
             </select>
           </label>
         </div>
+
+        <p className="mt-3 text-xs text-slate-500">
+          {operatorKey.trim()
+            ? "Queue unlocked. Refresh any time to pull the latest buyer requests."
+            : "Enter the shared operator key, then unlock the queue to load requests."}
+        </p>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -243,8 +291,12 @@ export function OperatorQuoteQueue() {
         </div>
       ) : filteredRequests.length === 0 ? (
         <div className="rounded-[28px] border border-dashed border-slate-300 bg-white/80 py-16 text-center shadow-sm">
-          <p className="mb-1 text-slate-500">No quote requests in this view</p>
-          <p className="text-xs text-slate-400">Try a different status or agent filter, or verify the operator key.</p>
+          <p className="mb-1 text-slate-500">{operatorKey.trim() ? "No quote requests in this view" : "Queue locked"}</p>
+          <p className="text-xs text-slate-400">
+            {operatorKey.trim()
+              ? "Try a different status or agent filter, or verify the operator key."
+              : "Enter the shared operator key above to unlock the queue and review buyer requests."}
+          </p>
         </div>
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
@@ -364,7 +416,7 @@ export function OperatorQuoteQueue() {
                           },
                         }))
                       }
-                      placeholder="Optional internal-facing note for the buyer."
+                      placeholder="Optional buyer-visible note."
                       className="w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 placeholder:text-slate-400 outline-none transition-colors focus:border-sky-300"
                     />
                   </label>
