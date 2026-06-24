@@ -50,6 +50,18 @@ faivr/
 - Operator: **Old School GmbH** (`CHE-485.065.843`)
 - Contracts and public trust context: see `/web`, `/docs`, and the audit-related notes in this repository
 
+## Quote-request persistence
+
+The marketplace quote-request API in `/web` now supports durable Postgres-backed storage for production/serverless deployments.
+
+- Configure `DATABASE_URL` for the Next.js app in `web/`
+- Keep `QUOTE_REQUEST_OPERATOR_KEY` set for operator queue access
+- The app auto-creates the `quote_requests` table on first use
+- If legacy `.support-data/quote-requests.json` data exists, it is imported automatically the first time the Postgres-backed store starts against an empty table
+- A reference schema is included at `web/sql/quote-requests.sql`
+
+For local-only development without `DATABASE_URL`, the legacy JSON file storage path still works as a fallback.
+
 ## License
 
 [BSL 1.1](LICENSE) — Business Source License 1.1. Converts to MIT on 2030-02-11.
