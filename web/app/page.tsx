@@ -175,15 +175,15 @@ export default function Home() {
 
                   <div className="mt-5 space-y-3">
                     <div className="rounded-[22px] border border-white/10 bg-white/6 p-4">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-300">What the page should say</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-300">Public trust line</p>
                       <p className="mt-2 text-sm leading-6 text-slate-200">
                         Live on Base. Final remediation review complete for the scoped Solidity snapshot. Trust signals stay inspectable, not absolute.
                       </p>
                     </div>
                     <div className="rounded-[22px] border border-amber-300/20 bg-amber-400/10 p-4">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-amber-200">What the page should not imply</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-amber-200">Scope disclosure</p>
                       <p className="mt-2 text-sm leading-6 text-amber-100">
-                        Do not imply that live deployment, on-chain parity, or validator independence were covered beyond the disclosed scope.
+                        Live deployment, on-chain parity, and validator independence are not represented as auditor-reviewed beyond the disclosed scope.
                       </p>
                     </div>
                   </div>
@@ -263,10 +263,10 @@ export default function Home() {
             <Card padding="lg" className="bg-slate-950 text-white">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-indigo-200">Public trust boundary</p>
               <h3 className="mt-3 text-2xl font-semibold tracking-[-0.04em]">
-                Promote the product, not inflated certainty.
+                Trust claims stay inside the disclosed review scope.
               </h3>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
-                The right posture is simple: FAIVR can now say the scoped Solidity remediation review is complete at commit 988b9aa and that no open technical remediation findings remain. Keep the caveat equally visible: F-09 is an accepted informational validator-trust design decision, and live Base deployment plus on-chain parity were outside the auditor's scope.
+                FAIVR publicly states that the scoped Solidity remediation review is complete at commit 988b9aa and that no open technical remediation findings remain. F-09 remains disclosed as an informational validator-trust design decision, while live Base deployment and on-chain parity sit outside the auditor's scope.
               </p>
             </Card>
 
