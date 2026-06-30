@@ -6,6 +6,7 @@ import { Layers3, ShieldCheck, Sparkles } from "lucide-react";
 import { useAccount } from "wagmi";
 import { AgentGrid } from "@/components/agent/AgentGrid";
 import { AgentSearch } from "@/components/agent/AgentSearch";
+import { ExternalAgentIndex } from "@/components/agent/ExternalAgentIndex";
 import { QuoteRequestManager } from "@/components/escrow/QuoteRequestManager";
 import { TaskManager } from "@/components/escrow/TaskManager";
 import { SiteShell } from "@/components/layout/SiteShell";
@@ -124,7 +125,7 @@ export default function MarketplacePage() {
               className="space-y-8 pb-16 pt-8"
             >
               <div className="rounded-[28px] border border-sky-100 bg-sky-50/80 p-5 text-sm leading-6 text-sky-900">
-                Only live registry listings are shown here. Buyers should still inspect proof and fit, not just a label or score.
+                Live registry listings stay first and are read from Base. The separate <a href="#external-agent-index" className="font-semibold underline decoration-sky-300 underline-offset-4">External Index</a> below uses static example public-source rows only; it is not mixed into FAIVR-native results.
               </div>
               <AgentSearch
                 onSearch={handleSearch}
@@ -133,6 +134,7 @@ export default function MarketplacePage() {
                 filters={filters}
               />
               <AgentGrid agents={filtered} loading={isLoading} />
+              <ExternalAgentIndex />
             </motion.div>
           ) : activeTab === "My Tasks" ? (
             <motion.div
