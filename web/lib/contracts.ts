@@ -14,15 +14,6 @@ export const CONTRACTS = {
   verification: "0x6654FA7d6eE8A0f6641a5535AeE346115f06e161" as Address,
 };
 
-// Sepolia testnet addresses (kept for reference)
-export const CONTRACTS_SEPOLIA = {
-  identity: "0x2c954A4E93DdA93b09C679c4DAc6e04758b8f490" as Address,
-  reputation: "0x1Eb4a1283EdEA00d42BaA66B785729808CE90A72" as Address,
-  validation: "0x442E20eb5e801daD5F5fe603825d8fa780F5cd0e" as Address,
-  feeModule: "0x0b9FAb32d2b7B33C767D111F96750D07B030ad60" as Address,
-  router: "0x24b9cA9Db5476B2ca397e05924004Eae25D30184" as Address,
-};
-
 export const IDENTITY_ABI = [
   {
     name: "register",

@@ -1,5 +1,14 @@
 import { OperatorQuoteQueue } from "@/components/escrow/OperatorQuoteQueue";
 import { SiteShell } from "@/components/layout/SiteShell";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  robots: {
+    index: false,
+    follow: false,
+    nocache: true,
+  },
+};
 
 export default function OperatorQuoteRequestsPage() {
   return (

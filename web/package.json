@@ -4,6 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "build": "next build",
     "start": "next start"
   },
@@ -28,15 +31,19 @@
     "react-dom": "^18.2.0",
     "tailwind-merge": "^3.4.0",
     "viem": "^2.9.0",
-    "wagmi": "^2.5.0"
+    "wagmi": "^2.5.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/pg": "^8.20.0",
     "@types/react": "^18.2.0",
     "autoprefixer": "^10.4.17",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "^14.1.4",
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^2.1.9"
   }
 }

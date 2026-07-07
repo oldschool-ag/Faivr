@@ -53,8 +53,6 @@ function statusCount(requests: QuoteRequestRecord[], status: QuoteRequestStatus)
 }
 
 export function OperatorQuoteQueue() {
-  const [operatorKeyInput, setOperatorKeyInput] = useState("");
-  const [operatorKey, setOperatorKey] = useState("");
   const [agentId, setAgentId] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | QuoteRequestStatus>("all");
   const [requests, setRequests] = useState<QuoteRequestRecord[]>([]);
@@ -64,14 +62,6 @@ export function OperatorQuoteQueue() {
   const [error, setError] = useState<string | null>(null);
 
   const loadRequests = useCallback(async () => {
-    if (!operatorKey.trim()) {
-      setRequests([]);
-      setDrafts({});
-      setError(null);
-      setIsLoading(false);
-      return;
-    }
-
     setIsLoading(true);
     setError(null);
 
@@ -82,9 +72,7 @@ export function OperatorQuoteQueue() {
 
       const res = await fetch(url, {
         cache: "no-store",
-        headers: {
-          "x-operator-key": operatorKey.trim(),
-        },
+        credentials: "same-origin",
       });
 
       const data = (await res.json()) as QueueResponse;
@@ -112,18 +100,11 @@ export function OperatorQuoteQueue() {
     } finally {
       setIsLoading(false);
     }
-  }, [agentId, operatorKey]);
+  }, [agentId]);
 
   useEffect(() => {
-    if (!operatorKey.trim()) {
-      setRequests([]);
-      setDrafts({});
-      setError(null);
-      return;
-    }
-
     void loadRequests();
-  }, [loadRequests, operatorKey]);
+  }, [loadRequests]);
 
   const filteredRequests = useMemo(() => {
     if (statusFilter === "all") return requests;
@@ -143,9 +124,9 @@ export function OperatorQuoteQueue() {
 
       const res = await fetch("/api/quote-requests", {
         method: "PATCH",
+        credentials: "same-origin",
         headers: {
           "Content-Type": "application/json",
-          ...(operatorKey.trim() ? { "x-operator-key": operatorKey.trim() } : {}),
         },
         body: JSON.stringify({
           requestId: request.requestId,
@@ -186,54 +167,18 @@ export function OperatorQuoteQueue() {
             <p className="text-sm font-semibold text-slate-950">Operator quote queue</p>
             <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">
               This surface recovers the buyer-side quote requests and lets an operator mark them viewed, answer with a quote,
-              or close them. Set <span className="font-mono text-[12px] text-slate-700">QUOTE_REQUEST_OPERATOR_KEY</span> on the server and enter the same value here.
+              or close them. Access is enforced by the server before this internal surface or its APIs are served.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button
-              variant="secondary"
-              onClick={() => {
-                const nextKey = operatorKeyInput.trim();
-                setOperatorKey(nextKey);
-                setError(null);
-                if (!nextKey) {
-                  setRequests([]);
-                  setDrafts({});
-                }
-              }}
-              disabled={isLoading}
-            >
-              Unlock queue
-            </Button>
-            <Button variant="secondary" onClick={() => void loadRequests()} disabled={isLoading || !operatorKey.trim()}>
+            <Button variant="secondary" onClick={() => void loadRequests()} disabled={isLoading}>
               {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
               Refresh
             </Button>
           </div>
         </div>
 
-        <div className="mt-5 grid gap-3 lg:grid-cols-[1.1fr_0.6fr_0.6fr]">
-          <label className="block text-sm text-slate-600">
-            <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.18em] text-slate-500">Operator key</span>
-            <input
-              type="password"
-              value={operatorKeyInput}
-              onChange={(event) => setOperatorKeyInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  const nextKey = operatorKeyInput.trim();
-                  setOperatorKey(nextKey);
-                  setError(null);
-                  if (!nextKey) {
-                    setRequests([]);
-                    setDrafts({});
-                  }
-                }
-              }}
-              placeholder="Required for queue access"
-              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 placeholder:text-slate-400 outline-none transition-colors focus:border-sky-300 focus:bg-white"
-            />
-          </label>
+        <div className="mt-5 grid gap-3 lg:grid-cols-2">
           <label className="block text-sm text-slate-600">
             <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.18em] text-slate-500">Agent ID filter</span>
             <input
@@ -262,9 +207,7 @@ export function OperatorQuoteQueue() {
         </div>
 
         <p className="mt-3 text-xs text-slate-500">
-          {operatorKey.trim()
-            ? "Queue unlocked. Refresh any time to pull the latest buyer requests."
-            : "Enter the shared operator key, then unlock the queue to load requests."}
+          Refresh any time to pull the latest buyer requests.
         </p>
       </div>
 
@@ -291,11 +234,9 @@ export function OperatorQuoteQueue() {
         </div>
       ) : filteredRequests.length === 0 ? (
         <div className="rounded-[28px] border border-dashed border-slate-300 bg-white/80 py-16 text-center shadow-sm">
-          <p className="mb-1 text-slate-500">{operatorKey.trim() ? "No quote requests in this view" : "Queue locked"}</p>
+          <p className="mb-1 text-slate-500">No quote requests in this view</p>
           <p className="text-xs text-slate-400">
-            {operatorKey.trim()
-              ? "Try a different status or agent filter, or verify the operator key."
-              : "Enter the shared operator key above to unlock the queue and review buyer requests."}
+            Try a different status or agent filter, or verify server-side operator access.
           </p>
         </div>
       ) : (

@@ -266,7 +266,7 @@ export default function Home() {
                 Trust claims stay inside the disclosed review scope.
               </h3>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
-                FAIVR publicly states that the scoped Solidity remediation review is complete at commit 988b9aa and that no open technical remediation findings remain. F-09 remains disclosed as an informational validator-trust design decision, while live Base deployment and on-chain parity sit outside the auditor's scope.
+                FAIVR publicly states that the scoped Solidity remediation review is complete at commit 988b9aa and that no open technical remediation findings remain. F-09 remains disclosed as an informational validator-trust design decision, while live Base deployment and on-chain parity sit outside the auditor&apos;s scope.
               </p>
             </Card>
 

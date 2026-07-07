@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
 import type { PoolClient } from "pg";
+import { isProductionRuntime } from "@/lib/env";
 import { getPgPool, hasDatabaseUrl } from "@/lib/postgres";
 import type { CreateQuoteRequestInput, QuoteRequestRecord, TaskBriefArtifact, UpdateQuoteRequestInput } from "@/lib/quoteRequestSchema";
 
@@ -33,6 +34,12 @@ type QuoteRequestRow = {
 
 function shouldUseDatabase(): boolean {
   return hasDatabaseUrl();
+}
+
+function assertDurableProductionStore() {
+  if (isProductionRuntime() && !shouldUseDatabase()) {
+    throw new Error("DATABASE_URL is required in production for durable quote-request storage");
+  }
 }
 
 async function ensureDir() {
@@ -487,6 +494,8 @@ async function updateDatabaseQuoteRequest(input: UpdateQuoteRequestInput): Promi
 }
 
 export async function createQuoteRequest(input: CreateQuoteRequestInput): Promise<QuoteRequestRecord> {
+  assertDurableProductionStore();
+
   if (!shouldUseDatabase()) {
     return createLegacyQuoteRequest(input);
   }
@@ -495,6 +504,8 @@ export async function createQuoteRequest(input: CreateQuoteRequestInput): Promis
 }
 
 export async function getQuoteRequestsByRequester(requesterAddress: string): Promise<QuoteRequestRecord[]> {
+  assertDurableProductionStore();
+
   if (!shouldUseDatabase()) {
     return getLegacyQuoteRequestsByRequester(requesterAddress);
   }
@@ -503,6 +514,8 @@ export async function getQuoteRequestsByRequester(requesterAddress: string): Pro
 }
 
 export async function getQuoteRequestsByAgent(agentId?: number): Promise<QuoteRequestRecord[]> {
+  assertDurableProductionStore();
+
   if (!shouldUseDatabase()) {
     return getLegacyQuoteRequestsByAgent(agentId);
   }
@@ -511,6 +524,8 @@ export async function getQuoteRequestsByAgent(agentId?: number): Promise<QuoteRe
 }
 
 export async function updateQuoteRequest(input: UpdateQuoteRequestInput): Promise<QuoteRequestRecord | null> {
+  assertDurableProductionStore();
+
   if (!shouldUseDatabase()) {
     return updateLegacyQuoteRequest(input);
   }
