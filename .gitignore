@@ -1,14 +1,35 @@
 /node_modules
 /.next
 /out
+dist/
+coverage/
+*.tsbuildinfo
 
 # local env files
 .env*.local
 .env.local
+.env
+.env.*.local
 
 # local runtime data
 .support-data/
 web/.support-data/
+logs/
+*.log
+*.pdf
+tmp/
+temp/
+*.tmp
+*.bak
+
+# generated contract/deployment output
+contracts/broadcast/
+contracts/cache/
+contracts/out/
+
+# Vercel local project metadata
+.vercel/
+web/.vercel/
 
 # Workspace files
 SOUL.md
@@ -17,5 +38,4 @@ USER.md
 AGENTS.md
 TOOLS.md
 memory/
-.github/
 .env.mainnet

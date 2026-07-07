@@ -1,0 +1,7 @@
+# Replace these placeholder teams with actual GitHub teams/users before enforcing CODEOWNERS review.
+* @oldschoolag/faivr-maintainers
+
+/contracts/ @oldschoolag/faivr-protocol
+/web/ @oldschoolag/faivr-web
+/docs/ @oldschoolag/faivr-maintainers
+/.github/ @oldschoolag/faivr-maintainers

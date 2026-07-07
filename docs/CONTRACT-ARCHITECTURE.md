@@ -5,6 +5,8 @@
 **Target:** Solidity 0.8.24+ | OpenZeppelin 5.x | UUPS Upgradeable  
 **Chain:** Base (L2)
 
+> Status note: this is a historical/target architecture document. Its multisig and timelock statements must not be read as verified live posture. See `docs/protocol-admin-risk.md` for the current production blocker.
+
 ---
 
 ## 1. Contract Inheritance Diagram

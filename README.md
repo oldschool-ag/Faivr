@@ -29,7 +29,6 @@ faivr/
 ├── contracts/   Solidity smart contracts and Foundry tests
 ├── docs/        Product and contract documentation
 ├── legal/       Terms, privacy, and risk disclosures
-├── lib/         Shared TypeScript helpers
 ├── web/         Next.js frontend and support surfaces
 └── README.md
 ```
@@ -48,14 +47,17 @@ faivr/
 - Network: **Base mainnet**
 - Website: **[faivr.ai](https://faivr.ai)**
 - Operator: **Old School GmbH** (`CHE-485.065.843`)
-- Contracts and public trust context: see `/web`, `/docs`, and the audit-related notes in this repository
+- Canonical runtime contract config: `web/lib/contracts.ts`
+- Public-safe deployment context: `docs/public-deployment.md`
+- Production readiness and blockers: `PRODUCTION_READINESS.md`
 
 ## Quote-request persistence
 
 The marketplace quote-request API in `/web` now supports durable Postgres-backed storage for production/serverless deployments.
 
 - Configure `DATABASE_URL` for the Next.js app in `web/`
-- Keep `QUOTE_REQUEST_OPERATOR_KEY` set for operator queue access
+- Configure `OPERATOR_AUTH_USERNAME` and `OPERATOR_AUTH_PASSWORD` for server-side operator/admin access
+- Keep `QUOTE_REQUEST_OPERATOR_KEY` only as a temporary legacy server-to-server fallback if needed
 - The app auto-creates the `quote_requests` table on first use
 - If legacy `.support-data/quote-requests.json` data exists, it is imported automatically the first time the Postgres-backed store starts against an empty table
 - A reference schema is included at `web/sql/quote-requests.sql`

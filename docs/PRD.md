@@ -5,6 +5,8 @@
 **Author:** FAIVR Team  
 **Operator:** Old School GmbH (CHE-485.065.843), Walchwil, Switzerland
 
+> Status note: this is a historical product planning document. Statements about multisig, timelock, launch posture, or future architecture are target-state references unless independently verified onchain. See `docs/protocol-admin-risk.md`.
+
 ---
 
 ## 1. Executive Summary
