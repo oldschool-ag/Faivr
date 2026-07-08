@@ -7,7 +7,7 @@ export interface QAPair {
 }
 
 const TRUST_REVIEW_LINE =
-  "Final remediation review complete for the scoped Solidity snapshot at commit `988b9aa`. No open technical remediation findings remain. `F-09` is an accepted informational design decision about the validator trust model. Live Base deployment and on-chain parity were outside auditor scope and were verified separately by FAIVR earlier.";
+  "Final remediation review complete for the scoped Solidity snapshot at commit `988b9aa`. No open technical remediation findings remain. `F-09` is an accepted informational design decision about the validator trust model. Live Base deployment and on-chain parity were outside auditor scope and must be checked as separate operational evidence.";
 
 export const KNOWLEDGE_BASE: QAPair[] = [
   {

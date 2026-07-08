@@ -8,6 +8,10 @@ import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 import {IFaivrReputationRegistry} from "./interfaces/IFaivrReputationRegistry.sol";
 
+interface IFaivrReputationIdentityRegistry is IERC721 {
+    function getAgentWallet(uint256 agentId) external view returns (address);
+}
+
 /// @title FaivrReputationRegistry
 /// @notice ERC-8004 compliant reputation registry
 contract FaivrReputationRegistry is
@@ -488,11 +492,14 @@ contract FaivrReputationRegistry is
         _requireAgentExists(agentId);
         _consumeFeedbackCredit(agentId, clientAddress);
 
-        // Submitter must not be agent owner or approved operator
-        address agentOwner = IERC721(_identityRegistry).ownerOf(agentId);
+        // Submitter must not be the agent owner, agent wallet, or approved operator.
+        IFaivrReputationIdentityRegistry registry = IFaivrReputationIdentityRegistry(_identityRegistry);
+        address agentOwner = registry.ownerOf(agentId);
+        address agentWallet = registry.getAgentWallet(agentId);
         if (clientAddress == agentOwner) revert SelfFeedbackNotAllowed();
-        if (IERC721(_identityRegistry).isApprovedForAll(agentOwner, clientAddress)) revert SelfFeedbackNotAllowed();
-        if (IERC721(_identityRegistry).getApproved(agentId) == clientAddress) revert SelfFeedbackNotAllowed();
+        if (agentWallet != address(0) && clientAddress == agentWallet) revert SelfFeedbackNotAllowed();
+        if (registry.isApprovedForAll(agentOwner, clientAddress)) revert SelfFeedbackNotAllowed();
+        if (registry.getApproved(agentId) == clientAddress) revert SelfFeedbackNotAllowed();
 
         // Track client
         if (!_isClient[agentId][clientAddress]) {

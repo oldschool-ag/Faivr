@@ -27,6 +27,7 @@ Do not commit local `.env` files. Use `.env.local` only for local development.
   - `forge build and test`
   - `lint, typecheck, test, build`
 - `docs/protocol-admin-risk.md` remains reflected in release notes if admin risk is unresolved.
+- Safe admin status, timelock status, and admin-monitoring status are explicit in release notes.
 - No tracked `.vercel/`, broadcast JSON, generated PDF/log, or local runtime artifact is present.
 
 ## Deploy
@@ -64,3 +65,4 @@ vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN
 - Verify operator/admin surfaces require HTTP auth and return `Cache-Control: no-store`.
 - Verify `/api/quote-requests?requesterAddress=<address>` remains public for the requester lookup path.
 - Review Vercel function logs for operator audit events and unexpected 5xx responses.
+- If the release touches contracts or governance, verify admin-monitoring alerts are configured or explicitly deferred in release notes.

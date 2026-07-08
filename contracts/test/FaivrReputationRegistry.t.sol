@@ -17,11 +17,16 @@ contract FaivrReputationRegistryTest is Test {
     address public client1 = makeAddr("client1");
     address public client2 = makeAddr("client2");
     address public responder = makeAddr("responder");
+    address public feedbackRouter = makeAddr("feedbackRouter");
+    uint256 internal agentWalletPk = 0xA11CE;
+    address internal agentWallet;
 
     uint256 public agentId;
     uint256 internal nextTaskId = 1;
 
     function setUp() public {
+        agentWallet = vm.addr(agentWalletPk);
+
         // Deploy identity
         FaivrIdentityRegistry idImpl = new FaivrIdentityRegistry();
         ERC1967Proxy idProxy = new ERC1967Proxy(
@@ -44,6 +49,7 @@ contract FaivrReputationRegistryTest is Test {
 
         vm.startPrank(admin);
         reputation.grantRole(reputation.SETTLEMENT_SOURCE_ROLE(), settlementSource);
+        reputation.grantRole(reputation.FEEDBACK_ROUTER_ROLE(), feedbackRouter);
         vm.stopPrank();
     }
 
@@ -106,6 +112,28 @@ contract FaivrReputationRegistryTest is Test {
         vm.prank(agentOwner);
         vm.expectRevert(IFaivrReputationRegistry.SelfFeedbackNotAllowed.selector);
         reputation.giveFeedback(agentId, 100, 0, "", "", "", "", bytes32(0));
+    }
+
+    function test_revert_giveFeedback_agentWalletSelfFeedback() public {
+        _setAgentWallet(agentWallet, agentWalletPk);
+        _recordSettlement(agentWallet);
+
+        vm.prank(agentWallet);
+        vm.expectRevert(IFaivrReputationRegistry.SelfFeedbackNotAllowed.selector);
+        reputation.giveFeedback(agentId, 100, 0, "", "", "", "", bytes32(0));
+
+        assertEq(reputation.pendingFeedbackCredits(agentId, agentWallet), 1);
+    }
+
+    function test_revert_giveFeedbackFor_agentWalletSelfFeedback() public {
+        _setAgentWallet(agentWallet, agentWalletPk);
+        _recordSettlement(agentWallet);
+
+        vm.prank(feedbackRouter);
+        vm.expectRevert(IFaivrReputationRegistry.SelfFeedbackNotAllowed.selector);
+        reputation.giveFeedbackFor(agentWallet, agentId, 100, 0, "", "", "", "", bytes32(0));
+
+        assertEq(reputation.pendingFeedbackCredits(agentId, agentWallet), 1);
     }
 
     function test_revert_giveFeedback_invalidDecimals() public {
@@ -364,5 +392,33 @@ contract FaivrReputationRegistryTest is Test {
 
     function test_getLastIndex_noFeedback() public view {
         assertEq(reputation.getLastIndex(agentId, client1), 0);
+    }
+
+    function _setAgentWallet(address wallet, uint256 walletPk) internal {
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonce = identity.walletNonce(agentId);
+        bytes32 structHash = keccak256(abi.encode(
+            identity.SET_AGENT_WALLET_TYPEHASH(),
+            agentId,
+            wallet,
+            nonce,
+            deadline
+        ));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _identityDomainSeparator(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(walletPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
+
+        vm.prank(agentOwner);
+        identity.setAgentWallet(agentId, wallet, deadline, sig);
+    }
+
+    function _identityDomainSeparator() internal view returns (bytes32) {
+        return keccak256(abi.encode(
+            keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+            keccak256("FaivrIdentity"),
+            keccak256("1"),
+            block.chainid,
+            address(identity)
+        ));
     }
 }

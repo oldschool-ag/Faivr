@@ -27,6 +27,7 @@ interface IFaivrVerificationRegistry {
     error NotVerifier();
     error VerificationNotFound(uint256 agentId);
     error SoulboundTransferBlocked();
+    error ZeroAddress();
 
     // ── Functions ────────────────────────────────────────
     function verify(uint256 agentId, string calldata domain, VerificationMethod method) external;

@@ -6,9 +6,25 @@ This is a preparation runbook only. Do not execute against live contracts until 
 
 - Minimum Safe: 2-of-3 owners.
 - Preferred upgrade path: Safe plus timelock.
+- Release notes must state timelock status explicitly: live, absent/deferred, or not applicable.
 - If timelock cannot be introduced immediately:
   - Phase 1: transfer EOA-held roles to Safe.
   - Phase 2: move Safe-controlled upgrade/config authority behind a timelock or equivalent governance delay.
+
+## Batch Review Control
+
+Every live admin-role migration batch requires at least two named reviewers before Safe submission. The preparer does not count as both reviewers.
+
+Reviewers must check:
+
+- target contract addresses and chain ID;
+- role IDs and current holders;
+- grant transactions precede revocations;
+- Safe nonce, threshold, and owner set;
+- calldata for each grant, revoke, upgrade, and timelock action;
+- release-note evidence fields, including timelock status.
+
+Archive reviewer names, timestamps, batch hash or Safe transaction URL, and final onchain transaction hashes with the release. A Safe threshold is not a substitute for this batch review record.
 
 ## Roles To Review
 
@@ -40,13 +56,14 @@ CURRENT_ADMIN=<candidate-eoa> TARGET_SAFE=<safe-address> forge script script/Adm
 1. Freeze unrelated admin actions.
 2. Verify Safe owners and threshold.
 3. Verify the current role holder set using the read-only script.
-4. Submit Safe transactions to grant required roles to the Safe.
-5. Confirm each grant onchain.
-6. Re-run verification and confirm Safe role receipt.
-7. Submit Safe transactions to revoke the EOA roles.
-8. Confirm each revocation onchain.
-9. Re-run verification and confirm the EOA no longer holds the migrated roles.
-10. Publish a release note that records addresses, transaction hashes, block numbers, and remaining timelock status.
+4. Obtain the two-person batch review record.
+5. Submit Safe transactions to grant required roles to the Safe.
+6. Confirm each grant onchain.
+7. Re-run verification and confirm Safe role receipt.
+8. Submit Safe transactions to revoke the EOA roles.
+9. Confirm each revocation onchain.
+10. Re-run verification and confirm the EOA no longer holds the migrated roles.
+11. Publish a release note that records addresses, transaction hashes, block numbers, reviewer signoff, and explicit timelock status.
 
 ## Failure Handling
 
@@ -66,6 +83,6 @@ If timelock is feasible, rehearse and execute Safe-to-timelock authority movemen
 - Decide whether timelock is included in Phase 1 or Phase 2.
 - Select fork block and archive rehearsal output.
 - Prepare transaction batch.
-- Obtain reviewer signoff.
+- Obtain two-person reviewer signoff.
 - Execute through Safe only.
 - Archive final verification report.

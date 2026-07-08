@@ -93,7 +93,7 @@ export default function DocsPage() {
               <li>• The final remediation follow-up is dated {SITE_STATUS.finalRemediationReportDate} and applies to commit {SITE_STATUS.reviewedSolidityCommit}.</li>
               <li>• No open technical remediation findings remain in that scoped Solidity review.</li>
               <li>• F-09 remains documented as an accepted informational design decision about the validator trust model.</li>
-              <li>• Live Base deployment and on-chain parity were outside the auditor&apos;s scope and were verified separately by FAIVR earlier.</li>
+              <li>• Live Base deployment and on-chain parity were outside the auditor&apos;s scope and must be checked as separate operational evidence.</li>
             </ul>
           </Card>
         </section>

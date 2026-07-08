@@ -8,7 +8,7 @@ export const SITE_STATUS = {
   auditSummary:
     "No open technical remediation findings remain. F-09 is accepted as an informational design decision about the current validator trust model.",
   auditScopeNote:
-    "The 2026-04-30 follow-up covered the reviewed Solidity snapshot only. Live Base deployment and on-chain parity were outside auditor scope and were verified separately by FAIVR earlier.",
+    "The 2026-04-30 follow-up covered the reviewed Solidity snapshot only. Live Base deployment and on-chain parity are separate operational claims and are not proven by that auditor follow-up.",
   finalRemediationReportDate: "2026-04-30",
   reviewedSolidityCommit: "988b9aa",
   liveParityBlock: 44779369,

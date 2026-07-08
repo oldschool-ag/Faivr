@@ -11,6 +11,8 @@ This is a critical production/governance risk for fund-touching contracts:
 - users cannot rely on public repo hardening alone to mitigate live protocol-admin risk;
 - CI, docs, linting, and web hardening do not change onchain authority.
 
-Production readiness must not be claimed until this is independently remediated or disproven with current onchain verification. The expected target posture is a Safe-controlled admin path, preferably with timelock protection for upgrades and privileged configuration.
+Production readiness must not be claimed until admin authority and timelock status are backed by current onchain verification and disclosed in release notes. The expected target posture is a Safe-controlled admin path, preferably with timelock protection for upgrades and privileged configuration.
+
+If timelock protection is absent or deferred, release notes must say so explicitly. Disclosure alone does not remediate the governance risk.
 
 See `docs/admin-migration-runbook.md` for the prepared remediation plan. No live admin-role change is performed by this repository hardening work.

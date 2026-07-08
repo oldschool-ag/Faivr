@@ -25,6 +25,12 @@ contract FaivrIdentityRegistryTest is Test {
 
     // ── register(string, MetadataEntry[]) ────────────────
 
+    function test_revert_initialize_zeroAdmin() public {
+        FaivrIdentityRegistry impl = new FaivrIdentityRegistry();
+        vm.expectRevert(abi.encodeWithSignature("ZeroAddress()"));
+        new ERC1967Proxy(address(impl), abi.encodeCall(FaivrIdentityRegistry.initialize, (address(0))));
+    }
+
     function test_registerWithMetadata() public {
         IFaivrIdentityRegistry.MetadataEntry[] memory meta = new IFaivrIdentityRegistry.MetadataEntry[](1);
         meta[0] = IFaivrIdentityRegistry.MetadataEntry("foo", abi.encode(42));
@@ -219,6 +225,22 @@ contract FaivrIdentityRegistryTest is Test {
         vm.prank(alice);
         registry.deactivateAgent(agentId);
         vm.prank(alice);
+        registry.reactivateAgent(agentId);
+        assertTrue(registry.isActive(agentId));
+    }
+
+    function test_deactivateAndReactivate_approvedAddress() public {
+        vm.prank(alice);
+        uint256 agentId = registry.register("ipfs://agent");
+
+        vm.prank(alice);
+        registry.approve(bob, agentId);
+
+        vm.prank(bob);
+        registry.deactivateAgent(agentId);
+        assertFalse(registry.isActive(agentId));
+
+        vm.prank(bob);
         registry.reactivateAgent(agentId);
         assertTrue(registry.isActive(agentId));
     }

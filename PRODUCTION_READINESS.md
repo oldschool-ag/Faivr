@@ -2,7 +2,9 @@
 
 ## Current Status
 
-Repo and app hardening has been prepared in this branch. FAIVR must not be described as production-ready while live upgrade authority remains unresolved.
+Repo and app hardening has been prepared in this branch. FAIVR must not be described as production-ready while live upgrade authority, Safe status, and timelock status remain unverified or unresolved.
+
+Docs, scripts, and CI changes are preparation work. They do not change live onchain admin authority.
 
 ## Completed In This Pass
 
@@ -17,6 +19,7 @@ Repo and app hardening has been prepared in this branch. FAIVR must not be descr
 - Vercel config is standardized on `web/vercel.json`.
 - Deployment, GitHub settings, release, security, and admin-migration docs are present.
 - Read-only admin role readiness tooling is present at `contracts/script/AdminRoleReadiness.s.sol`.
+- Admin-event monitoring runbook and machine-readable alert template are present at `docs/admin-monitoring-runbook.md` and `docs/admin-monitoring-config.json`.
 
 ## Historical Public Exposure
 
@@ -41,10 +44,14 @@ History rewrite, cache invalidation, and secret/identifier risk review are separ
 - Review `npm audit` output and schedule dependency remediation.
 - Rehearse admin migration on a fork.
 - Migrate live admin authority to Safe and, preferably, timelock.
+- Configure live monitoring for upgrades, role changes, and Safe owner/threshold changes.
+- Archive Safe, timelock, admin-role, and monitoring evidence with the relevant release.
 
 ## Blocking Risks Still Open
 
-- Single-EOA live upgrade authority: unresolved until current onchain verification proves otherwise or migration is completed.
+- Live upgrade/admin authority: unresolved until current onchain verification proves Safe-controlled authority or migration is completed.
+- Timelock status: unresolved until current onchain verification proves a live timelock or release notes explicitly disclose that it is absent/deferred.
+- Admin monitoring: unresolved until live alerts are configured and tested.
 - Branch protection not yet enforced in GitHub settings: unresolved until manually enabled.
 - Commit provenance/signing not yet enforced: unresolved until manually enabled or formally deferred.
 - Remaining public-history exposure: unresolved unless repository history and external caches are separately remediated.

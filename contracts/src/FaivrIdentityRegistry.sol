@@ -51,6 +51,8 @@ contract FaivrIdentityRegistry is
     }
 
     function initialize(address admin) external initializer {
+        if (admin == address(0)) revert ZeroAddress();
+
         __ERC721_init("FAIVR Agent", "FAGENT");
         __ERC721URIStorage_init();
         __UUPSUpgradeable_init();
@@ -186,14 +188,14 @@ contract FaivrIdentityRegistry is
     // ── FAIVR Extensions ─────────────────────────────────
 
     function deactivateAgent(uint256 agentId) external override {
-        if (ownerOf(agentId) != msg.sender) revert NotAgentOwner(agentId);
+        _requireOwnerOrApproved(agentId);
         if (!_agentActive[agentId]) revert AgentNotActive(agentId);
         _agentActive[agentId] = false;
         emit AgentDeactivated(agentId);
     }
 
     function reactivateAgent(uint256 agentId) external override {
-        if (ownerOf(agentId) != msg.sender) revert NotAgentOwner(agentId);
+        _requireOwnerOrApproved(agentId);
         if (_agentActive[agentId]) revert AgentAlreadyActive(agentId);
         _agentActive[agentId] = true;
         emit AgentReactivated(agentId);

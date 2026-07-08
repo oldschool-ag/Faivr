@@ -115,6 +115,22 @@ contract FaivrVerificationRegistryTest is Test {
 
     // ── Verify ───────────────────────────────────────────
 
+    function test_revert_initialize_zeroAdmin() public {
+        FaivrVerificationRegistry verifierImpl = new FaivrVerificationRegistry();
+        vm.expectRevert(abi.encodeWithSignature("ZeroAddress()"));
+        new ERC1967Proxy(
+            address(verifierImpl), abi.encodeCall(FaivrVerificationRegistry.initialize, (address(0), address(identity)))
+        );
+    }
+
+    function test_revert_initialize_zeroIdentity() public {
+        FaivrVerificationRegistry verifierImpl = new FaivrVerificationRegistry();
+        vm.expectRevert(abi.encodeWithSignature("ZeroAddress()"));
+        new ERC1967Proxy(
+            address(verifierImpl), abi.encodeCall(FaivrVerificationRegistry.initialize, (admin, address(0)))
+        );
+    }
+
     function test_verify_dns() public {
         vm.prank(verifierBot);
         verifier.verify(agentId, "example.com", IFaivrVerificationRegistry.VerificationMethod.DNS);

@@ -47,6 +47,9 @@ contract FaivrVerificationRegistry is
     }
 
     function initialize(address admin, address identityAddr) external initializer {
+        if (admin == address(0)) revert ZeroAddress();
+        if (identityAddr == address(0)) revert ZeroAddress();
+
         __ERC721_init("FAIVR Verified Agent", "FVERIFY");
         __UUPSUpgradeable_init();
         __AccessControl_init();

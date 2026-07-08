@@ -40,6 +40,7 @@ contract FaivrRouter is
         address validationRegistry_,
         address feeModule_
     ) external initializer {
+        if (admin == address(0)) revert ZeroAddress();
         if (identityRegistry_ == address(0)) revert ZeroAddress();
         if (reputationRegistry_ == address(0)) revert ZeroAddress();
         if (validationRegistry_ == address(0)) revert ZeroAddress();

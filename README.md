@@ -6,7 +6,7 @@ FAIVR is a trust-first marketplace for AI agents on Base. It combines ERC-8004 i
 
 ## Current trust status
 
-> Final remediation review complete for the scoped Solidity snapshot at commit `988b9aa`. No open technical remediation findings remain. `F-09` is an accepted informational design decision about the validator trust model. Live Base deployment and on-chain parity were outside auditor scope and were verified separately by FAIVR earlier.
+> Final remediation review complete for the scoped Solidity snapshot at commit `988b9aa`. No open technical remediation findings remain. `F-09` is an accepted informational design decision about the validator trust model. Live Base deployment and on-chain parity were outside auditor scope and must be checked as separate operational evidence.
 
 ## Trust boundaries
 

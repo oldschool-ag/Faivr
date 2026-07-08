@@ -498,6 +498,15 @@ contract FaivrFeeModuleTest is Test {
 
     // ── Admin ────────────────────────────────────────────
 
+    function test_revert_initialize_zeroAdmin() public {
+        FaivrFeeModule feeImpl = new FaivrFeeModule();
+        vm.expectRevert(abi.encodeWithSignature("ZeroAddress()"));
+        new ERC1967Proxy(
+            address(feeImpl),
+            abi.encodeCall(FaivrFeeModule.initialize, (address(0), protocolWallet, devWallet, address(identity)))
+        );
+    }
+
     function test_setFeePercentage() public {
         vm.prank(admin);
         feeModule.setFeePercentage(500); // 5%

@@ -1,0 +1,95 @@
+{
+  "status": "template-not-live-evidence",
+  "network": {
+    "name": "base-mainnet",
+    "chainId": 8453
+  },
+  "alertChannel": "REPLACE_WITH_PRIVATE_OPS_CHANNEL",
+  "minimumReviewers": 2,
+  "reviewers": [
+    "REPLACE_WITH_REVIEWER_1",
+    "REPLACE_WITH_REVIEWER_2"
+  ],
+  "contracts": [
+    {
+      "name": "Identity Registry",
+      "address": "0x8D97B74fA9bFa67Db1A8Cf315dA91390612B90F6"
+    },
+    {
+      "name": "Reputation Registry",
+      "address": "0x00280bc9cFF156a8E8E9aE7c54029B74902a829c"
+    },
+    {
+      "name": "Validation Registry",
+      "address": "0x95DF02B02e2D777E0fcB80F83c061500C112F05b"
+    },
+    {
+      "name": "Fee Module",
+      "address": "0xD68D402Bb450A79D8e639e41F0455990A223E47F"
+    },
+    {
+      "name": "Router",
+      "address": "0x7EC51888ecd3E47c6F4cF324474041790C8aB7fa"
+    },
+    {
+      "name": "Verification Registry",
+      "address": "0x6654FA7d6eE8A0f6641a5535AeE346115f06e161"
+    }
+  ],
+  "contractEvents": [
+    {
+      "name": "Upgraded",
+      "signature": "Upgraded(address)",
+      "topic0": "0xbc7cd75a20ee27fd9adebab32041f755214dbc6bffa90cc0225b39da2e5c2d3b",
+      "severity": "critical",
+      "review": "Confirm implementation address, caller, Safe transaction, release note, and storage-compatibility evidence."
+    },
+    {
+      "name": "RoleGranted",
+      "signature": "RoleGranted(bytes32,address,address)",
+      "topic0": "0x2f8788117e7eff1d82e926ec794901d17c78024a50270940304540a733656f0d",
+      "severity": "high",
+      "review": "Confirm role, account, sender, approved batch, and release note."
+    },
+    {
+      "name": "RoleRevoked",
+      "signature": "RoleRevoked(bytes32,address,address)",
+      "topic0": "0xf6391f5c32d9c69d2a47ea670b442974b53935d1edc7fd64eb21e047a839171b",
+      "severity": "high",
+      "review": "Confirm role, account, sender, Safe receipt, and migration sequence."
+    },
+    {
+      "name": "RoleAdminChanged",
+      "signature": "RoleAdminChanged(bytes32,bytes32,bytes32)",
+      "topic0": "0xbd79b86ffe0ab8e8776151514217cd7cacd52c909f66475c3af44e129f0b00ff",
+      "severity": "critical",
+      "review": "Confirm role admin change against governance approval."
+    }
+  ],
+  "safe": {
+    "address": "REPLACE_WITH_TARGET_SAFE",
+    "events": [
+      {
+        "name": "AddedOwner",
+        "signature": "AddedOwner(address)",
+        "topic0": "0x9465fa0c962cc76958e6373a993326400c1c94f8be2fe3a952adfa7f60b2ea26",
+        "severity": "critical",
+        "review": "Confirm new owner against approved owner roster."
+      },
+      {
+        "name": "RemovedOwner",
+        "signature": "RemovedOwner(address)",
+        "topic0": "0xf8d49fc529812e9a7c5c50e69c20f0dccc0db8fa95c98bc58cc9a4f1c1299eaf",
+        "severity": "critical",
+        "review": "Confirm removed owner against approved owner roster."
+      },
+      {
+        "name": "ChangedThreshold",
+        "signature": "ChangedThreshold(uint256)",
+        "topic0": "0x610f7ff2b304ae8903c3de74c60c6ab1f7d6226b3f52c5161905bb5ad4039c93",
+        "severity": "critical",
+        "review": "Confirm threshold remains at or above the approved minimum."
+      }
+    ]
+  }
+}

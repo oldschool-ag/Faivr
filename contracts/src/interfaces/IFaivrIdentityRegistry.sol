@@ -27,6 +27,7 @@ interface IFaivrIdentityRegistry {
     error InvalidSignature();
     error SignatureExpired();
     error AgentDoesNotExist(uint256 agentId);
+    error ZeroAddress();
 
     // ── ERC-8004 Registration ────────────────────────────
     function register(string calldata agentURI, MetadataEntry[] calldata metadata) external returns (uint256 agentId);

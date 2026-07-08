@@ -197,7 +197,19 @@ contract FaivrRouterTest is Test {
         router.settleAndGiveFeedback(taskId, secondAgentId, 90, 0, "quality", "");
     }
 
-    function test_revert_initialize_zeroAddress() public {
+    function test_revert_initialize_zeroAdmin() public {
+        FaivrRouter impl = new FaivrRouter();
+        vm.expectRevert(abi.encodeWithSignature("ZeroAddress()"));
+        new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(
+                FaivrRouter.initialize,
+                (address(0), address(identity), address(reputation), address(validation), address(feeModule))
+            )
+        );
+    }
+
+    function test_revert_initialize_zeroDependencyAddress() public {
         FaivrRouter impl = new FaivrRouter();
         vm.expectRevert(abi.encodeWithSignature("ZeroAddress()"));
         new ERC1967Proxy(

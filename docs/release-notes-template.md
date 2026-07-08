@@ -24,7 +24,21 @@
 - Vercel deployment URL:
 - Contract addresses:
 - Audit reference commit/report:
-- Admin/governance status:
+
+## Admin / Governance Status
+
+- Safe admin status:
+- Timelock status: `live | absent/deferred | not applicable`
+- Timelock evidence:
+- Admin-role migration batch review:
+  - Reviewer 1:
+  - Reviewer 2:
+  - Batch hash or Safe transaction URL:
+- Onchain verification evidence:
+- Monitoring status:
+  - Upgrade alerts:
+  - AccessControl role alerts:
+  - Safe owner/threshold alerts:
 
 ## Rollback Notes
 
@@ -35,6 +49,7 @@
 ## Known Blockers
 
 - Protocol admin risk:
+- Timelock:
 - GitHub settings:
 - Commit provenance:
 - Public-history exposure:

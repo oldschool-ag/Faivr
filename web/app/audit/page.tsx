@@ -49,7 +49,7 @@ export default function AuditPage() {
             <h2 className="text-xl font-semibold text-slate-950">Scope boundary</h2>
             <p className="mt-3 text-sm leading-6 text-slate-700">
               The final follow-up does not independently re-review live Base deployment or on-chain source-code parity.
-              FAIVR verified those earlier on its side.
+              Treat those as separate operational evidence, not as auditor-reviewed closure.
             </p>
           </Card>
         </section>

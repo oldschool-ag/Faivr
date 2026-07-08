@@ -83,6 +83,7 @@ contract FaivrFeeModule is
         external
         initializer
     {
+        if (admin == address(0)) revert ZeroAddress();
         if (protocolWallet_ == address(0)) revert ZeroAddress();
         if (devWallet_ == address(0)) revert ZeroAddress();
         if (identityRegistry_ == address(0)) revert ZeroAddress();
