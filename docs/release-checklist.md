@@ -46,5 +46,6 @@ Do not tag or describe any live admin migration as complete until:
 - EOA role revocation is verified onchain;
 - timelock status is either implemented or explicitly listed as unresolved.
 - monitoring status for upgrades, role changes, and Safe owner/threshold changes is either configured or explicitly deferred.
+- live admin evidence from `docs/live-admin-verification-checklist.md` is archived with the release.
 
 Do not describe a fund-touching release as production-ready unless Safe authority and timelock status are backed by current evidence and disclosed in the release notes. If timelock is absent or deferred, that disclosure does not by itself remediate the governance risk.

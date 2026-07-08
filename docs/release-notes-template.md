@@ -35,6 +35,7 @@
   - Reviewer 2:
   - Batch hash or Safe transaction URL:
 - Onchain verification evidence:
+  - Live admin verification checklist artifact:
 - Monitoring status:
   - Upgrade alerts:
   - AccessControl role alerts:

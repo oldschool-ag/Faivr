@@ -14,12 +14,13 @@ Use `docs/admin-monitoring-config.json` as the alert source of truth.
 
 ## Setup
 
-1. Replace `REPLACE_WITH_TARGET_SAFE` in `docs/admin-monitoring-config.json` with the verified admin Safe address.
-2. Replace reviewer and alert-channel placeholders with real private ops contacts.
-3. Import the contract addresses and event topics into the chosen alerting tool.
-4. Send alerts to a private channel watched by at least two reviewers.
-5. Trigger or simulate one test alert per event family before treating monitoring as live.
-6. Archive tool name, alert IDs, test alert timestamps, reviewer names, and screenshots or exported alert payloads with release notes.
+1. Complete `docs/live-admin-verification-checklist.md` and identify the verified admin Safe address.
+2. Replace `REPLACE_WITH_TARGET_SAFE` in `docs/admin-monitoring-config.json` with that Safe address.
+3. Replace reviewer and alert-channel placeholders with real private ops contacts.
+4. Import the contract addresses and event topics into the chosen alerting tool.
+5. Send alerts to a private channel watched by at least two reviewers.
+6. Trigger or simulate one test alert per event family before treating monitoring as live.
+7. Archive tool name, alert IDs, test alert timestamps, reviewer names, and screenshots or exported alert payloads with release notes.
 
 ## Review Rules
 

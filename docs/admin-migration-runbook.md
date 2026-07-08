@@ -44,6 +44,8 @@ cd contracts
 CURRENT_ADMIN=<candidate-eoa> TARGET_SAFE=<safe-address> forge script script/AdminRoleReadiness.s.sol:AdminRoleReadiness --rpc-url <fork-or-base-rpc>
 ```
 
+For exhaustive live holder evidence, complete `docs/live-admin-verification-checklist.md`. `AdminRoleReadiness` confirms known candidates only; it does not enumerate all AccessControl holders.
+
 3. Prepare grant transactions for every role that must move to the Safe.
 4. Simulate grant transactions.
 5. Verify the Safe has each expected role.
@@ -55,7 +57,7 @@ CURRENT_ADMIN=<candidate-eoa> TARGET_SAFE=<safe-address> forge script script/Adm
 
 1. Freeze unrelated admin actions.
 2. Verify Safe owners and threshold.
-3. Verify the current role holder set using the read-only script.
+3. Verify the current role holder set using `docs/live-admin-verification-checklist.md`.
 4. Obtain the two-person batch review record.
 5. Submit Safe transactions to grant required roles to the Safe.
 6. Confirm each grant onchain.

@@ -20,6 +20,7 @@ Docs, scripts, and CI changes are preparation work. They do not change live onch
 - Deployment, GitHub settings, release, security, and admin-migration docs are present.
 - Read-only admin role readiness tooling is present at `contracts/script/AdminRoleReadiness.s.sol`.
 - Admin-event monitoring runbook and machine-readable alert template are present at `docs/admin-monitoring-runbook.md` and `docs/admin-monitoring-config.json`.
+- Read-only live admin verification checklist is present at `docs/live-admin-verification-checklist.md`.
 
 ## Historical Public Exposure
 
