@@ -34,7 +34,11 @@ function parseAgentURI(uri: string, id: number): AgentData {
     active: true,
     pricingMode: parsed.pricingMode,
     primaryToken: parsed.primaryToken,
+    fixedPriceAmount: parsed.fixedPriceAmount,
+    billingPeriod: parsed.billingPeriod,
     deliveryDescription: parsed.deliveryDescription,
+    targetBuyer: parsed.targetBuyer,
+    domain: parsed.domain,
     isExample: false,
   };
 }

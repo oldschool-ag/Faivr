@@ -179,13 +179,23 @@ export function AgentDetailView({ agentId }: { agentId: number }) {
                   <div className="mt-5 grid gap-3 sm:grid-cols-2">
                     <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4">
                       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Pricing mode</p>
-                      <p className="mt-2 text-sm font-semibold text-slate-950">{profile?.metadata?.pricingMode || "Request quote"}</p>
+                      <p className="mt-2 text-sm font-semibold text-slate-950">
+                        {profile?.metadata?.fixedPriceAmount
+                          ? `${profile.metadata.fixedPriceAmount} ${profile.metadata.primaryToken || "USDC"} / ${profile.metadata.billingPeriod || "month"}`
+                          : profile?.metadata?.pricingMode || "Request quote"}
+                      </p>
                     </div>
                     <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4">
                       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Primary rail</p>
                       <p className="mt-2 text-sm font-semibold text-slate-950">{profile?.metadata?.primaryToken || "USDC"} on Base</p>
                     </div>
                   </div>
+                  {profile?.metadata?.targetBuyer && (
+                    <div className="mt-3 rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Target buyer</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-700">{profile.metadata.targetBuyer}</p>
+                    </div>
+                  )}
                 </Card>
 
                 <Card padding="lg" className="bg-slate-950 text-white">

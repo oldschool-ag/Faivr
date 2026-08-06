@@ -1,0 +1,81 @@
+{
+  "ownerAddress": "0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227",
+  "pricing": {
+    "mode": "Fixed price",
+    "amount": "100",
+    "token": "USDC",
+    "billingPeriod": "month"
+  },
+  "agents": [
+    {
+      "name": "Ivy",
+      "description": "Cross-product marketing and communications agent for positioning, launch strategy, messaging, content production, channel execution planning, traffic monitoring, and post-launch iteration.",
+      "targetBuyer": "Old School founders and operators who need marketing and communications execution support.",
+      "deliverable": "Positioning brief, launch narrative, content plan, channel execution support, and growth monitoring.",
+      "category": "Marketing",
+      "mcpEndpoint": "",
+      "a2aEndpoint": "openai-marketing",
+      "domain": ""
+    },
+    {
+      "name": "Clara",
+      "description": "KANN product and GTM collaboration agent for positioning, KPI design, launch sequencing, channel planning, and bottleneck resolution.",
+      "targetBuyer": "KANN operators and product stakeholders who need product and go-to-market execution support.",
+      "deliverable": "Product brief, KPI framing, launch sequence, channel plan, and bottleneck-resolution support.",
+      "category": "Product",
+      "mcpEndpoint": "",
+      "a2aEndpoint": "openai-kann",
+      "domain": "https://kann.tech"
+    },
+    {
+      "name": "Nora",
+      "description": "SCR product and GTM collaboration agent for positioning, KPI design, launch sequencing, channel planning, and bottleneck resolution.",
+      "targetBuyer": "SCR and GDER operators who need product and go-to-market execution support.",
+      "deliverable": "Product brief, KPI framing, launch sequence, channel plan, and bottleneck-resolution support.",
+      "category": "Product",
+      "mcpEndpoint": "",
+      "a2aEndpoint": "openai-scr",
+      "domain": "https://gder.net"
+    },
+    {
+      "name": "Lyra",
+      "description": "FAIVR product and GTM collaboration agent for positioning, KPI design, launch sequencing, channel planning, and bottleneck resolution.",
+      "targetBuyer": "FAIVR operators and product stakeholders who need product and go-to-market execution support.",
+      "deliverable": "Product brief, KPI framing, launch sequence, channel plan, and bottleneck-resolution support.",
+      "category": "Product",
+      "mcpEndpoint": "",
+      "a2aEndpoint": "openai-faivr",
+      "domain": "https://faivr.ai"
+    },
+    {
+      "name": "Cora",
+      "description": "Office OS and AI operating-system strategy agent associated with the owner-led SME operating-system framing.",
+      "targetBuyer": "Owner-led SMEs evaluating an AI operating-system model.",
+      "deliverable": "Office OS framing, buyer-fit assessment, and commercial architecture guidance.",
+      "category": "Strategy",
+      "mcpEndpoint": "",
+      "a2aEndpoint": "",
+      "domain": "https://oldschool.ag"
+    },
+    {
+      "name": "Ada",
+      "description": "Escalation and operations agent for cross-product approvals, arbitration, and conflict handling.",
+      "targetBuyer": "Old School operators who need escalation or approval handling.",
+      "deliverable": "Operational arbitration, approval handling, and escalation support.",
+      "category": "Operations",
+      "mcpEndpoint": "",
+      "a2aEndpoint": "",
+      "domain": ""
+    },
+    {
+      "name": "Rook",
+      "description": "Bounded reviewer and challenger agent for explicit review requests.",
+      "targetBuyer": "Teams that want a reviewer or challenger pass before shipping.",
+      "deliverable": "Structured review, challenge pass, and risk spotting.",
+      "category": "Review",
+      "mcpEndpoint": "",
+      "a2aEndpoint": "openai-grok",
+      "domain": ""
+    }
+  ]
+}

@@ -24,7 +24,11 @@ export interface AgentData {
   active?: boolean;
   pricingMode?: string;
   primaryToken?: string;
+  fixedPriceAmount?: string;
+  billingPeriod?: string;
   deliveryDescription?: string;
+  targetBuyer?: string;
+  domain?: string;
   isExample?: boolean;
   isGenesis?: boolean;
 }
@@ -70,8 +74,11 @@ export function AgentCard({ agent }: { agent: AgentData }) {
   const pricingLine = useMemo(() => {
     const mode = agent.pricingMode || "Request quote";
     const token = agent.primaryToken || "USDC";
+    if (agent.fixedPriceAmount && mode.toLowerCase().includes("fixed")) {
+      return `${agent.fixedPriceAmount} ${token} / ${agent.billingPeriod || "month"}`;
+    }
     return `${mode} · ${token} on Base`;
-  }, [agent.primaryToken, agent.pricingMode]);
+  }, [agent.billingPeriod, agent.fixedPriceAmount, agent.primaryToken, agent.pricingMode]);
 
   return (
     <>

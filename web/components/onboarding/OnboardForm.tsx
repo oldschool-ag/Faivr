@@ -15,10 +15,13 @@ export function OnboardForm() {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("DeFi");
   const [description, setDescription] = useState("");
+  const [targetBuyer, setTargetBuyer] = useState("");
   const [deliveryDescription, setDeliveryDescription] = useState("");
   const [pricingMode, setPricingMode] = useState<(typeof PRICING_MODES)[number]>("Fixed price");
+  const [fixedPriceAmount, setFixedPriceAmount] = useState("100");
   const [mcpEndpoint, setMcpEndpoint] = useState("");
   const [a2aEndpoint, setA2aEndpoint] = useState("");
+  const [domain, setDomain] = useState("");
   const [agentId, setAgentId] = useState<number | null>(null);
 
   const { isConnected } = useAccount();
@@ -50,11 +53,15 @@ export function OnboardForm() {
       name: name.trim(),
       description: description.trim(),
       category,
+      targetBuyer: targetBuyer.trim() || undefined,
       pricingMode,
       primaryToken: TOKENS.USDC.symbol,
+      fixedPriceAmount: fixedPriceAmount.trim() || undefined,
+      billingPeriod: "month",
       deliveryDescription: deliveryDescription.trim(),
       mcpEndpoint: mcpEndpoint.trim() || undefined,
       a2aEndpoint: a2aEndpoint.trim() || undefined,
+      domain: domain.trim() || undefined,
     });
 
     writeContract({
@@ -100,10 +107,13 @@ export function OnboardForm() {
                 setAgentId(null);
                 setName("");
                 setDescription("");
+                setTargetBuyer("");
                 setDeliveryDescription("");
                 setPricingMode("Fixed price");
+                setFixedPriceAmount("100");
                 setMcpEndpoint("");
                 setA2aEndpoint("");
+                setDomain("");
               }}
             >
               Register another
@@ -177,6 +187,20 @@ export function OnboardForm() {
         </div>
 
         <div className="space-y-2">
+          <label htmlFor="target-buyer" className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+            Target buyer
+          </label>
+          <input
+            id="target-buyer"
+            type="text"
+            value={targetBuyer}
+            onChange={(e) => setTargetBuyer(e.target.value)}
+            placeholder="Who is this for?"
+            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-sky-300 focus:bg-white focus:outline-none"
+          />
+        </div>
+
+        <div className="space-y-2">
           <label htmlFor="delivery-description" className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
             What the buyer receives
           </label>
@@ -209,10 +233,43 @@ export function OnboardForm() {
             </select>
           </div>
           <div className="space-y-2">
+            <label htmlFor="fixed-price-amount" className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+              Monthly price
+            </label>
+            <div className="flex items-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+              <input
+                id="fixed-price-amount"
+                type="number"
+                min="0"
+                step="0.01"
+                value={fixedPriceAmount}
+                onChange={(e) => setFixedPriceAmount(e.target.value)}
+                className="w-full bg-transparent text-sm font-medium text-emerald-800 outline-none"
+              />
+              <span className="text-sm font-semibold text-emerald-700">USDC / month</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
             <label className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">Primary payment rail</label>
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
               {TOKENS.USDC.symbol} on Base
             </div>
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="agent-domain" className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+              Domain
+            </label>
+            <input
+              id="agent-domain"
+              type="text"
+              value={domain}
+              onChange={(e) => setDomain(e.target.value)}
+              placeholder="agent.oldschool.so"
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-sky-300 focus:bg-white focus:outline-none"
+            />
           </div>
         </div>
 

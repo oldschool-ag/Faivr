@@ -1,0 +1,247 @@
+{
+  "manifestVersion": 1,
+  "generatedAt": "2026-08-06T12:02:45.522Z",
+  "ownerAddress": "0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227",
+  "pricing": {
+    "mode": "Fixed price",
+    "amount": "100",
+    "token": "USDC",
+    "billingPeriod": "month"
+  },
+  "sourceInventory": "docs/oldschool-agent-inventory.json",
+  "agents": [
+    {
+      "slug": "ivy",
+      "ownerAddress": "0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227",
+      "pricing": {
+        "mode": "Fixed price",
+        "amount": "100",
+        "token": "USDC",
+        "billingPeriod": "month"
+      },
+      "trust": {
+        "status": "trusted",
+        "basis": "Ada inventory handoff on 2026-08-06"
+      },
+      "metadata": {
+        "name": "Ivy",
+        "description": "Cross-product marketing and communications agent for positioning, launch strategy, messaging, content production, channel execution planning, traffic monitoring, and post-launch iteration.",
+        "targetBuyer": "Old School founders and operators who need marketing and communications execution support.",
+        "category": "Marketing",
+        "pricingMode": "Fixed price",
+        "primaryToken": "USDC",
+        "fixedPriceAmount": "100",
+        "billingPeriod": "month",
+        "deliveryDescription": "Positioning brief, launch narrative, content plan, channel execution support, and growth monitoring.",
+        "ownerAddress": "0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227",
+        "a2aEndpoint": "openai-marketing"
+      },
+      "agentURI": "{\"name\":\"Ivy\",\"description\":\"Cross-product marketing and communications agent for positioning, launch strategy, messaging, content production, channel execution planning, traffic monitoring, and post-launch iteration.\",\"targetBuyer\":\"Old School founders and operators who need marketing and communications execution support.\",\"category\":\"Marketing\",\"pricingMode\":\"Fixed price\",\"primaryToken\":\"USDC\",\"fixedPriceAmount\":\"100\",\"billingPeriod\":\"month\",\"deliveryDescription\":\"Positioning brief, launch narrative, content plan, channel execution support, and growth monitoring.\",\"ownerAddress\":\"0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227\",\"a2aEndpoint\":\"openai-marketing\"}",
+      "install": {
+        "type": "openclaw-session",
+        "agentId": "openai-marketing",
+        "importMode": "operator-routed"
+      }
+    },
+    {
+      "slug": "clara",
+      "ownerAddress": "0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227",
+      "pricing": {
+        "mode": "Fixed price",
+        "amount": "100",
+        "token": "USDC",
+        "billingPeriod": "month"
+      },
+      "trust": {
+        "status": "trusted",
+        "basis": "Ada inventory handoff on 2026-08-06"
+      },
+      "metadata": {
+        "name": "Clara",
+        "description": "KANN product and GTM collaboration agent for positioning, KPI design, launch sequencing, channel planning, and bottleneck resolution.",
+        "targetBuyer": "KANN operators and product stakeholders who need product and go-to-market execution support.",
+        "category": "Product",
+        "pricingMode": "Fixed price",
+        "primaryToken": "USDC",
+        "fixedPriceAmount": "100",
+        "billingPeriod": "month",
+        "deliveryDescription": "Product brief, KPI framing, launch sequence, channel plan, and bottleneck-resolution support.",
+        "ownerAddress": "0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227",
+        "domain": "https://kann.tech",
+        "a2aEndpoint": "openai-kann"
+      },
+      "agentURI": "{\"name\":\"Clara\",\"description\":\"KANN product and GTM collaboration agent for positioning, KPI design, launch sequencing, channel planning, and bottleneck resolution.\",\"targetBuyer\":\"KANN operators and product stakeholders who need product and go-to-market execution support.\",\"category\":\"Product\",\"pricingMode\":\"Fixed price\",\"primaryToken\":\"USDC\",\"fixedPriceAmount\":\"100\",\"billingPeriod\":\"month\",\"deliveryDescription\":\"Product brief, KPI framing, launch sequence, channel plan, and bottleneck-resolution support.\",\"ownerAddress\":\"0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227\",\"domain\":\"https://kann.tech\",\"a2aEndpoint\":\"openai-kann\"}",
+      "install": {
+        "type": "openclaw-session",
+        "agentId": "openai-kann",
+        "importMode": "operator-routed"
+      }
+    },
+    {
+      "slug": "nora",
+      "ownerAddress": "0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227",
+      "pricing": {
+        "mode": "Fixed price",
+        "amount": "100",
+        "token": "USDC",
+        "billingPeriod": "month"
+      },
+      "trust": {
+        "status": "trusted",
+        "basis": "Ada inventory handoff on 2026-08-06"
+      },
+      "metadata": {
+        "name": "Nora",
+        "description": "SCR product and GTM collaboration agent for positioning, KPI design, launch sequencing, channel planning, and bottleneck resolution.",
+        "targetBuyer": "SCR and GDER operators who need product and go-to-market execution support.",
+        "category": "Product",
+        "pricingMode": "Fixed price",
+        "primaryToken": "USDC",
+        "fixedPriceAmount": "100",
+        "billingPeriod": "month",
+        "deliveryDescription": "Product brief, KPI framing, launch sequence, channel plan, and bottleneck-resolution support.",
+        "ownerAddress": "0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227",
+        "domain": "https://gder.net",
+        "a2aEndpoint": "openai-scr"
+      },
+      "agentURI": "{\"name\":\"Nora\",\"description\":\"SCR product and GTM collaboration agent for positioning, KPI design, launch sequencing, channel planning, and bottleneck resolution.\",\"targetBuyer\":\"SCR and GDER operators who need product and go-to-market execution support.\",\"category\":\"Product\",\"pricingMode\":\"Fixed price\",\"primaryToken\":\"USDC\",\"fixedPriceAmount\":\"100\",\"billingPeriod\":\"month\",\"deliveryDescription\":\"Product brief, KPI framing, launch sequence, channel plan, and bottleneck-resolution support.\",\"ownerAddress\":\"0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227\",\"domain\":\"https://gder.net\",\"a2aEndpoint\":\"openai-scr\"}",
+      "install": {
+        "type": "openclaw-session",
+        "agentId": "openai-scr",
+        "importMode": "operator-routed"
+      }
+    },
+    {
+      "slug": "lyra",
+      "ownerAddress": "0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227",
+      "pricing": {
+        "mode": "Fixed price",
+        "amount": "100",
+        "token": "USDC",
+        "billingPeriod": "month"
+      },
+      "trust": {
+        "status": "trusted",
+        "basis": "Ada inventory handoff on 2026-08-06"
+      },
+      "metadata": {
+        "name": "Lyra",
+        "description": "FAIVR product and GTM collaboration agent for positioning, KPI design, launch sequencing, channel planning, and bottleneck resolution.",
+        "targetBuyer": "FAIVR operators and product stakeholders who need product and go-to-market execution support.",
+        "category": "Product",
+        "pricingMode": "Fixed price",
+        "primaryToken": "USDC",
+        "fixedPriceAmount": "100",
+        "billingPeriod": "month",
+        "deliveryDescription": "Product brief, KPI framing, launch sequence, channel plan, and bottleneck-resolution support.",
+        "ownerAddress": "0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227",
+        "domain": "https://faivr.ai",
+        "a2aEndpoint": "openai-faivr"
+      },
+      "agentURI": "{\"name\":\"Lyra\",\"description\":\"FAIVR product and GTM collaboration agent for positioning, KPI design, launch sequencing, channel planning, and bottleneck resolution.\",\"targetBuyer\":\"FAIVR operators and product stakeholders who need product and go-to-market execution support.\",\"category\":\"Product\",\"pricingMode\":\"Fixed price\",\"primaryToken\":\"USDC\",\"fixedPriceAmount\":\"100\",\"billingPeriod\":\"month\",\"deliveryDescription\":\"Product brief, KPI framing, launch sequence, channel plan, and bottleneck-resolution support.\",\"ownerAddress\":\"0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227\",\"domain\":\"https://faivr.ai\",\"a2aEndpoint\":\"openai-faivr\"}",
+      "install": {
+        "type": "openclaw-session",
+        "agentId": "openai-faivr",
+        "importMode": "operator-routed"
+      }
+    },
+    {
+      "slug": "cora",
+      "ownerAddress": "0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227",
+      "pricing": {
+        "mode": "Fixed price",
+        "amount": "100",
+        "token": "USDC",
+        "billingPeriod": "month"
+      },
+      "trust": {
+        "status": "provisional",
+        "basis": "Ada inventory handoff on 2026-08-06"
+      },
+      "metadata": {
+        "name": "Cora",
+        "description": "Office OS and AI operating-system strategy agent associated with the owner-led SME operating-system framing.",
+        "targetBuyer": "Owner-led SMEs evaluating an AI operating-system model.",
+        "category": "Strategy",
+        "pricingMode": "Fixed price",
+        "primaryToken": "USDC",
+        "fixedPriceAmount": "100",
+        "billingPeriod": "month",
+        "deliveryDescription": "Office OS framing, buyer-fit assessment, and commercial architecture guidance.",
+        "ownerAddress": "0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227",
+        "domain": "https://oldschool.ag"
+      },
+      "agentURI": "{\"name\":\"Cora\",\"description\":\"Office OS and AI operating-system strategy agent associated with the owner-led SME operating-system framing.\",\"targetBuyer\":\"Owner-led SMEs evaluating an AI operating-system model.\",\"category\":\"Strategy\",\"pricingMode\":\"Fixed price\",\"primaryToken\":\"USDC\",\"fixedPriceAmount\":\"100\",\"billingPeriod\":\"month\",\"deliveryDescription\":\"Office OS framing, buyer-fit assessment, and commercial architecture guidance.\",\"ownerAddress\":\"0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227\",\"domain\":\"https://oldschool.ag\"}",
+      "install": {
+        "type": "openclaw-session",
+        "agentId": null,
+        "importMode": "operator-routed"
+      }
+    },
+    {
+      "slug": "ada",
+      "ownerAddress": "0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227",
+      "pricing": {
+        "mode": "Fixed price",
+        "amount": "100",
+        "token": "USDC",
+        "billingPeriod": "month"
+      },
+      "trust": {
+        "status": "provisional",
+        "basis": "Ada inventory handoff on 2026-08-06"
+      },
+      "metadata": {
+        "name": "Ada",
+        "description": "Escalation and operations agent for cross-product approvals, arbitration, and conflict handling.",
+        "targetBuyer": "Old School operators who need escalation or approval handling.",
+        "category": "Operations",
+        "pricingMode": "Fixed price",
+        "primaryToken": "USDC",
+        "fixedPriceAmount": "100",
+        "billingPeriod": "month",
+        "deliveryDescription": "Operational arbitration, approval handling, and escalation support.",
+        "ownerAddress": "0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227"
+      },
+      "agentURI": "{\"name\":\"Ada\",\"description\":\"Escalation and operations agent for cross-product approvals, arbitration, and conflict handling.\",\"targetBuyer\":\"Old School operators who need escalation or approval handling.\",\"category\":\"Operations\",\"pricingMode\":\"Fixed price\",\"primaryToken\":\"USDC\",\"fixedPriceAmount\":\"100\",\"billingPeriod\":\"month\",\"deliveryDescription\":\"Operational arbitration, approval handling, and escalation support.\",\"ownerAddress\":\"0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227\"}",
+      "install": {
+        "type": "openclaw-session",
+        "agentId": null,
+        "importMode": "operator-routed"
+      }
+    },
+    {
+      "slug": "rook",
+      "ownerAddress": "0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227",
+      "pricing": {
+        "mode": "Fixed price",
+        "amount": "100",
+        "token": "USDC",
+        "billingPeriod": "month"
+      },
+      "trust": {
+        "status": "provisional",
+        "basis": "Ada inventory handoff on 2026-08-06"
+      },
+      "metadata": {
+        "name": "Rook",
+        "description": "Bounded reviewer and challenger agent for explicit review requests.",
+        "targetBuyer": "Teams that want a reviewer or challenger pass before shipping.",
+        "category": "Review",
+        "pricingMode": "Fixed price",
+        "primaryToken": "USDC",
+        "fixedPriceAmount": "100",
+        "billingPeriod": "month",
+        "deliveryDescription": "Structured review, challenge pass, and risk spotting.",
+        "ownerAddress": "0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227",
+        "a2aEndpoint": "openai-grok"
+      },
+      "agentURI": "{\"name\":\"Rook\",\"description\":\"Bounded reviewer and challenger agent for explicit review requests.\",\"targetBuyer\":\"Teams that want a reviewer or challenger pass before shipping.\",\"category\":\"Review\",\"pricingMode\":\"Fixed price\",\"primaryToken\":\"USDC\",\"fixedPriceAmount\":\"100\",\"billingPeriod\":\"month\",\"deliveryDescription\":\"Structured review, challenge pass, and risk spotting.\",\"ownerAddress\":\"0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227\",\"a2aEndpoint\":\"openai-grok\"}",
+      "install": {
+        "type": "openclaw-session",
+        "agentId": "openai-grok",
+        "importMode": "operator-routed"
+      }
+    }
+  ]
+}

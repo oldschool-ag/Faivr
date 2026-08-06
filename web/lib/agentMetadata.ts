@@ -6,7 +6,14 @@ export type ParsedAgentMetadata = {
   validated?: boolean;
   pricingMode?: string;
   primaryToken?: string;
+  fixedPriceAmount?: string;
+  billingPeriod?: string;
   deliveryDescription?: string;
+  targetBuyer?: string;
+  domain?: string;
+  mcpEndpoint?: string;
+  a2aEndpoint?: string;
+  ownerAddress?: string;
 };
 
 export function decodeAgentURI(uri: string): string {
@@ -33,7 +40,14 @@ export function parseAgentMetadata(uri: string): ParsedAgentMetadata | null {
       validated?: boolean;
       pricingMode?: string;
       primaryToken?: string;
+      fixedPriceAmount?: string | number;
+      billingPeriod?: string;
       deliveryDescription?: string;
+      targetBuyer?: string;
+      domain?: string;
+      mcpEndpoint?: string;
+      a2aEndpoint?: string;
+      ownerAddress?: string;
     };
 
     const tags = Array.isArray(parsed.tags)
@@ -50,7 +64,19 @@ export function parseAgentMetadata(uri: string): ParsedAgentMetadata | null {
       validated: Boolean(parsed.validated),
       pricingMode: parsed.pricingMode,
       primaryToken: parsed.primaryToken,
+      fixedPriceAmount:
+        typeof parsed.fixedPriceAmount === "number"
+          ? parsed.fixedPriceAmount.toString()
+          : typeof parsed.fixedPriceAmount === "string"
+            ? parsed.fixedPriceAmount
+            : undefined,
+      billingPeriod: parsed.billingPeriod,
       deliveryDescription: parsed.deliveryDescription,
+      targetBuyer: parsed.targetBuyer,
+      domain: parsed.domain,
+      mcpEndpoint: parsed.mcpEndpoint,
+      a2aEndpoint: parsed.a2aEndpoint,
+      ownerAddress: parsed.ownerAddress,
     };
   } catch {
     return null;
