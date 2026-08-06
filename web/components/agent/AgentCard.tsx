@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { ExternalLink, X, Zap } from "lucide-react";
 import { VerifiedBadge } from "@/components/verification/VerifiedBadge";
 import { Badge } from "@/components/ui/Badge";
@@ -116,13 +117,21 @@ export function AgentCard({ agent }: { agent: AgentData }) {
           <div className="flex flex-wrap gap-1.5">
             {agent.tags.length > 0 ? agent.tags.map((tag) => <Badge key={tag}>{tag}</Badge>) : <Badge>Uncategorized</Badge>}
           </div>
-          <button
-            onClick={() => setShowDetail(true)}
-            className="text-xs font-semibold text-sky-700 transition-colors hover:text-sky-900"
-            aria-label={`View details for ${agent.name}`}
-          >
-            View details →
-          </button>
+          <div className="flex flex-col items-end gap-1.5">
+            <Link
+              href={`/marketplace/${agent.id}`}
+              className="text-xs font-semibold text-slate-950 transition-colors hover:text-sky-900"
+            >
+              Open workflow →
+            </Link>
+            <button
+              onClick={() => setShowDetail(true)}
+              className="text-xs font-semibold text-sky-700 transition-colors hover:text-sky-900"
+              aria-label={`View details for ${agent.name}`}
+            >
+              Quick view
+            </button>
+          </div>
         </div>
       </Card>
 
@@ -237,6 +246,10 @@ export function AgentCard({ agent }: { agent: AgentData }) {
                     <span className="text-slate-950">{agent.pricingMode || "Request quote"}</span>
                   </div>
                 </div>
+
+                <Link href={`/marketplace/${agent.id}`} className="mb-6 inline-flex text-sm font-semibold text-sky-700 hover:text-sky-900">
+                  Open the full workflow page →
+                </Link>
               </>
             )}
 

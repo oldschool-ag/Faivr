@@ -40,6 +40,7 @@ export type AgentTrustState = {
   validationAverage?: number;
   settledTaskCount: number;
   feedbackCount: number;
+  feedbackAverage?: number;
   isLoading: boolean;
 };
 
@@ -72,6 +73,12 @@ export function useAgentTrust(agentId: number, enabled = true): AgentTrustState 
         abi: VALIDATION_ABI,
         functionName: "getSummary" as const,
         args: [BigInt(agentId), [], ""] as const,
+      },
+      {
+        address: CONTRACTS.reputation,
+        abi: REPUTATION_ABI,
+        functionName: "getSummary" as const,
+        args: [BigInt(agentId), [], "", ""] as const,
       },
     ];
   }, [agentId, enabled]);
@@ -133,6 +140,15 @@ export function useAgentTrust(agentId: number, enabled = true): AgentTrustState 
   const validationSummary = data?.[1]?.status === "success"
     ? (data[1].result as unknown as readonly [bigint, number])
     : undefined;
+  const feedbackSummary = data?.[2]?.status === "success"
+    ? (data[2].result as unknown as readonly [bigint, bigint, number])
+    : undefined;
+
+  const summaryFeedbackCount = feedbackSummary ? Number(feedbackSummary[0]) : 0;
+  const feedbackAverage =
+    feedbackSummary && summaryFeedbackCount > 0
+      ? Number(feedbackSummary[1]) / Math.pow(10, feedbackSummary[2])
+      : undefined;
 
   return {
     verificationDomain: verification?.[4] ? verification[0] : undefined,
@@ -141,7 +157,8 @@ export function useAgentTrust(agentId: number, enabled = true): AgentTrustState 
     validationCount: validationSummary ? Number(validationSummary[0]) : 0,
     validationAverage: validationSummary && Number(validationSummary[0]) > 0 ? Number(validationSummary[1]) : undefined,
     settledTaskCount,
-    feedbackCount,
+    feedbackCount: summaryFeedbackCount || feedbackCount,
+    feedbackAverage,
     isLoading: isContractLoading || isLogLoading,
   };
 }

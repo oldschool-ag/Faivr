@@ -208,6 +208,18 @@ export const FEE_MODULE_ABI = [
 
 export const VALIDATION_ABI = [
   {
+    name: "validationRequest",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "validatorAddress", type: "address" },
+      { name: "agentId", type: "uint256" },
+      { name: "requestURI", type: "string" },
+      { name: "requestHash", type: "bytes32" },
+    ],
+    outputs: [],
+  },
+  {
     name: "getSummary",
     type: "function",
     stateMutability: "view",
@@ -227,6 +239,20 @@ export const VALIDATION_ABI = [
     stateMutability: "view",
     inputs: [{ name: "agentId", type: "uint256" }],
     outputs: [{ name: "", type: "bytes32[]" }],
+  },
+  {
+    name: "getValidationStatus",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "requestHash", type: "bytes32" }],
+    outputs: [
+      { name: "validatorAddress", type: "address" },
+      { name: "agentId", type: "uint256" },
+      { name: "response", type: "uint8" },
+      { name: "responseHash", type: "bytes32" },
+      { name: "tag", type: "string" },
+      { name: "lastUpdate", type: "uint256" },
+    ],
   },
 ] as const;
 
