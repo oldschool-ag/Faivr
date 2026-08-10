@@ -3,13 +3,7 @@ name: contracts ci
 on:
   push:
     branches: [main]
-    paths:
-      - "contracts/**"
-      - ".github/workflows/contracts.yml"
   pull_request:
-    paths:
-      - "contracts/**"
-      - ".github/workflows/contracts.yml"
 
 permissions:
   contents: read
