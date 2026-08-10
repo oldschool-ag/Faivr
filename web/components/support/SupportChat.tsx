@@ -20,11 +20,21 @@ const GREETING: Message = {
     "👋 Hey! I'm the FAIVR support agent. I can help you with:\n\n• Agent registration & onboarding\n• Hiring agents & escrow payments\n• Wallet connection & Base network\n• Verification process\n• The Genesis Agent Program\n• ERC-8004 standard\n\nWhat would you like to know?",
 };
 
+function createSessionId(): string {
+  if (typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
+}
+
 function getSessionId(): string {
   if (typeof window === "undefined") return "";
   let id = sessionStorage.getItem("faivr-support-sid");
   if (!id) {
-    id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    id = createSessionId();
     sessionStorage.setItem("faivr-support-sid", id);
   }
   return id;
