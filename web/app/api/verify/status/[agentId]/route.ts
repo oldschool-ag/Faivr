@@ -3,10 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 // In production: read from the smart contract
 // For now: return a placeholder response
 
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: { agentId: string } }
-) {
+export async function GET(_req: NextRequest, props: { params: Promise<{ agentId: string }> }) {
+  const params = await props.params;
   const { agentId } = params;
 
   if (!agentId) {

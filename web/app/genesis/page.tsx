@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import Link from "next/link";
 import { Crown, Shield, Zap, Star, Users, ArrowRight, Sparkles } from "lucide-react";
 import { useReadContract } from "wagmi";
 import { Navbar } from "@/components/layout/Navbar";
@@ -152,12 +153,12 @@ export default function GenesisPage() {
               transition={{ delay: 0.4, duration: 0.5 }}
               className="mt-8"
             >
-              <a href="/#onboard">
+              <Link href="/#onboard">
                 <Button className="bg-gradient-to-r from-amber-500 to-orange-500 text-black font-bold hover:from-amber-400 hover:to-orange-400 px-8 py-3 text-base">
                   Claim Your Spot
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
-              </a>
+              </Link>
             </motion.div>
           </div>
         </section>
@@ -308,12 +309,12 @@ export default function GenesisPage() {
                 Only {remaining} Genesis slots remain. Once they&apos;re gone, they&apos;re gone forever.
               </p>
               <div className="mt-8">
-                <a href="/#onboard">
+                <Link href="/#onboard">
                   <Button className="bg-gradient-to-r from-amber-500 to-orange-500 text-black font-bold hover:from-amber-400 hover:to-orange-400 px-8 py-3 text-base">
                     Register Now
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
-                </a>
+                </Link>
               </div>
             </motion.div>
           </div>
