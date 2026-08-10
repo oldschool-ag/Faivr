@@ -9,8 +9,8 @@ import type { TaskInfo } from "@/hooks/useEscrow";
 import { getAllTaskBriefs, type StoredTaskBrief, updateTaskBriefProof } from "@/lib/taskBriefs";
 import { txUrl } from "@/lib/explorer";
 
-function deadlineCountdown(deadline: bigint): string {
-  const now = BigInt(Math.floor(Date.now() / 1000));
+function deadlineCountdown(deadline: bigint, now: bigint | null): string {
+  if (now === null) return "Checking…";
   if (deadline <= now) return "Expired";
   const diff = Number(deadline - now);
   const hours = Math.floor(diff / 3600);
@@ -44,7 +44,7 @@ function ProofLink({ label, hash }: { label: string; hash?: string }) {
   );
 }
 
-function TaskCard({ task, brief }: { task: TaskInfo; brief?: StoredTaskBrief }) {
+function TaskCard({ task, brief, now }: { task: TaskInfo; brief?: StoredTaskBrief; now: bigint | null }) {
   const {
     settleTask,
     hash: settleHash,
@@ -76,8 +76,7 @@ function TaskCard({ task, brief }: { task: TaskInfo; brief?: StoredTaskBrief }) 
   }, [reclaimHash, reclaimSuccess, task.taskId]);
 
   const isFunded = task.status === 0;
-  const now = BigInt(Math.floor(Date.now() / 1000));
-  const isPastDeadline = task.deadline <= now;
+  const isPastDeadline = now !== null && task.deadline <= now;
   const settling = settlingPending || settlingConfirming;
   const reclaiming = reclaimPending || reclaimConfirming;
 
@@ -100,7 +99,7 @@ function TaskCard({ task, brief }: { task: TaskInfo; brief?: StoredTaskBrief }) 
         <span className="font-medium text-slate-950">{amountLabel}</span>
         <span className="flex items-center gap-1 text-xs text-slate-500">
           <Clock className="h-3 w-3" />
-          {isFunded ? deadlineCountdown(task.deadline) : STATUS_LABELS[task.status]}
+          {isFunded ? deadlineCountdown(task.deadline, now) : STATUS_LABELS[task.status]}
         </span>
       </div>
 
@@ -163,10 +162,30 @@ export function TaskManager() {
   const { isConnected } = useAccount();
   const { tasks, isLoading } = useUserTasks();
   const [briefs, setBriefs] = useState<Record<string, StoredTaskBrief>>({});
+  const [now, setNow] = useState<bigint | null>(null);
 
   useEffect(() => {
-    setBriefs(getAllTaskBriefs());
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setBriefs(getAllTaskBriefs());
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [tasks.length]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const updateClock = () => {
+      if (!cancelled) setNow(BigInt(Math.floor(Date.now() / 1000)));
+    };
+    queueMicrotask(updateClock);
+    const intervalId = window.setInterval(updateClock, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   if (!isConnected) {
     return (
@@ -197,7 +216,7 @@ export function TaskManager() {
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {tasks.map((task) => (
-        <TaskCard key={task.taskId.toString()} task={task} brief={briefs[task.taskId.toString()]} />
+        <TaskCard key={task.taskId.toString()} task={task} brief={briefs[task.taskId.toString()]} now={now} />
       ))}
     </div>
   );

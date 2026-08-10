@@ -11,7 +11,7 @@ vi.mock("@/lib/quoteRequests", () => ({
 }));
 
 import { GET, PATCH, POST } from "@/app/api/quote-requests/route";
-import { middleware } from "@/middleware";
+import { proxy } from "@/proxy";
 import {
   createQuoteRequest,
   getQuoteRequestsByAgent,
@@ -197,10 +197,10 @@ describe("quote request API", () => {
   });
 
   test("smoke checks operator route auth behavior", async () => {
-    const unauthorized = await middleware(buildRequest("/operator/quote-requests"));
+    const unauthorized = await proxy(buildRequest("/operator/quote-requests"));
     expect(unauthorized.status).toBe(401);
 
-    const authorized = await middleware(
+    const authorized = await proxy(
       buildRequest("/operator/quote-requests", {
         headers: { Authorization: basicAuthHeader() },
       }),

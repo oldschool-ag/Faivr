@@ -62,6 +62,7 @@ export function OperatorQuoteQueue() {
   const [error, setError] = useState<string | null>(null);
 
   const loadRequests = useCallback(async () => {
+    await Promise.resolve();
     setIsLoading(true);
     setError(null);
 
@@ -103,7 +104,8 @@ export function OperatorQuoteQueue() {
   }, [agentId]);
 
   useEffect(() => {
-    void loadRequests();
+    const timeoutId = window.setTimeout(() => void loadRequests(), 0);
+    return () => window.clearTimeout(timeoutId);
   }, [loadRequests]);
 
   const filteredRequests = useMemo(() => {

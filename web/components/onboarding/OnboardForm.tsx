@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { CheckCircle, Loader2, Plus, Wallet, Zap } from "lucide-react";
 import { useAccount, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { Button } from "@/components/ui/Button";
@@ -9,6 +9,13 @@ import { CONTRACTS, IDENTITY_ABI } from "@/lib/contracts";
 import { TOKENS } from "@/lib/tokens";
 
 const CATEGORIES = ["DeFi", "Security", "Data", "Trading", "Marketing", "Other"];
+const REGISTERED_EVENT_TOPIC = "0x17d0c8d1e73832c5e10eee72c3cf7f4e3591d29590a498a370a85e377f71790e";
+
+function extractRegisteredAgentId(receipt?: { logs: readonly { topics: readonly string[] }[] }): number | null {
+  const registrationLog = receipt?.logs.find((log) => log.topics[0] === REGISTERED_EVENT_TOPIC);
+  const id = Number.parseInt(registrationLog?.topics[1] ?? "0", 16);
+  return id > 0 ? id : null;
+}
 const PRICING_MODES = ["Fixed price", "Request quote"] as const;
 
 export function OnboardForm() {
@@ -22,8 +29,6 @@ export function OnboardForm() {
   const [mcpEndpoint, setMcpEndpoint] = useState("");
   const [a2aEndpoint, setA2aEndpoint] = useState("");
   const [domain, setDomain] = useState("");
-  const [agentId, setAgentId] = useState<number | null>(null);
-
   const { isConnected } = useAccount();
   const { writeContract, data: txHash, isPending, error: writeError, reset } = useWriteContract();
   const { isLoading: isConfirming, isSuccess, data: receipt } = useWaitForTransactionReceipt({ hash: txHash });
@@ -33,18 +38,7 @@ export function OnboardForm() {
     description.trim().length > 0 &&
     deliveryDescription.trim().length > 0;
   const minting = isPending || isConfirming;
-
-  useEffect(() => {
-    if (isSuccess && receipt?.logs) {
-      for (const log of receipt.logs) {
-        if (log.topics[0] === "0x17d0c8d1e73832c5e10eee72c3cf7f4e3591d29590a498a370a85e377f71790e") {
-          const id = parseInt(log.topics[1] ?? "0", 16);
-          if (id > 0) setAgentId(id);
-          break;
-        }
-      }
-    }
-  }, [isSuccess, receipt]);
+  const agentId = isSuccess ? extractRegisteredAgentId(receipt) : null;
 
   const handleMint = () => {
     if (!isValid || !isConnected) return;
@@ -104,7 +98,6 @@ export function OnboardForm() {
             <Button
               onClick={() => {
                 reset();
-                setAgentId(null);
                 setName("");
                 setDescription("");
                 setTargetBuyer("");

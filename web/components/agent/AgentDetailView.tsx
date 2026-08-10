@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, BadgeCheck, ExternalLink, FileCheck2, Layers3, ShieldCheck, Sparkles, Wallet } from "lucide-react";
 import { useAccount } from "wagmi";
@@ -45,10 +45,7 @@ export function AgentDetailView({ agentId }: { agentId: number }) {
 
   const agentName = profile?.metadata?.name || `Agent #${agentId}`;
   const description = profile?.metadata?.description || "No public description is attached to this identity yet.";
-  const ownerMatch = useMemo(
-    () => Boolean(address && profile?.owner && address.toLowerCase() === profile.owner.toLowerCase()),
-    [address, profile?.owner],
-  );
+  const ownerMatch = Boolean(address && profile?.owner && address.toLowerCase() === profile.owner.toLowerCase());
   const tier = trustTier(trust.validationCount, trust.feedbackCount, profile?.verified);
 
   return (

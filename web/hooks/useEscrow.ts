@@ -95,8 +95,13 @@ export function useFundTaskUSDC({ agentId, amount, deadlineSeconds }: FundTaskAr
 
   useEffect(() => {
     if (isSuccess && mode === "approve") {
-      void refetchAllowance();
-      setMode("fund");
+      let cancelled = false;
+      void refetchAllowance().then(() => {
+        if (!cancelled) setMode("fund");
+      });
+      return () => {
+        cancelled = true;
+      };
     }
   }, [isSuccess, mode, refetchAllowance]);
 
@@ -242,15 +247,13 @@ export function useUserTasks() {
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (!address || !client) {
-      setTasks([]);
-      return;
-    }
+    if (!address || !client) return;
 
     const publicClient = client;
     let cancelled = false;
 
     async function fetchTasks() {
+      await Promise.resolve();
       setIsLoading(true);
       try {
         const logs = await publicClient.getLogs({
@@ -328,7 +331,12 @@ export function useUserTasks() {
     };
   }, [address, client]);
 
-  return { tasks, isLoading, count: tasks.filter((t) => t.status === 0).length };
+  const visibleTasks = address && client ? tasks : [];
+  return {
+    tasks: visibleTasks,
+    isLoading: Boolean(address && client) && isLoading,
+    count: visibleTasks.filter((task) => task.status === 0).length,
+  };
 }
 
 export { formatEther, formatUnits, zeroAddress, USDC_ADDRESS };

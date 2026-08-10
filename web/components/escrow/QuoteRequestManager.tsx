@@ -37,6 +37,7 @@ export function QuoteRequestManager() {
   const [error, setError] = useState<string | null>(null);
 
   const loadRequests = useCallback(async () => {
+    await Promise.resolve();
     if (!address) {
       setRequests([]);
       return;
@@ -64,7 +65,8 @@ export function QuoteRequestManager() {
   }, [address]);
 
   useEffect(() => {
-    void loadRequests();
+    const timeoutId = window.setTimeout(() => void loadRequests(), 0);
+    return () => window.clearTimeout(timeoutId);
   }, [loadRequests]);
 
   if (!isConnected) {
