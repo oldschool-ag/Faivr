@@ -3,7 +3,6 @@ import "server-only";
 import { Pool } from "pg";
 
 declare global {
-  // eslint-disable-next-line no-var
   var __faivrPgPool: Pool | undefined;
 }
 

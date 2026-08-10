@@ -24,7 +24,7 @@ function unauthorizedResponse(status = 401) {
   });
 }
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
   const protectedSurface = isOperatorSurface(pathname) || isSupportAdminSurface(pathname) || quoteRequestNeedsOperatorAuth(req);
 

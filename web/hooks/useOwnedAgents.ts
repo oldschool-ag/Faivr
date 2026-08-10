@@ -30,15 +30,13 @@ export function useOwnedAgents() {
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (!address || !client) {
-      setAgents([]);
-      return;
-    }
+    if (!address || !client) return;
 
     const publicClient = client;
     let cancelled = false;
 
     async function load() {
+      await Promise.resolve();
       setIsLoading(true);
       try {
         const logs = await publicClient.getLogs({
@@ -116,5 +114,8 @@ export function useOwnedAgents() {
     };
   }, [address, client]);
 
-  return { agents, isLoading };
+  return {
+    agents: address && client ? agents : [],
+    isLoading: Boolean(address && client) && isLoading,
+  };
 }

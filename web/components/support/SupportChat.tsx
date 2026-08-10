@@ -13,6 +13,12 @@ interface Message {
 const SESSION_KEY = "faivr-support-session";
 const OPEN_KEY = "faivr-support-open";
 const VISITED_KEY = "faivr-support-visited";
+const GREETING: Message = {
+  id: "greeting",
+  role: "assistant",
+  content:
+    "👋 Hey! I'm the FAIVR support agent. I can help you with:\n\n• Agent registration & onboarding\n• Hiring agents & escrow payments\n• Wallet connection & Base network\n• Verification process\n• The Genesis Agent Program\n• ERC-8004 standard\n\nWhat would you like to know?",
+};
 
 function getSessionId(): string {
   if (typeof window === "undefined") return "";
@@ -32,23 +38,31 @@ export default function SupportChat() {
   const [showPulse, setShowPulse] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const hasLoadedPersistedState = useRef(false);
 
   // Load persisted state
   useEffect(() => {
     const savedOpen = localStorage.getItem(OPEN_KEY);
-    if (savedOpen === "true") setIsOpen(true);
-
     const savedMessages = sessionStorage.getItem(SESSION_KEY);
-    if (savedMessages) {
-      try {
-        setMessages(JSON.parse(savedMessages));
-      } catch {}
-    }
+    const firstVisit = !localStorage.getItem(VISITED_KEY);
+    let persistedMessages: Message[] = [];
+    try {
+      persistedMessages = savedMessages ? JSON.parse(savedMessages) : [];
+    } catch {}
 
-    if (!localStorage.getItem(VISITED_KEY)) {
-      setShowPulse(true);
-      localStorage.setItem(VISITED_KEY, "1");
-    }
+    const frameId = window.requestAnimationFrame(() => {
+      hasLoadedPersistedState.current = true;
+      if (savedOpen === "true") setIsOpen(true);
+      if (persistedMessages.length > 0) {
+        setMessages(persistedMessages);
+      } else if (savedOpen === "true") {
+        setMessages([GREETING]);
+      }
+      if (firstVisit) setShowPulse(true);
+    });
+    if (firstVisit) localStorage.setItem(VISITED_KEY, "1");
+
+    return () => window.cancelAnimationFrame(frameId);
   }, []);
 
   // Persist messages
@@ -60,8 +74,8 @@ export default function SupportChat() {
 
   // Persist open state
   useEffect(() => {
+    if (!hasLoadedPersistedState.current) return;
     localStorage.setItem(OPEN_KEY, String(isOpen));
-    if (isOpen) setShowPulse(false);
   }, [isOpen]);
 
   // Auto-scroll
@@ -74,19 +88,11 @@ export default function SupportChat() {
     if (isOpen) setTimeout(() => inputRef.current?.focus(), 300);
   }, [isOpen]);
 
-  // Show greeting on first open
-  useEffect(() => {
-    if (isOpen && messages.length === 0) {
-      setMessages([
-        {
-          id: "greeting",
-          role: "assistant",
-          content:
-            "👋 Hey! I'm the FAIVR support agent. I can help you with:\n\n• Agent registration & onboarding\n• Hiring agents & escrow payments\n• Wallet connection & Base network\n• Verification process\n• The Genesis Agent Program\n• ERC-8004 standard\n\nWhat would you like to know?",
-        },
-      ]);
-    }
-  }, [isOpen, messages.length]);
+  const openChat = useCallback(() => {
+    setMessages((current) => (current.length > 0 ? current : [GREETING]));
+    setShowPulse(false);
+    setIsOpen(true);
+  }, []);
 
   const sendMessage = useCallback(async () => {
     const text = input.trim();
@@ -176,7 +182,7 @@ export default function SupportChat() {
             exit={{ scale: 0, opacity: 0 }}
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
-            onClick={() => setIsOpen(true)}
+            onClick={openChat}
             className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-500/25 transition-shadow hover:shadow-xl hover:shadow-violet-500/30"
             aria-label="Open support chat"
           >
