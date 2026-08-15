@@ -18,6 +18,7 @@ const sha256=(value)=>`sha256:${createHash("sha256").update(value).digest("hex")
 const semver=/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const modelIdPattern=/^faivr\.agent\.[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
 const digestPattern=/^sha256:[a-f0-9]{64}$/;
+const contentDigestPattern=/^[a-f0-9]{64}$/;
 const base64url=/^[A-Za-z0-9_-]+$/;
 const secretPatterns=[/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,/(?:sk_live_|rk_live_|AKIA)[A-Za-z0-9_\-]{12,}/,/\b(?:password|secret|api[_-]?key)\s*[:=]\s*["'][^"']{8,}/i];
 const exactKeys=(value,keys,label)=>{if(!value||typeof value!=="object"||Array.isArray(value)||Object.keys(value).sort().join("\n")!==[...keys].sort().join("\n"))throw new Error(`invalid ${label} fields`);};
@@ -51,7 +52,7 @@ function inspectTarGz(compressed){
     if(type==="0"){
       totalPayload+=size;if(totalPayload>maxCompressed*4)throw new Error("portable bundle exceeds expanded size limit");
       if(secretPatterns.some(pattern=>pattern.test(body.toString("utf8"))))throw new Error(`potential secret detected in ${path}`);
-      files.set(path,{path,sha256:sha256(body),bytes:size});
+      files.set(path,{path,sha256:sha256(body).slice("sha256:".length),bytes:size});
     }
   }
   if(!files.has("AGENT.md")||!files.has("agent-definition.json"))throw new Error("required root payload files are missing");
@@ -76,7 +77,7 @@ function validateManifest(raw,artifact,files){
   if(price.billingPeriod!=="month"||!Number.isSafeInteger(price.amountCents)||price.amountCents<=0||!(["price_required","configured"].includes(price.activationState))||(price.activationState==="price_required"&&price.stripePriceId!==null)||(price.activationState==="configured"&&(typeof price.stripePriceId!=="string"||!price.stripePriceId.startsWith("price_"))))throw new Error("invalid monthly price state");
   if(!Array.isArray(raw.contents)||raw.contents.length!==files.size)throw new Error("contents must exhaustively enumerate regular files");
   const paths=[];
-  for(const entry of raw.contents){exactKeys(entry,["path","sha256","bytes"],"contents entry");if(!cleanPath(entry.path)||!digestPattern.test(entry.sha256)||!Number.isSafeInteger(entry.bytes)||entry.bytes<0)throw new Error("invalid contents entry");const actual=files.get(entry.path);if(!actual||actual.sha256!==entry.sha256||actual.bytes!==entry.bytes)throw new Error(`contents mismatch at ${entry.path}`);paths.push(entry.path);}
+  for(const entry of raw.contents){exactKeys(entry,["path","sha256","bytes"],"contents entry");if(!cleanPath(entry.path)||!contentDigestPattern.test(entry.sha256)||!Number.isSafeInteger(entry.bytes)||entry.bytes<0)throw new Error("invalid contents entry");const actual=files.get(entry.path);if(!actual||actual.sha256!==entry.sha256||actual.bytes!==entry.bytes)throw new Error(`contents mismatch at ${entry.path}`);paths.push(entry.path);}
   if(new Set(paths).size!==paths.length||paths.join("\n")!==[...paths].sort().join("\n")||!paths.includes(raw.entrypoint))throw new Error("contents paths must be stable, unique, and bind entrypoint");
   if(raw.signature.algorithm!=="Ed25519"||typeof raw.signature.keyId!=="string"||!raw.signature.keyId||typeof raw.signature.value!=="string"||!base64url.test(raw.signature.value))throw new Error("invalid signature envelope");
 }
