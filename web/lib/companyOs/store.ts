@@ -134,7 +134,7 @@ export async function acknowledgeInstall(
   )
     return null;
   const r = await getPgPool().query(
-    "UPDATE company_os_installations i SET installation_state='active',installed_version_id=v.id,local_agent_definition_id=$6,installed_at=now(),updated_at=now() FROM company_os_package_versions v WHERE i.id=$1 AND i.tenant_id=$2 AND i.package_id=$3 AND v.version=$4 AND v.artifact_sha256=$5 AND i.installation_state IN ('entitled','active') RETURNING i.*",
+    "UPDATE company_os_installations SET installation_state='active',installed_version_id=(SELECT v.id FROM company_os_package_versions v WHERE v.package_id=$3 AND v.version=$4 AND v.artifact_sha256=$5 LIMIT 1),local_agent_definition_id=$6,installed_at=now(),updated_at=now() WHERE id=$1 AND tenant_id=$2 AND package_id=$3 AND installation_state IN ('entitled','active') AND EXISTS (SELECT 1 FROM company_os_package_versions v WHERE v.package_id=$3 AND v.version=$4 AND v.artifact_sha256=$5) RETURNING *",
     [
       ack.installationId,
       tenantId,
@@ -154,7 +154,7 @@ export async function requestUninstall(
   versionId: string,
 ) {
   const r = await getPgPool().query(
-    "UPDATE company_os_installations i SET installation_state='uninstall_pending',subscription_state='cancellation_pending_uninstall',uninstall_request_id=$3,uninstall_requested_at=now(),updated_at=now() FROM company_os_package_versions v WHERE i.id=$1 AND i.tenant_id=$2 AND i.package_id=$4 AND v.id=COALESCE(i.installed_version_id,i.desired_version_id) AND v.id=$5::uuid AND i.installation_state IN ('active','disabled','uninstall_pending') RETURNING i.*",
+    "UPDATE company_os_installations SET installation_state='uninstall_pending',subscription_state='cancellation_pending_uninstall',uninstall_request_id=$3,uninstall_requested_at=now(),updated_at=now() WHERE id=$1 AND tenant_id=$2 AND package_id=$4 AND COALESCE(installed_version_id,desired_version_id)=$5::uuid AND installation_state IN ('active','disabled','uninstall_pending') RETURNING *",
     [installationId, tenantId, requestId, modelId, versionId],
   );
   return r.rows[0] ?? null;
@@ -205,7 +205,7 @@ export async function acceptUninstallReceipt(
     if (replay.rowCount)
       throw new IdempotencyConflict("receipt_nonce_replayed");
     const updated = await client.query(
-      "UPDATE company_os_installations i SET installation_state='removed',receipt_accepted_at=now(),updated_at=now() FROM company_os_package_versions v WHERE i.id=$1 AND i.tenant_id=$2 AND i.subscription_id=$3 AND i.uninstall_request_id=$4 AND i.package_id=$5 AND v.id=COALESCE(i.installed_version_id,i.desired_version_id) AND v.version=$6 AND v.artifact_sha256=$7 AND i.local_agent_definition_id::text=$8 AND i.installation_state='uninstall_pending' RETURNING i.stripe_subscription_id,i.subscription_id",
+      "UPDATE company_os_installations SET installation_state='removed',receipt_accepted_at=now(),updated_at=now() WHERE id=$1 AND tenant_id=$2 AND subscription_id=$3 AND uninstall_request_id=$4 AND package_id=$5 AND local_agent_definition_id::text=$8 AND installation_state='uninstall_pending' AND COALESCE(installed_version_id,desired_version_id)=(SELECT v.id FROM company_os_package_versions v WHERE v.package_id=$5 AND v.version=$6 AND v.artifact_sha256=$7 LIMIT 1) RETURNING stripe_subscription_id,subscription_id",
       [
         receipt.installationId,
         receipt.tenantId,
