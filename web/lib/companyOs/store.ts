@@ -89,6 +89,16 @@ export async function recordCheckout(
   );
   return result.rows[0] ?? null;
 }
+export async function markCheckoutFailed(
+  tenantId: string,
+  installationId: string,
+) {
+  const result = await getPgPool().query(
+    "UPDATE company_os_installations SET installation_state='failed',updated_at=now() WHERE id=$1 AND tenant_id=$2 AND installation_state IN ('selected','payment_pending') AND subscription_state='checkout_pending' RETURNING id",
+    [installationId, tenantId],
+  );
+  return Boolean(result.rowCount);
+}
 export async function markEntitled(
   installationId: string,
   tenantId: string,
@@ -107,7 +117,7 @@ export async function installationForTenant(
   installationId: string,
 ) {
   const r = await getPgPool().query(
-    "SELECT i.*,p.id AS faivr_agent_model_id,p.slug,v.id AS faivr_package_version_id,v.version,v.manifest,v.publisher_signature,v.artifact_url,v.artifact_sha256,v.min_company_os_version FROM company_os_installations i JOIN company_os_packages p ON p.id=i.package_id JOIN company_os_package_versions v ON v.id=COALESCE(i.installed_version_id,i.desired_version_id) WHERE i.id=$1 AND i.tenant_id=$2",
+    "SELECT i.*,p.id AS faivr_agent_model_id,p.slug,v.id AS faivr_package_version_id,v.version,v.manifest,v.publisher_key_id,v.publisher_signature,v.artifact_url,v.artifact_sha256,v.min_company_os_version FROM company_os_installations i JOIN company_os_packages p ON p.id=i.package_id JOIN company_os_package_versions v ON v.id=COALESCE(i.installed_version_id,i.desired_version_id) WHERE i.id=$1 AND i.tenant_id=$2",
     [installationId, tenantId],
   );
   return r.rows[0] ?? null;
@@ -134,7 +144,7 @@ export async function acknowledgeInstall(
   )
     return null;
   const r = await getPgPool().query(
-    "UPDATE company_os_installations SET installation_state='active',installed_version_id=(SELECT v.id FROM company_os_package_versions v WHERE v.package_id=$3 AND v.version=$4 AND v.artifact_sha256=$5 LIMIT 1),local_agent_definition_id=$6,installed_at=now(),updated_at=now() WHERE id=$1 AND tenant_id=$2 AND package_id=$3 AND installation_state IN ('entitled','active') AND EXISTS (SELECT 1 FROM company_os_package_versions v WHERE v.package_id=$3 AND v.version=$4 AND v.artifact_sha256=$5) RETURNING *",
+    "UPDATE company_os_installations SET installation_state='active',installed_version_id=(SELECT v.id FROM company_os_package_versions v WHERE v.package_id=$3 AND v.version=$4 AND v.artifact_sha256=$5 LIMIT 1),local_agent_definition_id=$6,installed_at=now(),updated_at=now() WHERE id=$1 AND tenant_id=$2 AND package_id=$3 AND installation_state IN ('entitled','downloading','installing','active') AND EXISTS (SELECT 1 FROM company_os_package_versions v WHERE v.package_id=$3 AND v.version=$4 AND v.artifact_sha256=$5) RETURNING *",
     [
       ack.installationId,
       tenantId,

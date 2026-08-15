@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const holder=vi.hoisted(()=>({pool:null as unknown as import("pg").Pool}));
 vi.mock("@/lib/postgres",()=>({getPgPool:()=>holder.pool}));
 
-import { archiveInstallation, acknowledgeInstall, acceptUninstallReceipt, confirmBillingStoppedByStripe, installationForTenant, markCancellationPending, markEntitled, recordCheckout, requestUninstall, selectPackage } from "@/lib/companyOs/store";
+import { archiveInstallation, acknowledgeInstall, acceptUninstallReceipt, confirmBillingStoppedByStripe, installationForTenant, markCancellationPending, markCheckoutFailed, markEntitled, recordCheckout, requestUninstall, selectPackage } from "@/lib/companyOs/store";
 import { createCheckoutSession, scheduleSubscriptionCancellation } from "@/lib/companyOs/stripe";
 import type { UninstallReceipt } from "@/lib/companyOs/schemas";
 
@@ -22,13 +22,13 @@ describe("ordered Company OS marketplace lifecycle",()=>{
     const db=newDb();
     db.public.none(`
       CREATE TABLE company_os_packages(id text PRIMARY KEY,slug text,name text,summary text,status text);
-      CREATE TABLE company_os_package_versions(id uuid PRIMARY KEY,package_id text,version text,status text,manifest jsonb,publisher_signature text,artifact_url text,artifact_sha256 text,monthly_price_cents integer,stripe_price_id text,min_company_os_version text,published_at timestamptz);
+      CREATE TABLE company_os_package_versions(id uuid PRIMARY KEY,package_id text,version text,status text,manifest jsonb,publisher_key_id text,publisher_signature text,artifact_url text,artifact_sha256 text,monthly_price_cents integer,stripe_price_id text,min_company_os_version text,published_at timestamptz);
       CREATE TABLE company_os_installations(id uuid PRIMARY KEY,tenant_id uuid,package_id text,desired_version_id uuid,installed_version_id uuid,subscription_id uuid,checkout_session_id uuid,local_agent_definition_id text,installation_state text,subscription_state text,stripe_checkout_session_id text,stripe_subscription_id text,entitled_at timestamptz,installed_at timestamptz,uninstall_request_id uuid,uninstall_requested_at timestamptz,receipt_accepted_at timestamptz,billing_cancel_effective_at timestamptz,billing_stopped_at timestamptz,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
       CREATE TABLE company_os_uninstall_receipts(receipt_id uuid PRIMARY KEY,tenant_id uuid,instance_id uuid,installation_id uuid,uninstall_request_id uuid,subscription_id uuid,nonce text,payload jsonb,signature text,accepted_at timestamptz DEFAULT now(),UNIQUE(tenant_id,instance_id,nonce));
     `);
     const adapter=db.adapters.createPg();holder.pool=new adapter.Pool() as unknown as import("pg").Pool;
     await holder.pool.query("INSERT INTO company_os_packages(id,slug,name,summary,status) VALUES($1,'thea-blueprint','Blueprint System Framer','Test agent','active')",[modelId]);
-    await holder.pool.query("INSERT INTO company_os_package_versions(id,package_id,version,status,manifest,publisher_signature,artifact_url,artifact_sha256,monthly_price_cents,stripe_price_id,min_company_os_version,published_at) VALUES($1,$2,$3,'published','{}','proof-signature','https://packages.faivr.invalid/test.tar.gz',$4,4900,'price_test_thea','1.0.0',now())",[versionId,modelId,version,digest]);
+    await holder.pool.query("INSERT INTO company_os_package_versions(id,package_id,version,status,manifest,publisher_key_id,publisher_signature,artifact_url,artifact_sha256,monthly_price_cents,stripe_price_id,min_company_os_version,published_at) VALUES($1,$2,$3,'published','{}','publisher-stage','proof-signature','https://packages.faivr.invalid/test.tar.gz',$4,4900,'price_test_thea','1.0.0',now())",[versionId,modelId,version,digest]);
     process.env.STRIPE_SECRET_KEY="sk_test_local";
   });
   afterEach(async()=>{vi.unstubAllGlobals();delete process.env.STRIPE_SECRET_KEY;await holder.pool.end();});
@@ -73,9 +73,15 @@ describe("ordered Company OS marketplace lifecycle",()=>{
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("records an abandoned checkout selection as failed after a provider error",async()=>{
+    const selected=await selectPackage(tenantId,modelId,versionId);
+    expect(await markCheckoutFailed(tenantId,selected.installationId)).toBe(true);
+    expect(await installationForTenant(tenantId,selected.installationId)).toMatchObject({installation_state:"failed",subscription_state:"checkout_pending"});
+  });
+
   it("binds the public V1 handlers to the ordered store and provider operations",()=>{
     const source=readFileSync(new URL("../app/api/company-os/v1/handlers.ts",import.meta.url),"utf8");
-    for(const call of ["selectPackage(","createCheckoutSession(","acknowledgeInstall(","archiveInstallation(","requestUninstall(","acceptUninstallReceipt(","scheduleSubscriptionCancellation(","markCancellationPending(","signBillingAcknowledgement("]){
+    for(const call of ["selectPackage(","createCheckoutSession(","markCheckoutFailed(","acknowledgeInstall(","archiveInstallation(","requestUninstall(","acceptUninstallReceipt(","scheduleSubscriptionCancellation(","markCancellationPending(","signBillingAcknowledgement("]){
       expect(source,`missing handler binding ${call}`).toContain(call);
     }
     const webhook=readFileSync(new URL("../app/api/company-os/stripe/webhook/route.ts",import.meta.url),"utf8");
