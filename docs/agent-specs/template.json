@@ -1,0 +1,25 @@
+{
+  "name": "Example Agent",
+  "description": "What the agent does.",
+  "targetBuyer": "Who this is for.",
+  "deliverable": "What the buyer receives.",
+  "category": "Operations",
+  "domain": "",
+  "mcpEndpoint": "",
+  "a2aEndpoint": "",
+  "pricing": {
+    "mode": "Fixed price",
+    "amount": "100",
+    "token": "USDC",
+    "billingPeriod": "month"
+  },
+  "trust": {
+    "status": "provisional",
+    "basis": "New listing pending operator review."
+  },
+  "install": {
+    "type": "openclaw-session",
+    "agentId": "",
+    "importMode": "operator-routed"
+  }
+}

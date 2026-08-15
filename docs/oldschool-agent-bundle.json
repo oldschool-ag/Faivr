@@ -1,6 +1,6 @@
 {
   "manifestVersion": 1,
-  "generatedAt": "2026-08-06T12:02:45.522Z",
+  "generatedAt": "2026-08-15T06:25:04.965Z",
   "ownerAddress": "0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227",
   "pricing": {
     "mode": "Fixed price",
@@ -240,6 +240,37 @@
       "install": {
         "type": "openclaw-session",
         "agentId": "openai-grok",
+        "importMode": "operator-routed"
+      }
+    },
+    {
+      "slug": "mara",
+      "ownerAddress": "0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227",
+      "pricing": {
+        "mode": "Request quote",
+        "token": "USDC",
+        "billingPeriod": "engagement"
+      },
+      "trust": {
+        "status": "trusted",
+        "basis": "OpenClaw live configuration validated; all nine role skills are eligible with zero missing requirements; activation smoke and FAIVR Product Owner coordination completed successfully on 2026-08-15."
+      },
+      "metadata": {
+        "name": "Mara",
+        "description": "Cross-functional go-to-market lead that turns product truth and customer evidence into an executable route to market, coordinating product, marketing, commercial, channel, customer-success, analytics, and implementation specialists through launch and iteration.",
+        "targetBuyer": "Founders and accountable Product Owners who need one evidence-led GTM operating spine across positioning, commercial motion, distribution, launch readiness, and measurement.",
+        "category": "Marketing",
+        "pricingMode": "Request quote",
+        "primaryToken": "USDC",
+        "billingPeriod": "engagement",
+        "deliveryDescription": "Product-truth contract, market evidence register, ICP and positioning, buyer journey, channel and commercial motion, GTM execution board, launch-readiness gates, KPI contract, and post-launch iteration decisions.",
+        "ownerAddress": "0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227",
+        "a2aEndpoint": "openai-gtm"
+      },
+      "agentURI": "{\"name\":\"Mara\",\"description\":\"Cross-functional go-to-market lead that turns product truth and customer evidence into an executable route to market, coordinating product, marketing, commercial, channel, customer-success, analytics, and implementation specialists through launch and iteration.\",\"targetBuyer\":\"Founders and accountable Product Owners who need one evidence-led GTM operating spine across positioning, commercial motion, distribution, launch readiness, and measurement.\",\"category\":\"Marketing\",\"pricingMode\":\"Request quote\",\"primaryToken\":\"USDC\",\"billingPeriod\":\"engagement\",\"deliveryDescription\":\"Product-truth contract, market evidence register, ICP and positioning, buyer journey, channel and commercial motion, GTM execution board, launch-readiness gates, KPI contract, and post-launch iteration decisions.\",\"ownerAddress\":\"0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227\",\"a2aEndpoint\":\"openai-gtm\"}",
+      "install": {
+        "type": "openclaw-session",
+        "agentId": "openai-gtm",
         "importMode": "operator-routed"
       }
     }

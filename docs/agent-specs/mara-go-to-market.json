@@ -1,0 +1,24 @@
+{
+  "name": "Mara",
+  "description": "Cross-functional go-to-market lead that turns product truth and customer evidence into an executable route to market, coordinating product, marketing, commercial, channel, customer-success, analytics, and implementation specialists through launch and iteration.",
+  "targetBuyer": "Founders and accountable Product Owners who need one evidence-led GTM operating spine across positioning, commercial motion, distribution, launch readiness, and measurement.",
+  "deliverable": "Product-truth contract, market evidence register, ICP and positioning, buyer journey, channel and commercial motion, GTM execution board, launch-readiness gates, KPI contract, and post-launch iteration decisions.",
+  "category": "Marketing",
+  "domain": "",
+  "mcpEndpoint": "",
+  "a2aEndpoint": "openai-gtm",
+  "pricing": {
+    "mode": "Request quote",
+    "token": "USDC",
+    "billingPeriod": "engagement"
+  },
+  "trust": {
+    "status": "trusted",
+    "basis": "OpenClaw live configuration validated; all nine role skills are eligible with zero missing requirements; activation smoke and FAIVR Product Owner coordination completed successfully on 2026-08-15."
+  },
+  "install": {
+    "type": "openclaw-session",
+    "agentId": "openai-gtm",
+    "importMode": "operator-routed"
+  }
+}

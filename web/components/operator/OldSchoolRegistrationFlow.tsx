@@ -10,7 +10,7 @@ import { Card } from "@/components/ui/Card";
 import {
   buildOldSchoolAgentUri,
   OLD_SCHOOL_OWNER_ADDRESS,
-  OLD_SCHOOL_PRICING,
+  OLD_SCHOOL_DEFAULT_PRICING,
   OLD_SCHOOL_TRUSTED_AGENTS,
 } from "@/data/oldschoolTrustedInventory";
 import { CHAIN_ID, CONTRACTS, IDENTITY_ABI } from "@/lib/contracts";
@@ -158,6 +158,11 @@ export function OldSchoolRegistrationFlow() {
             {OLD_SCHOOL_TRUSTED_AGENTS.map((agent, index) => {
               const item = progress[index];
               const isActive = activeIndex === index;
+              const pricing = agent.pricing || OLD_SCHOOL_DEFAULT_PRICING;
+              const pricingLabel =
+                pricing.mode.toLowerCase().includes("fixed") && pricing.amount
+                  ? `${pricing.amount} ${pricing.token} / ${pricing.billingPeriod || "period"}`
+                  : `${pricing.mode}${pricing.billingPeriod ? ` · ${pricing.billingPeriod}` : ""}`;
 
               return (
                 <div
@@ -175,9 +180,7 @@ export function OldSchoolRegistrationFlow() {
                       <p className="mt-2 text-sm leading-6 text-slate-600">{agent.description}</p>
                       <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
                         <span className="rounded-full border border-slate-200 bg-white px-3 py-1">{agent.category}</span>
-                        <span className="rounded-full border border-slate-200 bg-white px-3 py-1">
-                          {OLD_SCHOOL_PRICING.amount} {OLD_SCHOOL_PRICING.token} / {OLD_SCHOOL_PRICING.billingPeriod}
-                        </span>
+                        <span className="rounded-full border border-slate-200 bg-white px-3 py-1">{pricingLabel}</span>
                         {agent.a2aEndpoint && (
                           <span className="rounded-full border border-slate-200 bg-white px-3 py-1">
                             {agent.a2aEndpoint}

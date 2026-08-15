@@ -13,6 +13,12 @@
       "targetBuyer": "Old School founders and operators who need marketing and communications execution support.",
       "deliverable": "Positioning brief, launch narrative, content plan, channel execution support, and growth monitoring.",
       "category": "Marketing",
+      "pricing": {
+        "mode": "Fixed price",
+        "amount": "100",
+        "token": "USDC",
+        "billingPeriod": "month"
+      },
       "mcpEndpoint": "",
       "a2aEndpoint": "openai-marketing",
       "domain": ""
@@ -23,6 +29,12 @@
       "targetBuyer": "KANN operators and product stakeholders who need product and go-to-market execution support.",
       "deliverable": "Product brief, KPI framing, launch sequence, channel plan, and bottleneck-resolution support.",
       "category": "Product",
+      "pricing": {
+        "mode": "Fixed price",
+        "amount": "100",
+        "token": "USDC",
+        "billingPeriod": "month"
+      },
       "mcpEndpoint": "",
       "a2aEndpoint": "openai-kann",
       "domain": "https://kann.tech"
@@ -33,6 +45,12 @@
       "targetBuyer": "SCR and GDER operators who need product and go-to-market execution support.",
       "deliverable": "Product brief, KPI framing, launch sequence, channel plan, and bottleneck-resolution support.",
       "category": "Product",
+      "pricing": {
+        "mode": "Fixed price",
+        "amount": "100",
+        "token": "USDC",
+        "billingPeriod": "month"
+      },
       "mcpEndpoint": "",
       "a2aEndpoint": "openai-scr",
       "domain": "https://gder.net"
@@ -43,9 +61,30 @@
       "targetBuyer": "FAIVR operators and product stakeholders who need product and go-to-market execution support.",
       "deliverable": "Product brief, KPI framing, launch sequence, channel plan, and bottleneck-resolution support.",
       "category": "Product",
+      "pricing": {
+        "mode": "Fixed price",
+        "amount": "100",
+        "token": "USDC",
+        "billingPeriod": "month"
+      },
       "mcpEndpoint": "",
       "a2aEndpoint": "openai-faivr",
       "domain": "https://faivr.ai"
+    },
+    {
+      "name": "Mara",
+      "description": "Cross-functional go-to-market lead that turns product truth and customer evidence into an executable route to market, coordinating product, marketing, commercial, channel, customer-success, analytics, and implementation specialists through launch and iteration.",
+      "targetBuyer": "Founders and accountable Product Owners who need one evidence-led GTM operating spine across positioning, commercial motion, distribution, launch readiness, and measurement.",
+      "deliverable": "Product-truth contract, market evidence register, ICP and positioning, buyer journey, channel and commercial motion, GTM execution board, launch-readiness gates, KPI contract, and post-launch iteration decisions.",
+      "category": "Marketing",
+      "mcpEndpoint": "",
+      "a2aEndpoint": "openai-gtm",
+      "domain": "",
+      "pricing": {
+        "mode": "Request quote",
+        "token": "USDC",
+        "billingPeriod": "engagement"
+      }
     }
   ]
 }

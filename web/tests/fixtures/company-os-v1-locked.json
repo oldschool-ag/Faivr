@@ -1,0 +1,14 @@
+{
+  "prefix": "/api/company-os/v1",
+  "canonicalRequest": "METHOD\\nEXACT_PATH_QUERY\\nlowercase_body_sha256_no_prefix\\ntimestamp\\nnonce\\ntenantId\\ninstanceId\\nidempotencyKey_or_empty",
+  "modelIdPattern": "^faivr\\.agent\\.[a-z0-9]+(?:-[a-z0-9]+)*$",
+  "packageDigestPattern": "^sha256:[a-f0-9]{64}$",
+  "installationStates": ["selected", "payment_pending", "entitled", "downloading", "installing", "active", "update_available", "disabled", "uninstall_pending", "removed", "failed"],
+  "subscriptionStates": ["checkout_pending", "active", "past_due", "suspended", "cancellation_pending_uninstall", "cancel_at_period_end", "cancelled"]
+  ,"archiveReceiptFields": ["schemaVersion", "messageType", "requestId", "idempotencyKey", "tenantId", "instanceId", "installationId", "modelId", "version", "occurredAt", "receiptId", "localAgentDefinitionId", "archiveState", "billingEffect", "archiveEffects", "retainedData", "archivedAt", "nonce", "signature"]
+  ,"archiveEffects": ["newRunsBlocked", "runtimeBindingDisabled", "schedulesDisabled", "toolGrantsDisabled", "agentSecretsRevoked", "packagePayloadRetained", "historicalCompanyDataPreserved"]
+  ,"uninstallReceiptFields": ["schemaVersion", "messageType", "requestId", "idempotencyKey", "tenantId", "instanceId", "installationId", "modelId", "version", "occurredAt", "receiptId", "uninstallRequestId", "subscriptionId", "localAgentDefinitionId", "packageDigest", "removedManagedPaths", "result", "verifiedEffects", "retainedData", "completedAt", "nonce", "signature"]
+  ,"verifiedEffects": ["agentRegistrationAbsent", "schedulesRevoked", "toolGrantsRevoked", "agentSecretsRevoked", "packagePayloadRemoved", "historicalCompanyDataPreserved"]
+  ,"retainedData": {"customerDataPurged": false, "historicalCompanyData": "retained_read_only", "backupDisposition": "retention_policy", "userCopies": "not_verified", "thirdPartyCopies": "not_verified"}
+  ,"billingAcknowledgementFields": ["schemaVersion", "messageType", "requestId", "idempotencyKey", "tenantId", "instanceId", "installationId", "modelId", "version", "occurredAt", "eventId", "receiptId", "subscriptionId", "receiptState", "subscriptionState", "effectiveAt", "rejectionReason", "signature"]
+}

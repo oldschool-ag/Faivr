@@ -3,16 +3,18 @@ import { dirname, resolve } from "node:path";
 
 const repoRoot = resolve(process.argv[2] || ".");
 const inventoryPath = resolve(repoRoot, "docs/oldschool-agent-inventory.json");
+const trustedInventoryPath = resolve(repoRoot, "docs/oldschool-agent-inventory.trusted.json");
 const outputPath = resolve(repoRoot, "docs/oldschool-agent-bundle.json");
 
 const inventory = JSON.parse(readFileSync(inventoryPath, "utf8"));
+const trustedInventory = JSON.parse(readFileSync(trustedInventoryPath, "utf8"));
 
 if (!inventory.ownerAddress) {
   throw new Error("Missing ownerAddress in oldschool-agent-inventory.json");
 }
 
-if (inventory.pricing?.amount !== "100" || inventory.pricing?.token !== "USDC" || inventory.pricing?.billingPeriod !== "month") {
-  throw new Error("Inventory pricing must stay aligned to 100 USDC / month");
+if (!inventory.pricing?.mode || !inventory.pricing?.token || !inventory.pricing?.billingPeriod) {
+  throw new Error("Inventory default pricing must include mode, token, and billingPeriod");
 }
 
 const slugify = (value) =>
@@ -21,7 +23,47 @@ const slugify = (value) =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 
-const trustedAgents = new Set(["ivy", "clara", "nora", "lyra"]);
+const trustedAgents = new Set(
+  Array.isArray(trustedInventory.agents) ? trustedInventory.agents.map((agent) => slugify(agent.name)) : [],
+);
+
+function pricingForAgent(agent) {
+  return agent.pricing || inventory.pricing;
+}
+
+function trustForAgent(agent) {
+  if (agent.trust?.status && agent.trust?.basis) {
+    return agent.trust;
+  }
+
+  if (trustedAgents.has(slugify(agent.name))) {
+    return {
+      status: "trusted",
+      basis: "Listed in docs/oldschool-agent-inventory.trusted.json",
+    };
+  }
+
+  return {
+    status: "provisional",
+    basis: "Listed in docs/oldschool-agent-inventory.json",
+  };
+}
+
+function installForAgent(agent) {
+  if (agent.install) {
+    return {
+      type: agent.install.type || "openclaw-session",
+      agentId: agent.install.agentId || null,
+      importMode: agent.install.importMode || "operator-routed",
+    };
+  }
+
+  return {
+    type: "openclaw-session",
+    agentId: typeof agent.a2aEndpoint === "string" && agent.a2aEndpoint.startsWith("openai-") ? agent.a2aEndpoint : null,
+    importMode: "operator-routed",
+  };
+}
 
 const bundle = {
   manifestVersion: 1,
@@ -30,15 +72,16 @@ const bundle = {
   pricing: inventory.pricing,
   sourceInventory: "docs/oldschool-agent-inventory.json",
   agents: inventory.agents.map((agent) => {
+    const pricing = pricingForAgent(agent);
     const metadata = {
       name: agent.name,
       description: agent.description,
       targetBuyer: agent.targetBuyer,
       category: agent.category,
-      pricingMode: inventory.pricing.mode,
-      primaryToken: inventory.pricing.token,
-      fixedPriceAmount: inventory.pricing.amount,
-      billingPeriod: inventory.pricing.billingPeriod,
+      pricingMode: pricing.mode,
+      primaryToken: pricing.token,
+      fixedPriceAmount: pricing.amount,
+      billingPeriod: pricing.billingPeriod,
       deliveryDescription: agent.deliverable,
       ownerAddress: inventory.ownerAddress,
       domain: agent.domain || undefined,
@@ -49,18 +92,11 @@ const bundle = {
     return {
       slug: slugify(agent.name),
       ownerAddress: inventory.ownerAddress,
-      pricing: inventory.pricing,
-      trust: {
-        status: trustedAgents.has(slugify(agent.name)) ? "trusted" : "provisional",
-        basis: "Ada inventory handoff on 2026-08-06",
-      },
+      pricing,
+      trust: trustForAgent(agent),
       metadata,
       agentURI: JSON.stringify(metadata),
-      install: {
-        type: "openclaw-session",
-        agentId: agent.a2aEndpoint || null,
-        importMode: "operator-routed",
-      },
+      install: installForAgent(agent),
     };
   }),
 };

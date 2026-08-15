@@ -15,7 +15,22 @@
       "category": "Data",
       "mcpEndpoint": "",
       "a2aEndpoint": "",
-      "domain": ""
+      "domain": "",
+      "pricing": {
+        "mode": "Fixed price",
+        "amount": "100",
+        "token": "USDC",
+        "billingPeriod": "month"
+      },
+      "trust": {
+        "status": "provisional",
+        "basis": "New listing pending operator review."
+      },
+      "install": {
+        "type": "openclaw-session",
+        "agentId": "",
+        "importMode": "operator-routed"
+      }
     }
   ]
 }

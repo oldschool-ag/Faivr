@@ -15,6 +15,13 @@ contract OwnerRegisterAgents is Script {
 
     address internal constant IDENTITY = 0x8D97B74fA9bFa67Db1A8Cf315dA91390612B90F6;
 
+    struct Pricing {
+        string mode;
+        string amount;
+        string token;
+        string billingPeriod;
+    }
+
     struct AgentRecord {
         string name;
         string description;
@@ -24,15 +31,18 @@ contract OwnerRegisterAgents is Script {
         string mcpEndpoint;
         string a2aEndpoint;
         string domain;
+        Pricing pricing;
     }
 
     function run() external {
         string memory inventoryPath = vm.envString("INVENTORY_PATH");
         string memory json = vm.readFile(inventoryPath);
-        string memory pricingMode = json.readString(".pricing.mode");
-        string memory pricingAmount = json.readString(".pricing.amount");
-        string memory pricingToken = json.readString(".pricing.token");
-        string memory billingPeriod = json.readString(".pricing.billingPeriod");
+        Pricing memory defaultPricing = Pricing({
+            mode: json.readString(".pricing.mode"),
+            amount: json.readString(".pricing.amount"),
+            token: json.readString(".pricing.token"),
+            billingPeriod: json.readString(".pricing.billingPeriod")
+        });
         bytes memory raw = json.parseRaw(".agents");
         AgentRecord[] memory agents = abi.decode(raw, (AgentRecord[]));
 
@@ -44,31 +54,45 @@ contract OwnerRegisterAgents is Script {
         vm.startBroadcast(deployerKey);
         for (uint256 i; i < agents.length; i++) {
             string memory agentURI =
-                _buildAgentURI(agents[i], json.readString(".ownerAddress"), pricingMode, pricingAmount, pricingToken, billingPeriod);
+                _buildAgentURI(agents[i], json.readString(".ownerAddress"), _pricingForAgent(agents[i], defaultPricing));
             uint256 agentId = IIdentityOwnerRegistration(IDENTITY).register(agentURI);
             console2.log("Registered agent", agents[i].name, "with id", agentId);
         }
         vm.stopBroadcast();
     }
 
-    function _buildAgentURI(
-        AgentRecord memory agent,
-        string memory ownerString,
-        string memory pricingMode,
-        string memory pricingAmount,
-        string memory pricingToken,
-        string memory billingPeriod
-    ) internal pure returns (string memory) {
+    function _pricingForAgent(AgentRecord memory agent, Pricing memory defaultPricing)
+        internal
+        pure
+        returns (Pricing memory)
+    {
+        if (bytes(agent.pricing.mode).length == 0) {
+            return defaultPricing;
+        }
+
+        if (bytes(agent.pricing.token).length == 0) {
+            agent.pricing.token = defaultPricing.token;
+        }
+
+        return agent.pricing;
+    }
+
+    function _buildAgentURI(AgentRecord memory agent, string memory ownerString, Pricing memory pricing)
+        internal
+        pure
+        returns (string memory)
+    {
+        bool includeFixedAmount = _containsIgnoreCase(pricing.mode, "fixed") && bytes(pricing.amount).length > 0;
+
         return string.concat(
             "{",
             '"name":"', _escape(agent.name), '",',
             '"description":"', _escape(agent.description), '",',
             '"targetBuyer":"', _escape(agent.targetBuyer), '",',
             '"category":"', _escape(agent.category), '",',
-            '"pricingMode":"', _escape(pricingMode), '",',
-            '"primaryToken":"', _escape(pricingToken), '",',
-            '"fixedPriceAmount":"', _escape(pricingAmount), '",',
-            '"billingPeriod":"', _escape(billingPeriod), '",',
+            '"pricingMode":"', _escape(pricing.mode), '",',
+            '"primaryToken":"', _escape(pricing.token), '",',
+            _pricingJsonFragment(pricing.billingPeriod, includeFixedAmount ? pricing.amount : ""),
             '"deliveryDescription":"', _escape(agent.deliverable), '",',
             '"ownerAddress":"', _escape(ownerString), '",',
             '"domain":"', _escape(agent.domain), '",',
@@ -76,6 +100,65 @@ contract OwnerRegisterAgents is Script {
             '"a2aEndpoint":"', _escape(agent.a2aEndpoint), '"',
             "}"
         );
+    }
+
+    function _pricingJsonFragment(string memory billingPeriod, string memory pricingAmount)
+        internal
+        pure
+        returns (string memory)
+    {
+        if (bytes(pricingAmount).length > 0 && bytes(billingPeriod).length > 0) {
+            return string.concat(
+                '"fixedPriceAmount":"',
+                _escape(pricingAmount),
+                '",',
+                '"billingPeriod":"',
+                _escape(billingPeriod),
+                '",'
+            );
+        }
+
+        if (bytes(pricingAmount).length > 0) {
+            return string.concat('"fixedPriceAmount":"', _escape(pricingAmount), '",');
+        }
+
+        if (bytes(billingPeriod).length > 0) {
+            return string.concat('"billingPeriod":"', _escape(billingPeriod), '",');
+        }
+
+        return "";
+    }
+
+    function _containsIgnoreCase(string memory haystack, string memory needle) internal pure returns (bool) {
+        bytes memory source = bytes(haystack);
+        bytes memory target = bytes(needle);
+
+        if (target.length == 0 || target.length > source.length) {
+            return false;
+        }
+
+        for (uint256 i; i <= source.length - target.length; i++) {
+            bool matched = true;
+            for (uint256 j; j < target.length; j++) {
+                if (_lower(source[i + j]) != _lower(target[j])) {
+                    matched = false;
+                    break;
+                }
+            }
+            if (matched) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    function _lower(bytes1 char) internal pure returns (bytes1) {
+        if (char >= 0x41 && char <= 0x5A) {
+            return bytes1(uint8(char) + 32);
+        }
+
+        return char;
     }
 
     function _escape(string memory value) internal pure returns (string memory) {

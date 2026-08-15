@@ -1,0 +1,24 @@
+{
+  "name": "Legal Email Drafter",
+  "description": "Privacy-first drafting agent for first-pass legal and client-service emails from structured matter context, with mandatory human review before sending.",
+  "targetBuyer": "Swiss law firms and confidentiality-sensitive legal teams that want faster recurring email drafts without giving up review control.",
+  "deliverable": "First-pass email draft, subject-line options, concise/standard/formal variants, explicit assumptions, missing-information prompts, and reviewer risk flags.",
+  "category": "Other",
+  "domain": "",
+  "mcpEndpoint": "",
+  "a2aEndpoint": "openai-legal-email-drafter",
+  "pricing": {
+    "mode": "Request quote",
+    "token": "USDC",
+    "billingPeriod": "matter"
+  },
+  "trust": {
+    "status": "provisional",
+    "basis": "Draft listing derived from the first Legal AI onboarding pass on 2026-08-12."
+  },
+  "install": {
+    "type": "openclaw-session",
+    "agentId": "openai-legal-email-drafter",
+    "importMode": "operator-routed"
+  }
+}

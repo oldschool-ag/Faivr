@@ -6,6 +6,7 @@ import { useAccount, useWaitForTransactionReceipt, useWriteContract } from "wagm
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { CONTRACTS, IDENTITY_ABI } from "@/lib/contracts";
+import { stringifyAgentRegistrationMetadata } from "@/lib/agentMetadata";
 import { TOKENS } from "@/lib/tokens";
 
 const CATEGORIES = ["DeFi", "Security", "Data", "Trading", "Marketing", "Other"];
@@ -26,36 +27,42 @@ export function OnboardForm() {
   const [deliveryDescription, setDeliveryDescription] = useState("");
   const [pricingMode, setPricingMode] = useState<(typeof PRICING_MODES)[number]>("Fixed price");
   const [fixedPriceAmount, setFixedPriceAmount] = useState("100");
+  const [billingPeriod, setBillingPeriod] = useState("month");
   const [mcpEndpoint, setMcpEndpoint] = useState("");
   const [a2aEndpoint, setA2aEndpoint] = useState("");
   const [domain, setDomain] = useState("");
   const { isConnected } = useAccount();
   const { writeContract, data: txHash, isPending, error: writeError, reset } = useWriteContract();
   const { isLoading: isConfirming, isSuccess, data: receipt } = useWaitForTransactionReceipt({ hash: txHash });
+  const isFixedPrice = pricingMode === "Fixed price";
 
   const isValid =
     name.trim().length > 0 &&
     description.trim().length > 0 &&
-    deliveryDescription.trim().length > 0;
+    deliveryDescription.trim().length > 0 &&
+    billingPeriod.trim().length > 0 &&
+    (!isFixedPrice || fixedPriceAmount.trim().length > 0);
   const minting = isPending || isConfirming;
   const agentId = isSuccess ? extractRegisteredAgentId(receipt) : null;
 
   const handleMint = () => {
     if (!isValid || !isConnected) return;
 
-    const agentURI = JSON.stringify({
+    const agentURI = stringifyAgentRegistrationMetadata({
       name: name.trim(),
       description: description.trim(),
       category,
       targetBuyer: targetBuyer.trim() || undefined,
-      pricingMode,
-      primaryToken: TOKENS.USDC.symbol,
-      fixedPriceAmount: fixedPriceAmount.trim() || undefined,
-      billingPeriod: "month",
       deliveryDescription: deliveryDescription.trim(),
       mcpEndpoint: mcpEndpoint.trim() || undefined,
       a2aEndpoint: a2aEndpoint.trim() || undefined,
       domain: domain.trim() || undefined,
+      pricing: {
+        mode: pricingMode,
+        token: TOKENS.USDC.symbol,
+        amount: isFixedPrice ? fixedPriceAmount.trim() || undefined : undefined,
+        billingPeriod: billingPeriod.trim(),
+      },
     });
 
     writeContract({
@@ -104,6 +111,7 @@ export function OnboardForm() {
                 setDeliveryDescription("");
                 setPricingMode("Fixed price");
                 setFixedPriceAmount("100");
+                setBillingPeriod("month");
                 setMcpEndpoint("");
                 setA2aEndpoint("");
                 setDomain("");
@@ -225,23 +233,29 @@ export function OnboardForm() {
               ))}
             </select>
           </div>
-          <div className="space-y-2">
-            <label htmlFor="fixed-price-amount" className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
-              Monthly price
-            </label>
-            <div className="flex items-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-              <input
-                id="fixed-price-amount"
-                type="number"
-                min="0"
-                step="0.01"
-                value={fixedPriceAmount}
-                onChange={(e) => setFixedPriceAmount(e.target.value)}
-                className="w-full bg-transparent text-sm font-medium text-emerald-800 outline-none"
-              />
-              <span className="text-sm font-semibold text-emerald-700">USDC / month</span>
+          {isFixedPrice ? (
+            <div className="space-y-2">
+              <label htmlFor="fixed-price-amount" className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+                Price
+              </label>
+              <div className="flex items-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                <input
+                  id="fixed-price-amount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={fixedPriceAmount}
+                  onChange={(e) => setFixedPriceAmount(e.target.value)}
+                  className="w-full bg-transparent text-sm font-medium text-emerald-800 outline-none"
+                />
+                <span className="text-sm font-semibold text-emerald-700">USDC</span>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+              Buyers will request a scoped quote before work starts.
+            </div>
+          )}
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -250,6 +264,19 @@ export function OnboardForm() {
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
               {TOKENS.USDC.symbol} on Base
             </div>
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="billing-period" className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+              {isFixedPrice ? "Billing period" : "Quote basis"}
+            </label>
+            <input
+              id="billing-period"
+              type="text"
+              value={billingPeriod}
+              onChange={(e) => setBillingPeriod(e.target.value)}
+              placeholder={isFixedPrice ? "month" : "matter"}
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-sky-300 focus:bg-white focus:outline-none"
+            />
           </div>
           <div className="space-y-2">
             <label htmlFor="agent-domain" className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
@@ -298,12 +325,15 @@ export function OnboardForm() {
             </label>
             <input
               id="a2a-endpoint"
-              type="url"
+              type="text"
               value={a2aEndpoint}
               onChange={(e) => setA2aEndpoint(e.target.value)}
-              placeholder="https://a2a.your-agent.com/v1"
+              placeholder="openai-your-agent or https://a2a.your-agent.com/v1"
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-sky-300 focus:bg-white focus:outline-none"
             />
+            <p className="text-xs leading-5 text-slate-500">
+              Use an OpenClaw agent id for operator-routed installs, or an HTTPS endpoint for a public A2A surface.
+            </p>
           </div>
         </div>
 
