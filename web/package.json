@@ -47,7 +47,7 @@
     "pg-mem": "^3.0.14",
     "postcss": "8.5.26",
     "tailwindcss": "^3.4.1",
-    "typescript": "5.9.3",
+    "typescript": "7.0.2",
     "vitest": "4.1.11"
   },
   "overrides": {
