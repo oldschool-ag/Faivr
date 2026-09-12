@@ -34,7 +34,7 @@
     "tailwind-merge": "^3.6.0",
     "viem": "2.55.19",
     "wagmi": "3.7.6",
-    "zod": "^3.25.76"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",
