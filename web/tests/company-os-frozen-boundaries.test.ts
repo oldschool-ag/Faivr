@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { COMPANY_OS_STORE_ENDPOINTS } from "@/lib/companyOs/contract";
+import { COMPANY_OS_BILLING_WEBHOOKS, COMPANY_OS_STORE_ENDPOINTS } from "@/lib/companyOs/contract";
 
 /**
  * CEO decision 2026-09-29: FAIVR is the Truchsess store for the next 12 months. Escrow,
@@ -12,12 +12,16 @@ import { COMPANY_OS_STORE_ENDPOINTS } from "@/lib/companyOs/contract";
  */
 
 const webRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const ROOTS = ["app/api/company-os", "lib/companyOs", "app/store"];
+const ROOTS = ["app/api/company-os", "lib/companyOs", "app/store", "instrumentation.ts"];
 const FORBIDDEN_MODULES = [/^viem(\/|$)/, /^wagmi(\/|$)/, /^ethers(\/|$)/, /^@wagmi\//, /^@rainbow-me\//];
 const FORBIDDEN_FILES = [/^lib\/contracts\.ts$/, /^lib\/wagmi\.ts$/, /^hooks\/useEscrow/, /^components\/escrow\//, /^hooks\/useAgent/, /^hooks\/useContractStats/, /^hooks\/useOwnedAgents/];
 const FORBIDDEN_TOKENS = [/\bescrow\b/i, /\bx402\b/i, /FaivrRouter/, /FaivrFeeModule/, /feeModule/, /mainnet\.base\.org/, /useWriteContract/, /CHAIN_ID/, /\bUSDC\b/];
 
 function walk(dir: string, out: string[] = []) {
+  if (statSync(dir).isFile()) {
+    out.push(dir);
+    return out;
+  }
   for (const entry of readdirSync(dir)) {
     const path = join(dir, entry);
     if (statSync(path).isDirectory()) walk(path, out);
@@ -73,6 +77,30 @@ describe("the lifecycle API is frozen off the chain", () => {
       }
     });
   }
+
+  it("keeps the billing providers (T6b.1) behind the same walls", () => {
+    // the provider layer exists, both implementations are reachable only through it, and the walk above covered them
+    const billingDir = join(webRoot, "lib/companyOs/billing");
+    const files = walk(billingDir).map((file) => relative(webRoot, file)).sort();
+    expect(files).toEqual(["lib/companyOs/billing/config.ts", "lib/companyOs/billing/events.ts", "lib/companyOs/billing/index.ts", "lib/companyOs/billing/polar.ts", "lib/companyOs/billing/provider.ts", "lib/companyOs/billing/stripe.ts"]);
+    expect(entries.some((entry) => entry.startsWith(billingDir))).toBe(true);
+    // the store handlers and the uninstall receipt never name a provider module directly: only the interface
+    const handlers = readFileSync(join(webRoot, "app/api/company-os/v1/storeHandlers.ts"), "utf8");
+    expect(handlers).not.toMatch(/billing\/(polar|stripe)"/);
+    expect(handlers).toContain('from "@/lib/companyOs/billing"');
+    // one webhook route per provider, each reachable only with its provider's verification
+    for (const [name, endpoint] of Object.entries(COMPANY_OS_BILLING_WEBHOOKS)) {
+      const path = join(webRoot, "app", endpoint.split(" ")[1].replace(/^\//, ""), "route.ts");
+      expect(existsSync(path), endpoint).toBe(true);
+      const source = readFileSync(path, "utf8");
+      expect(source, name).toContain("parseWebhook(");
+      expect(source, name).toContain("company_os_webhook_events");
+      expect(source, name).toContain("applyBillingEvent(");
+    }
+    // no provider module knows the chain or the SDKs' wallet helpers
+    const polar = readFileSync(join(billingDir, "polar.ts"), "utf8");
+    expect(imports(polar).filter((specifier) => !specifier.startsWith(".") && !specifier.startsWith("@/"))).toEqual(["@polar-sh/sdk/2026-10"]);
+  });
 
   it("lints those directories with the same restriction", () => {
     const config = readFileSync(join(webRoot, "eslint.config.mjs"), "utf8");

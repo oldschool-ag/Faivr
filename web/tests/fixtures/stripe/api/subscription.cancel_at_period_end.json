@@ -1,0 +1,10 @@
+{
+  "id": "{{STRIPE_SUBSCRIPTION_ID}}",
+  "object": "subscription",
+  "status": "active",
+  "cancel_at_period_end": true,
+  "current_period_end": 1800000000,
+  "customer": "{{STRIPE_CUSTOMER_ID}}",
+  "ended_at": null,
+  "metadata": {}
+}

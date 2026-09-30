@@ -26,6 +26,12 @@ export const COMPANY_OS_STORE_ENDPOINTS = [
   "POST /api/company-os/v1/store/installations",
 ] as const;
 
+/** T6b.1: the billing providers' webhook endpoints (unsigned by the appliance; verified with each provider's secret). */
+export const COMPANY_OS_BILLING_WEBHOOKS = {
+  polar: "POST /api/company-os/v1/billing/polar/webhook",
+  stripe: "POST /api/company-os/stripe/webhook",
+} as const;
+
 export const COMPANY_OS_HEADERS = {
   tenantId:"X-FAIVR-Tenant-Id", instanceId:"X-FAIVR-Instance-Id", keyId:"X-FAIVR-Key-Id",
   timestamp:"X-FAIVR-Timestamp", nonce:"X-FAIVR-Nonce", idempotencyKey:"Idempotency-Key", signature:"X-FAIVR-Signature",

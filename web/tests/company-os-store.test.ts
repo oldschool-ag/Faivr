@@ -53,6 +53,8 @@ describe("the private Truchsess store on FAIVR", () => {
   beforeEach(async () => {
     const created = createStoreDb();
     holder.pool = created.pool;
+    // T6b.1: this suite exercises the Stripe implementation behind the billing-provider interface
+    process.env.FAIVR_BILLING_PROVIDER = "stripe";
     process.env.STRIPE_SECRET_KEY = "sk_test_local";
     process.env.STRIPE_WEBHOOK_SECRET = WEBHOOK_SECRET;
     process.env.FAIVR_BILLING_SIGNING_PRIVATE_KEY = billingKeys.privatePem;
@@ -92,7 +94,7 @@ describe("the private Truchsess store on FAIVR", () => {
 
   afterEach(async () => {
     vi.unstubAllGlobals();
-    for (const name of ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "FAIVR_BILLING_SIGNING_PRIVATE_KEY", "FAIVR_BILLING_SIGNING_PUBLIC_KEY", "FAIVR_BILLING_SIGNING_KEY_ID", "FAIVR_PACKAGE_ORIGIN"]) delete process.env[name];
+    for (const name of ["FAIVR_BILLING_PROVIDER", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "FAIVR_BILLING_SIGNING_PRIVATE_KEY", "FAIVR_BILLING_SIGNING_PUBLIC_KEY", "FAIVR_BILLING_SIGNING_KEY_ID", "FAIVR_PACKAGE_ORIGIN"]) delete process.env[name];
     await holder.pool.end();
   });
 

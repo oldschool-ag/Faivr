@@ -1,0 +1,7 @@
+{
+  "id": "bps_TESTportal",
+  "object": "billing_portal.session",
+  "customer": "{{STRIPE_CUSTOMER_ID}}",
+  "url": "https://billing.stripe.test/session/bps_TESTportal",
+  "return_url": null
+}

@@ -7,7 +7,7 @@ const holder=vi.hoisted(()=>({pool:null as unknown as import("pg").Pool}));
 vi.mock("@/lib/postgres",()=>({getPgPool:()=>holder.pool}));
 
 import { archiveInstallation, acknowledgeInstall, acceptUninstallReceipt, confirmBillingStoppedByStripe, installationForTenant, markCancellationPending, markCheckoutFailed, markEntitled, recordCheckout, requestUninstall, selectPackage } from "@/lib/companyOs/store";
-import { createCheckoutSession, scheduleSubscriptionCancellation } from "@/lib/companyOs/stripe";
+import { createCheckoutSession, scheduleSubscriptionCancellation } from "@/lib/companyOs/billing/stripe";
 import type { UninstallReceipt } from "@/lib/companyOs/schemas";
 
 const tenantId="11111111-1111-4111-8111-111111111111";
