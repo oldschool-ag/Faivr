@@ -9,8 +9,10 @@ import { normalizePublicKeyPem } from "./publisherKeys";
  * enrolled Truchsess appliances only.
  *
  * Nothing here reaches the chain, the fee module, the router or an escrow contract: the
- * store is fiat through Stripe, monthly, per function bundle. tests/company-os-frozen-boundaries
- * pins that.
+ * store is fiat through the configured billing provider (Polar by default, Stripe as the
+ * second implementation; T6b.1), monthly, per function bundle. The state machine below is
+ * provider-neutral; provider objects are opaque ids next to it. tests/company-os-frozen-boundaries
+ * pins the first point.
  */
 
 export type Queryable = Pick<PoolClient, "query">;
@@ -56,15 +58,17 @@ export async function activePublishers(client?: Queryable) {
 
 // --- enrolment -----------------------------------------------------------------------------
 
-export async function issueEnrolmentCode(input: { tenantId?: string; label: string; createdBy: string; expiresInDays?: number }, client?: Queryable) {
+export async function issueEnrolmentCode(input: { tenantId?: string; label: string; createdBy: string; expiresInDays?: number; ownerEmail?: string | null }, client?: Queryable) {
   const code = generateEnrolmentCode();
   const tenantId = input.tenantId ?? randomUUID();
   const days = input.expiresInDays ?? 14;
+  const email = input.ownerEmail?.trim() || null;
+  if (email !== null && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new StoreError("owner_email_invalid", 400);
   await db(client).query(
-    "INSERT INTO company_os_enrolment_codes(code_hash,tenant_id,label,created_by,expires_at) VALUES($1,$2,$3,$4,now()+($5::text||' days')::interval)",
-    [hashEnrolmentCode(code), tenantId, input.label, input.createdBy, String(days)],
+    "INSERT INTO company_os_enrolment_codes(code_hash,tenant_id,label,created_by,expires_at,owner_email) VALUES($1,$2,$3,$4,now()+($5::text||' days')::interval,$6)",
+    [hashEnrolmentCode(code), tenantId, input.label, input.createdBy, String(days), email],
   );
-  return { code, tenantId, label: input.label, expiresInDays: days };
+  return { code, tenantId, label: input.label, expiresInDays: days, ownerEmail: email };
 }
 
 export type EnrolmentResult = {
@@ -111,12 +115,23 @@ export async function touchLastContact(tenantId: string, instanceId: string, key
 
 // --- bundles -------------------------------------------------------------------------------
 
-export async function upsertBundle(input: { id: string; name: string; description: string; stripePriceId: string | null; monthlyPriceCents: number; currency?: string }, client?: Queryable) {
+const POLAR_PRODUCT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export type BundleRow = { id: string; name: string; description: string; stripe_price_id: string | null; polar_product_id: string | null; monthly_price_cents: number; currency: string };
+
+export function billingBundle(row: BundleRow) {
+  return { id: row.id, name: row.name, polarProductId: row.polar_product_id ?? null, stripePriceId: row.stripe_price_id ?? null, monthlyPriceCents: row.monthly_price_cents, currency: row.currency };
+}
+
+/** A function bundle: the Polar product id and/or the Stripe price id are the provider references; the active provider decides which one counts. */
+export async function upsertBundle(input: { id: string; name: string; description: string; stripePriceId: string | null; polarProductId?: string | null; monthlyPriceCents: number; currency?: string }, client?: Queryable) {
   if (input.stripePriceId !== null && !/^price_[A-Za-z0-9]+$/.test(input.stripePriceId)) throw new StoreError("stripe_price_id_invalid", 400);
+  const polarProductId = input.polarProductId ?? null;
+  if (polarProductId !== null && !POLAR_PRODUCT_ID.test(polarProductId)) throw new StoreError("polar_product_id_invalid", 400);
   if (!Number.isSafeInteger(input.monthlyPriceCents) || input.monthlyPriceCents < 0) throw new StoreError("monthly_price_invalid", 400);
   await db(client).query(
-    "INSERT INTO company_os_function_bundles(id,name,description,stripe_price_id,monthly_price_cents,currency) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,description=EXCLUDED.description,stripe_price_id=EXCLUDED.stripe_price_id,monthly_price_cents=EXCLUDED.monthly_price_cents,currency=EXCLUDED.currency,updated_at=now()",
-    [input.id, input.name, input.description, input.stripePriceId, input.monthlyPriceCents, (input.currency ?? "chf").toLowerCase()],
+    "INSERT INTO company_os_function_bundles(id,name,description,stripe_price_id,polar_product_id,monthly_price_cents,currency) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,description=EXCLUDED.description,stripe_price_id=EXCLUDED.stripe_price_id,polar_product_id=EXCLUDED.polar_product_id,monthly_price_cents=EXCLUDED.monthly_price_cents,currency=EXCLUDED.currency,updated_at=now()",
+    [input.id, input.name, input.description, input.stripePriceId, polarProductId, input.monthlyPriceCents, (input.currency ?? "chf").toLowerCase()],
   );
 }
 
@@ -163,10 +178,16 @@ export type CatalogBundle = {
   packages: CatalogPackage[];
 };
 
+export type CatalogOptions = {
+  /** Whether the active billing provider has a reference for the bundle (T6b.1); Stripe's price by default. */
+  priceConfigured?: (bundle: ReturnType<typeof billingBundle>) => boolean;
+};
+
 /** What one enrolled appliance may see: every active bundle with its packages, and the appliance's own state on each. */
-export async function catalogForAppliance(tenantId: string, instanceId: string, client?: Queryable): Promise<CatalogBundle[]> {
+export async function catalogForAppliance(tenantId: string, instanceId: string, options: CatalogOptions = {}, client?: Queryable): Promise<CatalogBundle[]> {
   const q = db(client);
-  const bundles = await q.query("SELECT id,name,description,stripe_price_id,monthly_price_cents,currency FROM company_os_function_bundles WHERE status='active' ORDER BY name");
+  const priced = options.priceConfigured ?? ((bundle) => Boolean(bundle.stripePriceId));
+  const bundles = await q.query("SELECT id,name,description,stripe_price_id,polar_product_id,monthly_price_cents,currency FROM company_os_function_bundles WHERE status='active' ORDER BY name");
   const members = await q.query("SELECT bundle_id,package_id FROM company_os_bundle_packages ORDER BY bundle_id,package_id");
   const packages = await q.query("SELECT id,name,summary FROM company_os_packages WHERE status='active'");
   const versions = await q.query(
@@ -230,7 +251,7 @@ export async function catalogForAppliance(tenantId: string, instanceId: string, 
       description: bundle.description as string,
       monthlyPriceCents: bundle.monthly_price_cents as number,
       currency: bundle.currency as string,
-      priceConfigured: Boolean(bundle.stripe_price_id),
+      priceConfigured: priced(billingBundle(bundle as BundleRow)),
       subscription: subscription
         ? {
             subscriptionId: subscription.id as string,
@@ -245,83 +266,159 @@ export async function catalogForAppliance(tenantId: string, instanceId: string, 
 }
 
 // --- bundle subscriptions -----------------------------------------------------------------
+// One row per bundle checkout. The provider's objects are opaque ids next to the state:
+// billing_provider, provider_checkout_id, provider_subscription_id, provider_customer_id.
+
+export type BundleSubscriptionRow = {
+  id: string;
+  tenant_id: string;
+  instance_id: string;
+  bundle_id: string;
+  checkout_session_id: string | null;
+  billing_provider: string | null;
+  provider_checkout_id: string | null;
+  provider_subscription_id: string | null;
+  provider_customer_id: string | null;
+  subscription_state: string;
+  entitled_at: unknown;
+  cancel_effective_at: unknown;
+  stopped_at: unknown;
+  created_at: unknown;
+};
 
 export async function bundleForCheckout(bundleId: string, client?: Queryable) {
-  const r = await db(client).query("SELECT id,name,stripe_price_id,monthly_price_cents,currency FROM company_os_function_bundles WHERE id=$1 AND status='active'", [bundleId]);
+  const r = await db(client).query("SELECT id,name,description,stripe_price_id,polar_product_id,monthly_price_cents,currency FROM company_os_function_bundles WHERE id=$1 AND status='active'", [bundleId]);
   if (!r.rowCount) throw new StoreError("bundle_not_found", 404);
-  return r.rows[0] as { id: string; name: string; stripe_price_id: string | null; monthly_price_cents: number; currency: string };
+  return r.rows[0] as BundleRow;
+}
+
+/** The email the owner gave when the enrolment code was issued, if any: pre-fills the provider's checkout. */
+export async function ownerEmail(tenantId: string, client?: Queryable): Promise<string | null> {
+  const r = await db(client).query("SELECT owner_email FROM company_os_enrolment_codes WHERE tenant_id=$1 AND owner_email IS NOT NULL ORDER BY created_at DESC LIMIT 1", [tenantId]);
+  return (r.rows[0]?.owner_email as string | undefined) ?? null;
 }
 
 export async function liveSubscription(tenantId: string, bundleId: string, client?: Queryable) {
   const r = await db(client).query(
-    "SELECT id,subscription_state,checkout_session_id,stripe_subscription_id FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND bundle_id=$2 AND subscription_state IN ('checkout_pending','active','past_due','suspended','cancellation_pending_uninstall','cancel_at_period_end') ORDER BY created_at DESC LIMIT 1",
+    "SELECT id,subscription_state,checkout_session_id,billing_provider,provider_checkout_id,provider_subscription_id,provider_customer_id FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND bundle_id=$2 AND subscription_state IN ('checkout_pending','active','past_due','suspended','cancellation_pending_uninstall','cancel_at_period_end') ORDER BY created_at DESC LIMIT 1",
     [tenantId, bundleId],
   );
-  return (r.rows[0] as { id: string; subscription_state: string; checkout_session_id: string | null; stripe_subscription_id: string | null } | undefined) ?? null;
+  return (r.rows[0] as Pick<BundleSubscriptionRow, "id" | "subscription_state" | "checkout_session_id" | "billing_provider" | "provider_checkout_id" | "provider_subscription_id" | "provider_customer_id"> | undefined) ?? null;
 }
 
-export async function createBundleSubscription(input: { tenantId: string; instanceId: string; bundleId: string }, client?: Queryable) {
+export async function createBundleSubscription(input: { tenantId: string; instanceId: string; bundleId: string; provider: string }, client?: Queryable) {
   const id = randomUUID();
   const checkoutSessionId = randomUUID();
   await db(client).query(
-    "INSERT INTO company_os_bundle_subscriptions(id,tenant_id,instance_id,bundle_id,checkout_session_id,subscription_state) VALUES($1,$2,$3,$4,$5,'checkout_pending')",
-    [id, input.tenantId, input.instanceId, input.bundleId, checkoutSessionId],
+    "INSERT INTO company_os_bundle_subscriptions(id,tenant_id,instance_id,bundle_id,checkout_session_id,billing_provider,subscription_state) VALUES($1,$2,$3,$4,$5,$6,'checkout_pending')",
+    [id, input.tenantId, input.instanceId, input.bundleId, checkoutSessionId, input.provider],
   );
   return { subscriptionId: id, checkoutSessionId };
 }
 
-export async function recordBundleCheckout(subscriptionId: string, stripeCheckoutSessionId: string, client?: Queryable) {
-  await db(client).query("UPDATE company_os_bundle_subscriptions SET stripe_checkout_session_id=$2,updated_at=now() WHERE id=$1", [subscriptionId, stripeCheckoutSessionId]);
+export async function recordBundleCheckout(subscriptionId: string, providerCheckoutId: string, client?: Queryable) {
+  await db(client).query("UPDATE company_os_bundle_subscriptions SET provider_checkout_id=$2,updated_at=now() WHERE id=$1", [subscriptionId, providerCheckoutId]);
 }
 
 export async function abandonBundleCheckout(subscriptionId: string, client?: Queryable) {
-  await db(client).query("UPDATE company_os_bundle_subscriptions SET subscription_state='cancelled',stopped_at=now(),updated_at=now() WHERE id=$1 AND subscription_state='checkout_pending' AND stripe_subscription_id IS NULL", [subscriptionId]);
+  await db(client).query("UPDATE company_os_bundle_subscriptions SET subscription_state='cancelled',stopped_at=now(),updated_at=now() WHERE id=$1 AND subscription_state='checkout_pending' AND provider_subscription_id IS NULL", [subscriptionId]);
 }
 
-/** Stripe's checkout.session.completed for a bundle subscription: the appliance may now install the bundle's packages. */
-export async function activateBundleSubscription(input: { subscriptionId: string; tenantId: string; stripeCheckoutSessionId: string; stripeSubscriptionId: string }, client?: Queryable) {
+/**
+ * The provider reports the checkout paid and its subscription created: the appliance may now
+ * install the bundle's packages. The row is found by the provider's checkout id (the one the
+ * store recorded when it created the checkout); the metadata the provider echoes back must
+ * agree with it when present.
+ */
+export async function activateBundleSubscription(input: { provider: string; providerCheckoutId: string; providerSubscriptionId: string; providerCustomerId?: string | null; subscriptionId?: string | null; tenantId?: string | null }, client?: Queryable) {
   const r = await db(client).query(
-    "UPDATE company_os_bundle_subscriptions SET subscription_state='active',stripe_subscription_id=$4,entitled_at=COALESCE(entitled_at,now()),updated_at=now() WHERE id=$1 AND tenant_id=$2 AND stripe_checkout_session_id=$3 AND subscription_state IN ('checkout_pending','active','past_due') RETURNING id",
-    [input.subscriptionId, input.tenantId, input.stripeCheckoutSessionId, input.stripeSubscriptionId],
+    "UPDATE company_os_bundle_subscriptions SET subscription_state='active',provider_subscription_id=$3,provider_customer_id=COALESCE($4,provider_customer_id),entitled_at=COALESCE(entitled_at,now()),updated_at=now() WHERE billing_provider=$1 AND provider_checkout_id=$2 AND ($5::uuid IS NULL OR id=$5::uuid) AND ($6::uuid IS NULL OR tenant_id=$6::uuid) AND subscription_state IN ('checkout_pending','active','past_due') RETURNING id",
+    [input.provider, input.providerCheckoutId, input.providerSubscriptionId, input.providerCustomerId ?? null, input.subscriptionId ?? null, input.tenantId ?? null],
   );
   return Boolean(r.rowCount);
 }
 
-export async function subscriptionView(tenantId: string, filter: { subscriptionId?: string; bundleId?: string }, client?: Queryable) {
+export async function bundleSubscriptionRow(tenantId: string, filter: { subscriptionId?: string; bundleId?: string }, client?: Queryable): Promise<BundleSubscriptionRow | null> {
   const r = filter.subscriptionId
     ? await db(client).query("SELECT * FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND id=$2", [tenantId, filter.subscriptionId])
     : await db(client).query("SELECT * FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND bundle_id=$2 ORDER BY created_at DESC LIMIT 1", [tenantId, filter.bundleId]);
-  const row = r.rows[0];
-  if (!row) return null;
-  const iso = (value: unknown) => (value ? new Date(value as string).toISOString() : null);
+  return (r.rows[0] as BundleSubscriptionRow | undefined) ?? null;
+}
+
+const iso = (value: unknown) => (value ? new Date(value as string).toISOString() : null);
+
+/** What the appliance polls: the provider-neutral state, never a provider id. */
+export function subscriptionViewOf(row: BundleSubscriptionRow) {
   return {
-    subscriptionId: row.id as string,
-    bundleId: row.bundle_id as string,
-    subscriptionState: row.subscription_state as string,
-    checkoutSessionId: (row.checkout_session_id as string | null) ?? null,
+    subscriptionId: row.id,
+    bundleId: row.bundle_id,
+    subscriptionState: row.subscription_state,
+    checkoutSessionId: row.checkout_session_id ?? null,
     entitledAt: iso(row.entitled_at),
     cancelEffectiveAt: iso(row.cancel_effective_at),
     stoppedAt: iso(row.stopped_at),
   };
 }
 
-/** Stripe payment events on the bundle subscription; the installation mirror is derived from it. */
-export async function markBundleSubscriptionState(stripeSubscriptionId: string, state: "past_due" | "active" | "cancel_at_period_end" | "cancelled", effectiveAt: string | null, client?: Queryable) {
+export async function subscriptionView(tenantId: string, filter: { subscriptionId?: string; bundleId?: string }, client?: Queryable) {
+  const row = await bundleSubscriptionRow(tenantId, filter, client);
+  return row ? subscriptionViewOf(row) : null;
+}
+
+export type BundleSubscriptionTransition = "past_due" | "active" | "uncancelled" | "cancel_at_period_end" | "cancelled";
+
+/**
+ * A provider event on the bundle subscription it sold; the installation mirror is derived from it.
+ *
+ * - `active`: back from past due (a scheduled cancellation is not undone by a payment)
+ * - `uncancelled`: the scheduled cancellation reverted before the period end
+ * - `cancel_at_period_end`: active until the period end, the date recorded
+ * - `cancelled`: billing stopped
+ */
+export async function markBundleSubscriptionState(provider: string, providerSubscriptionId: string, transition: BundleSubscriptionTransition, effectiveAt: string | null, client?: Queryable) {
   const q = db(client);
-  const statements: Record<typeof state, string> = {
-    cancelled: "UPDATE company_os_bundle_subscriptions SET subscription_state='cancelled',stopped_at=$2,updated_at=now() WHERE stripe_subscription_id=$1 AND subscription_state<>'cancelled' RETURNING id",
-    cancel_at_period_end: "UPDATE company_os_bundle_subscriptions SET subscription_state='cancel_at_period_end',cancel_effective_at=$2,updated_at=now() WHERE stripe_subscription_id=$1 AND subscription_state IN ('active','past_due','cancellation_pending_uninstall','cancel_at_period_end') RETURNING id",
-    past_due: "UPDATE company_os_bundle_subscriptions SET subscription_state='past_due',updated_at=now() WHERE stripe_subscription_id=$1 AND subscription_state='active' AND $2::text IS NULL RETURNING id",
-    active: "UPDATE company_os_bundle_subscriptions SET subscription_state='active',updated_at=now() WHERE stripe_subscription_id=$1 AND subscription_state IN ('past_due','suspended') AND $2::text IS NULL RETURNING id",
+  const statements: Record<BundleSubscriptionTransition, string> = {
+    cancelled: "UPDATE company_os_bundle_subscriptions SET subscription_state='cancelled',stopped_at=$3,updated_at=now() WHERE billing_provider=$1 AND provider_subscription_id=$2 AND subscription_state<>'cancelled' RETURNING id",
+    cancel_at_period_end: "UPDATE company_os_bundle_subscriptions SET subscription_state='cancel_at_period_end',cancel_effective_at=$3,updated_at=now() WHERE billing_provider=$1 AND provider_subscription_id=$2 AND subscription_state IN ('active','past_due','cancellation_pending_uninstall','cancel_at_period_end') RETURNING id",
+    past_due: "UPDATE company_os_bundle_subscriptions SET subscription_state='past_due',updated_at=now() WHERE billing_provider=$1 AND provider_subscription_id=$2 AND subscription_state='active' AND $3::text IS NULL RETURNING id",
+    active: "UPDATE company_os_bundle_subscriptions SET subscription_state='active',updated_at=now() WHERE billing_provider=$1 AND provider_subscription_id=$2 AND subscription_state IN ('past_due','suspended') AND $3::text IS NULL RETURNING id",
+    uncancelled: "UPDATE company_os_bundle_subscriptions SET subscription_state='active',cancel_effective_at=NULL,updated_at=now() WHERE billing_provider=$1 AND provider_subscription_id=$2 AND subscription_state='cancel_at_period_end' AND $3::text IS NULL RETURNING id",
   };
-  const effective = state === "cancelled" || state === "cancel_at_period_end" ? (effectiveAt ?? new Date().toISOString()) : null;
-  const r = await q.query(statements[state], [stripeSubscriptionId, effective]);
+  const effective = transition === "cancelled" || transition === "cancel_at_period_end" ? (effectiveAt ?? new Date().toISOString()) : null;
+  const r = await q.query(statements[transition], [provider, providerSubscriptionId, effective]);
   if (!r.rowCount) return false;
   const ids = r.rows.map((row) => row.id as string);
+  const state = transition === "uncancelled" ? "active" : transition;
   // mirror on the installations that ride this subscription (the appliance polls both)
   await q.query("UPDATE company_os_installations SET subscription_state=$2,updated_at=now() WHERE bundle_subscription_id = ANY($1::uuid[])", [ids, state]);
-  if (state === "cancel_at_period_end") await q.query("UPDATE company_os_installations SET billing_cancel_effective_at=$2,updated_at=now() WHERE bundle_subscription_id = ANY($1::uuid[])", [ids, effective]);
-  if (state === "cancelled") await q.query("UPDATE company_os_installations SET billing_stopped_at=COALESCE(billing_stopped_at,$2),updated_at=now() WHERE bundle_subscription_id = ANY($1::uuid[]) AND installation_state='removed'", [ids, effective]);
+  if (transition === "cancel_at_period_end") await q.query("UPDATE company_os_installations SET billing_cancel_effective_at=$2,updated_at=now() WHERE bundle_subscription_id = ANY($1::uuid[])", [ids, effective]);
+  if (transition === "uncancelled") await q.query("UPDATE company_os_installations SET billing_cancel_effective_at=NULL,updated_at=now() WHERE bundle_subscription_id = ANY($1::uuid[])", [ids]);
+  if (transition === "cancelled") await q.query("UPDATE company_os_installations SET billing_stopped_at=COALESCE(billing_stopped_at,$2),updated_at=now() WHERE bundle_subscription_id = ANY($1::uuid[]) AND installation_state='removed'", [ids, effective]);
+  return true;
+}
+
+export async function rememberProviderCustomer(provider: string, providerSubscriptionId: string, providerCustomerId: string, client?: Queryable) {
+  await db(client).query("UPDATE company_os_bundle_subscriptions SET provider_customer_id=$3,updated_at=now() WHERE billing_provider=$1 AND provider_subscription_id=$2 AND provider_customer_id IS NULL", [provider, providerSubscriptionId, providerCustomerId]);
+}
+
+/**
+ * A catch-all provider update (Polar's subscription.updated): a refresh of the known fields,
+ * never a state source of its own. It records the period end of a scheduled cancellation,
+ * moves active <-> past_due when the provider says so, and never touches a pending checkout
+ * or an ended subscription.
+ */
+export async function refreshBundleSubscription(provider: string, providerSubscriptionId: string, view: { state: string | null; periodEnd: string | null; providerCustomerId: string | null }, client?: Queryable) {
+  const q = db(client);
+  const r = await q.query("SELECT id,subscription_state FROM company_os_bundle_subscriptions WHERE billing_provider=$1 AND provider_subscription_id=$2", [provider, providerSubscriptionId]);
+  const row = r.rows[0] as { id: string; subscription_state: string } | undefined;
+  if (!row) return false;
+  if (view.providerCustomerId) await rememberProviderCustomer(provider, providerSubscriptionId, view.providerCustomerId, q);
+  if (row.subscription_state === "cancel_at_period_end" && view.periodEnd) {
+    await q.query("UPDATE company_os_bundle_subscriptions SET cancel_effective_at=$2,updated_at=now() WHERE id=$1", [row.id, view.periodEnd]);
+    await q.query("UPDATE company_os_installations SET billing_cancel_effective_at=$2,updated_at=now() WHERE bundle_subscription_id=$1", [row.id, view.periodEnd]);
+  }
+  if (view.state === "past_due" && row.subscription_state === "active") await markBundleSubscriptionState(provider, providerSubscriptionId, "past_due", null, q);
+  if (view.state === "active" && row.subscription_state === "past_due") await markBundleSubscriptionState(provider, providerSubscriptionId, "active", null, q);
   return true;
 }
 
@@ -381,10 +478,10 @@ export async function otherInstallationsOnSubscription(bundleSubscriptionId: str
 
 export async function bundleSubscriptionForInstallation(installationId: string, client?: Queryable) {
   const r = await db(client).query(
-    "SELECT s.id,s.stripe_subscription_id,s.subscription_state FROM company_os_installations i JOIN company_os_bundle_subscriptions s ON s.id=i.bundle_subscription_id WHERE i.id=$1",
+    "SELECT s.id,s.billing_provider,s.provider_subscription_id,s.provider_customer_id,s.subscription_state FROM company_os_installations i JOIN company_os_bundle_subscriptions s ON s.id=i.bundle_subscription_id WHERE i.id=$1",
     [installationId],
   );
-  return (r.rows[0] as { id: string; stripe_subscription_id: string | null; subscription_state: string } | undefined) ?? null;
+  return (r.rows[0] as { id: string; billing_provider: string | null; provider_subscription_id: string | null; provider_customer_id: string | null; subscription_state: string } | undefined) ?? null;
 }
 
 export async function scheduleBundleCancellation(subscriptionId: string, effectiveAt: string, client?: Queryable) {
@@ -398,8 +495,8 @@ export async function scheduleBundleCancellation(subscriptionId: string, effecti
 /** The CEO cancels a bundle nothing is installed from any more (the receipt-gated path handles the rest). */
 export async function cancellableSubscription(tenantId: string, subscriptionId: string, client?: Queryable) {
   const q = db(client);
-  const r = await q.query("SELECT id,bundle_id,subscription_state,stripe_subscription_id FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND id=$2", [tenantId, subscriptionId]);
-  const row = r.rows[0] as { id: string; bundle_id: string; subscription_state: string; stripe_subscription_id: string | null } | undefined;
+  const r = await q.query("SELECT id,bundle_id,subscription_state,billing_provider,provider_subscription_id FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND id=$2", [tenantId, subscriptionId]);
+  const row = r.rows[0] as { id: string; bundle_id: string; subscription_state: string; billing_provider: string | null; provider_subscription_id: string | null } | undefined;
   if (!row) throw new StoreError("subscription_not_found", 404);
   if (!["active", "past_due", "suspended"].includes(row.subscription_state)) throw new StoreError(`subscription_state_mismatch:${row.subscription_state}`, 409);
   const active = await q.query("SELECT count(*)::int AS n FROM company_os_installations WHERE bundle_subscription_id=$1 AND installation_state NOT IN ('removed','failed')", [subscriptionId]);

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { canonicalJson, canonicalRequest, canonicalSignedMessage, signCompanyOsRequest, verifyCompanyOsRequest, verifyMessageSignature, type RequestIdentity } from "@/lib/companyOs/auth";
 import { COMPANY_OS_HEADERS, COMPANY_OS_V1_ENDPOINTS } from "@/lib/companyOs/contract";
 import { archiveReceiptSchema, billingAcknowledgementSchema, installationStateSchema, isAcceptableUninstallReceipt, modelIdSchema, semverSchema, sha256Schema, subscriptionStateSchema, uninstallReceiptSchema, uuidSchema } from "@/lib/companyOs/schemas";
-import { createCheckoutSession, scheduleSubscriptionCancellation, stripeApiOrigin } from "@/lib/companyOs/stripe";
+import { createCheckoutSession, scheduleSubscriptionCancellation, stripeApiOrigin } from "@/lib/companyOs/billing/stripe";
 
 const U={tenant:"11111111-1111-4111-8111-111111111111",instance:"22222222-2222-4222-8222-222222222222",installation:"33333333-3333-4333-8333-333333333333",subscription:"44444444-4444-4444-8444-444444444444",receipt:"55555555-5555-4555-8555-555555555555",request:"66666666-6666-4666-8666-666666666666",local:"77777777-7777-4777-8777-777777777777",event:"88888888-8888-4888-8888-888888888888"};
 const identity:RequestIdentity={tenantId:U.tenant,instanceId:U.instance,keyId:"key-1",timestamp:"1000",nonce:"nonce-1",idempotencyKey:"idem-1"};

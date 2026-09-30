@@ -34,3 +34,15 @@ ALTER TABLE company_os_installations ADD COLUMN IF NOT EXISTS instance_id uuid;
 ALTER TABLE company_os_installations DROP CONSTRAINT IF EXISTS company_os_installations_subscription_id_key;
 CREATE INDEX IF NOT EXISTS company_os_installations_subscription_idx ON company_os_installations(subscription_id);
 CREATE TABLE IF NOT EXISTS company_os_enrolment_codes (code_hash text PRIMARY KEY, tenant_id uuid NOT NULL, label text NOT NULL, created_by text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), expires_at timestamptz NOT NULL, used_at timestamptz, instance_id uuid, key_id text);
+-- T6b.1: billing through a provider interface (Polar by default, Stripe as the second implementation).
+-- A bundle carries the Polar product id of its recurring product; provider objects are opaque ids next to the state.
+ALTER TABLE company_os_function_bundles ADD COLUMN IF NOT EXISTS polar_product_id text UNIQUE;
+ALTER TABLE company_os_bundle_subscriptions ADD COLUMN IF NOT EXISTS billing_provider text;
+ALTER TABLE company_os_bundle_subscriptions ADD COLUMN IF NOT EXISTS provider_checkout_id text;
+ALTER TABLE company_os_bundle_subscriptions ADD COLUMN IF NOT EXISTS provider_subscription_id text;
+ALTER TABLE company_os_bundle_subscriptions ADD COLUMN IF NOT EXISTS provider_customer_id text;
+UPDATE company_os_bundle_subscriptions SET billing_provider='stripe', provider_checkout_id=stripe_checkout_session_id, provider_subscription_id=stripe_subscription_id WHERE billing_provider IS NULL AND (stripe_checkout_session_id IS NOT NULL OR stripe_subscription_id IS NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS company_os_bundle_subscriptions_provider_checkout_idx ON company_os_bundle_subscriptions(billing_provider,provider_checkout_id);
+CREATE UNIQUE INDEX IF NOT EXISTS company_os_bundle_subscriptions_provider_subscription_idx ON company_os_bundle_subscriptions(billing_provider,provider_subscription_id);
+-- the owner's email, given when the enrolment code is issued, pre-fills the provider's checkout (optional)
+ALTER TABLE company_os_enrolment_codes ADD COLUMN IF NOT EXISTS owner_email text;

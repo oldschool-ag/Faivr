@@ -1,0 +1,9 @@
+{
+  "type": "benefit_grant.created",
+  "timestamp": "2026-09-30T12:00:05.000000Z",
+  "api_version": "2026-10",
+  "data": {
+    "id": "11111111-aaaa-4aaa-8aaa-111111111111",
+    "metadata": {}
+  }
+}

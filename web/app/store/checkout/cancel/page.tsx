@@ -1,6 +1,6 @@
 export const metadata = { title: "Checkout cancelled" };
 
-/** Where Stripe sends the appliance owner who left the checkout without paying. Nothing was charged. */
+/** Where the billing provider sends the appliance owner who left the checkout without paying. Nothing was charged. */
 export default function StoreCheckoutCancelPage() {
   return (
     <main style={{ maxWidth: 560, margin: "80px auto", padding: "0 24px", fontFamily: "system-ui, sans-serif", lineHeight: 1.5 }}>

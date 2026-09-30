@@ -1,0 +1,14 @@
+{
+  "id": "{{STRIPE_CHECKOUT_SESSION_ID}}",
+  "object": "checkout.session",
+  "mode": "subscription",
+  "status": "open",
+  "url": "https://checkout.stripe.test/{{STRIPE_CHECKOUT_SESSION_ID}}",
+  "customer": null,
+  "subscription": null,
+  "metadata": {
+    "tenant_id": "{{TENANT_ID}}",
+    "installation_id": "{{FAIVR_SUBSCRIPTION_ID}}",
+    "bundle_subscription_id": "{{FAIVR_SUBSCRIPTION_ID}}"
+  }
+}
