@@ -1,0 +1,30 @@
+{
+  "id": "evt_1Q0TESTcheckoutCompleted",
+  "object": "event",
+  "api_version": "2025-08-27.basil",
+  "created": 1790000000,
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": { "id": null, "idempotency_key": null },
+  "type": "checkout.session.completed",
+  "data": {
+    "object": {
+      "id": "{{STRIPE_CHECKOUT_SESSION_ID}}",
+      "object": "checkout.session",
+      "mode": "subscription",
+      "status": "complete",
+      "payment_status": "paid",
+      "currency": "chf",
+      "amount_total": 4900,
+      "customer": "cus_TESTcustomer",
+      "subscription": "{{STRIPE_SUBSCRIPTION_ID}}",
+      "success_url": "https://store.faivr.test/store/checkout/success",
+      "cancel_url": "https://store.faivr.test/store/checkout/cancel",
+      "metadata": {
+        "tenant_id": "{{TENANT_ID}}",
+        "installation_id": "{{BUNDLE_SUBSCRIPTION_ID}}",
+        "bundle_subscription_id": "{{BUNDLE_SUBSCRIPTION_ID}}"
+      }
+    }
+  }
+}

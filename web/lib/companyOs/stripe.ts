@@ -33,8 +33,10 @@ async function stripeRequest(path:string, init:RequestInit={}) {
   if(!ok) throw new Error(typeof value.error==="object"&&value.error&&"message" in value.error?String((value.error as {message:unknown}).message):"stripe_provider_error");
   return value;
 }
-export async function createCheckoutSession(input:{priceId:string;installationId:string;tenantId:string;successUrl:string;cancelUrl:string}){
+export async function createCheckoutSession(input:{priceId:string;installationId:string;tenantId:string;successUrl:string;cancelUrl:string;bundleSubscriptionId?:string}){
   const body=new URLSearchParams({mode:"subscription",success_url:input.successUrl,cancel_url:input.cancelUrl,"line_items[0][price]":input.priceId,"line_items[0][quantity]":"1","metadata[installation_id]":input.installationId,"metadata[tenant_id]":input.tenantId,"subscription_data[metadata][installation_id]":input.installationId,"subscription_data[metadata][tenant_id]":input.tenantId});
+  // T6b: a function-bundle checkout; the webhook activates the bundle subscription, not one installation
+  if(input.bundleSubscriptionId){body.set("metadata[bundle_subscription_id]",input.bundleSubscriptionId);body.set("subscription_data[metadata][bundle_subscription_id]",input.bundleSubscriptionId);}
   return stripeRequest("checkout/sessions",{method:"POST",body});
 }
 export async function retrieveCheckoutSession(id:string){return stripeRequest(`checkout/sessions/${encodeURIComponent(id)}`);}

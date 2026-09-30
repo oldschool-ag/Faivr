@@ -1,0 +1,27 @@
+{
+  "id": "evt_1Q0TESTsubscriptionDeleted",
+  "object": "event",
+  "api_version": "2025-08-27.basil",
+  "created": 1790100000,
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": { "id": null, "idempotency_key": null },
+  "type": "customer.subscription.deleted",
+  "data": {
+    "object": {
+      "id": "{{STRIPE_SUBSCRIPTION_ID}}",
+      "object": "subscription",
+      "status": "canceled",
+      "cancel_at_period_end": false,
+      "canceled_at": 1790099000,
+      "ended_at": 1790100000,
+      "customer": "cus_TESTcustomer",
+      "items": { "object": "list", "data": [ { "id": "si_TESTitem", "object": "subscription_item", "price": { "id": "price_TESTdesignreview", "object": "price", "recurring": { "interval": "month" } } } ] },
+      "metadata": {
+        "tenant_id": "{{TENANT_ID}}",
+        "installation_id": "{{BUNDLE_SUBSCRIPTION_ID}}",
+        "bundle_subscription_id": "{{BUNDLE_SUBSCRIPTION_ID}}"
+      }
+    }
+  }
+}

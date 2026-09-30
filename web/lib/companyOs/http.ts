@@ -36,6 +36,8 @@ export async function authenticatedJson(req: NextRequest): Promise<Authenticated
     [identity.tenantId, identity.instanceId, identity.nonce],
   );
   if (!nonce.rowCount) return NextResponse.json({ error: "Request replay rejected" }, { status: 409 });
+  // T6b: "last contact" on the appliance's Store tab; never fatal for the request itself
+  try { await pool.query("UPDATE company_os_instance_keys SET last_contact_at=now() WHERE tenant_id=$1 AND instance_id=$2 AND key_id=$3", [identity.tenantId, identity.instanceId, identity.keyId]); } catch { /* the request stands */ }
   try { return { body, json: body ? JSON.parse(body) : {}, principal: identity, bodyHash: sha256(body) }; }
   catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
 }

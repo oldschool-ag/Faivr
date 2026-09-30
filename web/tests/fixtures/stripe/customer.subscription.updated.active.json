@@ -1,0 +1,21 @@
+{
+  "id": "evt_1Q0TESTsubscriptionUpdatedActive",
+  "object": "event",
+  "api_version": "2025-08-27.basil",
+  "created": 1790060000,
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": { "id": null, "idempotency_key": null },
+  "type": "customer.subscription.updated",
+  "data": {
+    "object": {
+      "id": "{{STRIPE_SUBSCRIPTION_ID}}",
+      "object": "subscription",
+      "status": "active",
+      "cancel_at_period_end": false,
+      "customer": "cus_TESTcustomer",
+      "metadata": { "tenant_id": "{{TENANT_ID}}", "bundle_subscription_id": "{{BUNDLE_SUBSCRIPTION_ID}}" }
+    },
+    "previous_attributes": { "status": "past_due" }
+  }
+}
