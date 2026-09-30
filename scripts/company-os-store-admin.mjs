@@ -100,8 +100,9 @@ try {
       if (!updated.rowCount) throw new Error(`bundle ${id} does not exist`);
     }
     const row = (await client.query("SELECT id,name,polar_product_id,stripe_price_id,monthly_price_cents,currency FROM company_os_function_bundles WHERE id=$1", [id])).rows[0];
-    const provider = (process.env.FAIVR_BILLING_PROVIDER ?? "polar").trim().toLowerCase();
-    console.log(JSON.stringify({ bundle: row, billingProvider: provider, subscribable: Boolean(provider === "stripe" ? row.stripe_price_id : row.polar_product_id) }));
+    // subscribable under the active provider (FAIVR_BILLING_PROVIDER, polar by default); the value itself is not echoed
+    const usesStripe = (process.env.FAIVR_BILLING_PROVIDER ?? "polar").trim().toLowerCase() === "stripe";
+    console.log(JSON.stringify({ bundle: row, subscribable: Boolean(usesStripe ? row.stripe_price_id : row.polar_product_id) }));
   } else if (command === "add-package") {
     const bundle = need("bundle"), modelId = need("model-id");
     if (!modelIdPattern.test(modelId)) throw new Error("model id must be faivr.agent.<slug>");
