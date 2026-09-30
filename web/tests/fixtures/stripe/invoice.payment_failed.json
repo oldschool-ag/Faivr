@@ -1,0 +1,23 @@
+{
+  "id": "evt_1Q0TESTinvoicePaymentFailed",
+  "object": "event",
+  "api_version": "2025-08-27.basil",
+  "created": 1790050000,
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": { "id": null, "idempotency_key": null },
+  "type": "invoice.payment_failed",
+  "data": {
+    "object": {
+      "id": "in_TESTinvoice",
+      "object": "invoice",
+      "status": "open",
+      "attempt_count": 1,
+      "billing_reason": "subscription_cycle",
+      "customer": "cus_TESTcustomer",
+      "subscription": "{{STRIPE_SUBSCRIPTION_ID}}",
+      "amount_due": 4900,
+      "currency": "chf"
+    }
+  }
+}
