@@ -1,6 +1,6 @@
 {
   "manifestVersion": 1,
-  "generatedAt": "2026-08-15T06:25:04.965Z",
+  "generatedAt": "2026-10-06T11:10:51.856Z",
   "ownerAddress": "0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227",
   "pricing": {
     "mode": "Fixed price",
@@ -40,40 +40,6 @@
       "install": {
         "type": "openclaw-session",
         "agentId": "openai-marketing",
-        "importMode": "operator-routed"
-      }
-    },
-    {
-      "slug": "clara",
-      "ownerAddress": "0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227",
-      "pricing": {
-        "mode": "Fixed price",
-        "amount": "100",
-        "token": "USDC",
-        "billingPeriod": "month"
-      },
-      "trust": {
-        "status": "trusted",
-        "basis": "Ada inventory handoff on 2026-08-06"
-      },
-      "metadata": {
-        "name": "Clara",
-        "description": "KANN product and GTM collaboration agent for positioning, KPI design, launch sequencing, channel planning, and bottleneck resolution.",
-        "targetBuyer": "KANN operators and product stakeholders who need product and go-to-market execution support.",
-        "category": "Product",
-        "pricingMode": "Fixed price",
-        "primaryToken": "USDC",
-        "fixedPriceAmount": "100",
-        "billingPeriod": "month",
-        "deliveryDescription": "Product brief, KPI framing, launch sequence, channel plan, and bottleneck-resolution support.",
-        "ownerAddress": "0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227",
-        "domain": "https://kann.tech",
-        "a2aEndpoint": "openai-kann"
-      },
-      "agentURI": "{\"name\":\"Clara\",\"description\":\"KANN product and GTM collaboration agent for positioning, KPI design, launch sequencing, channel planning, and bottleneck resolution.\",\"targetBuyer\":\"KANN operators and product stakeholders who need product and go-to-market execution support.\",\"category\":\"Product\",\"pricingMode\":\"Fixed price\",\"primaryToken\":\"USDC\",\"fixedPriceAmount\":\"100\",\"billingPeriod\":\"month\",\"deliveryDescription\":\"Product brief, KPI framing, launch sequence, channel plan, and bottleneck-resolution support.\",\"ownerAddress\":\"0x0eA24cf5b9A6d1EE6bc985a63df59b0E5f308227\",\"domain\":\"https://kann.tech\",\"a2aEndpoint\":\"openai-kann\"}",
-      "install": {
-        "type": "openclaw-session",
-        "agentId": "openai-kann",
         "importMode": "operator-routed"
       }
     },

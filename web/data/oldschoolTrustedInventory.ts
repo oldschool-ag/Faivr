@@ -43,17 +43,6 @@ export const OLD_SCHOOL_TRUSTED_AGENTS: TrustedOldSchoolAgent[] = [
     domain: "",
   },
   {
-    name: "Clara",
-    description:
-      "KANN product and GTM collaboration agent for positioning, KPI design, launch sequencing, channel planning, and bottleneck resolution.",
-    targetBuyer: "KANN operators and product stakeholders who need product and go-to-market execution support.",
-    deliverable: "Product brief, KPI framing, launch sequence, channel plan, and bottleneck-resolution support.",
-    category: "Product",
-    mcpEndpoint: "",
-    a2aEndpoint: "openai-kann",
-    domain: "https://kann.tech",
-  },
-  {
     name: "Nora",
     description:
       "SCR product and GTM collaboration agent for positioning, KPI design, launch sequencing, channel planning, and bottleneck resolution.",

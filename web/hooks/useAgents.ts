@@ -1,48 +1,13 @@
 import { useMemo } from "react";
 import { useReadContract, useReadContracts } from "wagmi";
 import { CONTRACTS, IDENTITY_ABI, VERIFICATION_ABI } from "@/lib/contracts";
-import { parseAgentMetadata } from "@/lib/agentMetadata";
-import type { AgentData } from "@/components/agent/AgentCard";
+import { visibleAgentCount } from "@/lib/hiddenAgents";
+import { assembleRegistryAgents } from "@/lib/registryAgents";
 
-function parseAgentURI(uri: string, id: number): AgentData {
-  const parsed = parseAgentMetadata(uri);
-
-  if (!parsed) {
-    return {
-      id,
-      name: `Agent #${id}`,
-      description: uri.slice(0, 220),
-      rating: 0,
-      reviews: 0,
-      tags: [],
-      validated: false,
-      verified: false,
-      active: true,
-      isExample: false,
-    };
-  }
-
-  return {
-    id,
-    name: parsed.name || `Agent #${id}`,
-    description: parsed.description || "",
-    rating: 0,
-    reviews: 0,
-    tags: parsed.tags,
-    validated: Boolean(parsed.validated),
-    verified: false,
-    active: true,
-    pricingMode: parsed.pricingMode,
-    primaryToken: parsed.primaryToken,
-    fixedPriceAmount: parsed.fixedPriceAmount,
-    billingPeriod: parsed.billingPeriod,
-    deliveryDescription: parsed.deliveryDescription,
-    targetBuyer: parsed.targetBuyer,
-    domain: parsed.domain,
-    isExample: false,
-  };
-}
-
+/**
+ * The live registry listing: every agent of the identity registry on Base, minus the hidden
+ * entries of lib/hiddenAgents.ts (F1). `count` is the number of visible agents.
+ */
 export function useAgents() {
   const { data: agentCount, isLoading } = useReadContract({
     address: CONTRACTS.identity,
@@ -97,25 +62,7 @@ export function useAgents() {
     query: { enabled: count > 0 },
   });
 
-  const agents = useMemo(() => {
-    if (count === 0 || !tokenURIs) return [];
+  const agents = useMemo(() => assembleRegistryAgents({ count, tokenURIs, actives, verifications }), [actives, count, tokenURIs, verifications]);
 
-    const onChainAgents: AgentData[] = [];
-    for (let i = 0; i < tokenURIs.length; i++) {
-      const result = tokenURIs[i];
-      if (result.status !== "success" || typeof result.result !== "string") continue;
-
-      const agent = parseAgentURI(result.result, i + 1);
-      const activeResult = actives?.[i];
-      const verificationResult = verifications?.[i];
-
-      agent.active = activeResult?.status === "success" ? Boolean(activeResult.result) : true;
-      agent.verified = verificationResult?.status === "success" ? Boolean(verificationResult.result) : false;
-      onChainAgents.push(agent);
-    }
-
-    return onChainAgents;
-  }, [actives, count, tokenURIs, verifications]);
-
-  return { agents, isLoading, count };
+  return { agents, isLoading, count: visibleAgentCount(count) };
 }

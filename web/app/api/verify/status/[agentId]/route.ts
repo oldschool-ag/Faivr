@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isHiddenAgentId } from "@/lib/hiddenAgents";
 
 // In production: read from the smart contract
 // For now: return a placeholder response
@@ -9,6 +10,11 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ agentId:
 
   if (!agentId) {
     return NextResponse.json({ error: "Missing agentId" }, { status: 400 });
+  }
+
+  // F1: a hidden registry entry does not exist for the site's API either
+  if (isHiddenAgentId(Number(agentId))) {
+    return NextResponse.json({ error: "Agent not found" }, { status: 404 });
   }
 
   // In production, this would call:
