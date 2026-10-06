@@ -9,15 +9,15 @@
   --body: #3D4155;
   --muted: #4B5064;
   --line: #E1E3F2;
-  --accent: #4338CA;
+  --accent: #B45309;
   --dark-text: #E9EAF5;
   --brand-ink: #111421;
   --brand-slate: #5d6679;
   --brand-paper: #f4f6fb;
   --brand-mist: #dbe2ee;
   --brand-line: rgba(17, 20, 33, 0.08);
-  --brand-accent: #4964ff;
-  --faivr-accent: #5e86ff;
+  --brand-accent: #B45309;
+  --faivr-accent: #B45309;
   --faivr-deep: #0f1629;
 }
 
@@ -47,7 +47,7 @@ button:focus-visible {
 }
 
 ::selection {
-  background: #E4E5FB;
+  background: #F5E6D8;
 }
 
 .skip-to-content {

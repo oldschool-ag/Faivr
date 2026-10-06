@@ -33,7 +33,7 @@ describe("W1 coming-soon public surfaces",()=>{
       it(`${worker} has no fabricated package facts`,async()=>{
         const html=renderToStaticMarkup(await WorkerPage({params:Promise.resolve({worker:slugify(worker)})}));
         assertPlanned(html);
-        expect(html).toContain("mailto:[CONTACT EMAIL]");
+        expect(html).toContain("mailto:info@oldschool.ag");
         expect(html).toContain("Tell me when it is ready");
       });
     }
@@ -47,7 +47,7 @@ describe("W1 coming-soon public surfaces",()=>{
 describe("W1 supporting pages",()=>{
   it("keeps the legal facts as the exact unfilled placeholders",()=>{
     const html=renderToStaticMarkup(ImprintPage());
-    for(const text of ["Old School GmbH","[STREET AND NUMBER]","[POSTCODE] [TOWN]","[UID CHE-…]","[CONTACT EMAIL]"])expect(html).toContain(text);
+    for(const text of ["Old School GmbH","[STREET AND NUMBER]","[POSTCODE] [TOWN]","[UID CHE-…]","info@oldschool.ag"])expect(html).toContain(text);
     expect(html).not.toMatch(forbidden);
   });
   it("marks privacy as a draft and links to the trust explanation",()=>{
