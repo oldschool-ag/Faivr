@@ -45,14 +45,17 @@ describe("W1 coming-soon public surfaces",()=>{
 });
 
 describe("W1 supporting pages",()=>{
-  it("keeps the legal facts as the exact unfilled placeholders",()=>{
+  it("shows the supplied legal contact details",()=>{
     const html=renderToStaticMarkup(ImprintPage());
-    for(const text of ["Old School GmbH","[STREET AND NUMBER]","[POSTCODE] [TOWN]","[UID CHE-…]","info@oldschool.ag"])expect(html).toContain(text);
+    for(const text of ["Old School GmbH","Maegeristrasse 2","6318 Walchwil","Switzerland","UID &lt;CHE-xxx.xxx.xxx&gt;","info@oldschool.ag"])expect(html).toContain(text);
     expect(html).not.toMatch(forbidden);
   });
-  it("marks privacy as a draft and links to the trust explanation",()=>{
+  it("states the approved privacy notice and links to the trust explanation",()=>{
     const html=renderToStaticMarkup(PrivacyPage());
-    expect(html).toContain("DRAFT, TO BE REVIEWED");
+    expect(html).toContain("Vercel Inc. (USA)");
+    expect(html).toContain("sets no cookies and uses no analytics or tracking");
+    expect(html).toContain("Maegeristrasse 2, 6318 Walchwil, Switzerland");
+    expect(html).not.toContain("DRAFT, TO BE REVIEWED");
     expect(html).toContain('href="/trust"');
     expect(html).not.toMatch(forbidden);
   });

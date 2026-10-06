@@ -15,10 +15,10 @@ export default function ImprintPage() {
         <h1 className="text-5xl font-extrabold">Imprint</h1>
         <address className="mt-8 not-italic leading-8 text-[var(--body)]">
           Old School GmbH<br />
-          [STREET AND NUMBER]<br />
-          [POSTCODE] [TOWN]<br />
+          Maegeristrasse 2<br />
+          6318 Walchwil<br />
           Switzerland<br />
-          [UID CHE-…]<br />
+          UID &lt;CHE-xxx.xxx.xxx&gt;<br />
           <a className="inline-flex rounded-full bg-white px-3 py-1 font-bold text-[var(--accent)] underline" href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
         </address>
       </div>
