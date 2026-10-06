@@ -23,7 +23,7 @@ export type HiddenRegistryAgent = {
 
 export const HIDDEN_REGISTRY_AGENTS: ReadonlyArray<HiddenRegistryAgent> = [
   // "ClaraHacks.com" belongs to the partner D23E; FAIVR shows it again when D23E publishes it themselves (CEO, 2026-10-06).
-  { agentId: 999999, note: "D23E's ClaraHacks listing; hidden until D23E publishes it again (CEO decision 2026-10-06)" },
+  { agentId: 2, note: "D23E's ClaraHacks listing; hidden until D23E publishes it again (CEO decision 2026-10-06)" },
 ];
 
 export const HIDDEN_REGISTRY_AGENT_IDS: ReadonlySet<number> = new Set(HIDDEN_REGISTRY_AGENTS.map((entry) => entry.agentId));
