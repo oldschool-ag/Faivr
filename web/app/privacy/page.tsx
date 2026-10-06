@@ -12,7 +12,7 @@ export default function PrivacyPage() {
   return (
     <SiteShell>
       <div className="mx-auto max-w-[800px] px-4 py-14 sm:px-8">
-        <p className="text-xs font-bold tracking-[.14em] text-[var(--accent)]">DRAFT, TO BE REVIEWED</p>
+        <p className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-bold tracking-[.14em] text-[var(--accent)]">DRAFT, TO BE REVIEWED</p>
         <h1 className="mt-3 text-5xl font-extrabold">Privacy</h1>
         <div className="mt-8 space-y-6 leading-8 text-[var(--body)]">
           <p>The hosting provider processes server logs when you visit this website.</p>

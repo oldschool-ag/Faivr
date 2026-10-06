@@ -24,7 +24,7 @@ const rules = [
 ] as const;
 const primary = "inline-flex min-h-[50px] items-center justify-center rounded-full bg-[var(--ink)] px-6 py-3 font-semibold text-white";
 const secondary = "inline-flex min-h-[50px] items-center justify-center rounded-full border border-[#DADCEB] bg-white px-6 py-3 font-semibold";
-const label = "text-[13px] font-bold uppercase tracking-[0.14em] text-[var(--accent)]";
+const label = "inline-flex rounded-full bg-white px-3 py-1 text-[13px] font-bold uppercase tracking-[0.14em] text-[var(--accent)]";
 const price = (cents: number, currency: string) => new Intl.NumberFormat("en", { style: "currency", currency: currency.toUpperCase() }).format(cents / 100);
 
 export default async function Home() {
@@ -36,7 +36,7 @@ export default async function Home() {
     <SiteShell>
       <section className="mx-auto grid max-w-[1220px] items-center gap-12 px-4 pb-16 pt-12 sm:px-8 sm:pt-20 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="min-w-0">
-          <p className={label + " inline-flex rounded-full border border-[#DADCEB] bg-white px-4 py-2"}>THE STORE FOR TRUCHSESS</p>
+          <p className={label + " border border-[#DADCEB] px-4 py-2"}>THE STORE FOR TRUCHSESS</p>
           <h1 className="mt-7 text-[46px] font-extrabold leading-[1.04] tracking-[-0.035em] sm:text-[64px] lg:text-[72px]">Governed AI workers for your company.</h1>
           <p className="mt-7 max-w-[580px] text-xl leading-[1.6] text-[var(--body)]">FAIVR is Old School&apos;s catalog of AI workers. Each one runs on your own Truchsess appliance, does only what you allow, and reports every run and what it cost.</p>
           <div className="mt-8 flex flex-wrap gap-3">
@@ -82,7 +82,7 @@ export default async function Home() {
           <article className="flex min-h-[230px] flex-col justify-center rounded-[28px] border-2 border-dashed border-[#C9CCE4] p-7 sm:p-9">
             <h3 className="text-[26px] font-extrabold">More functions in preparation</h3>
             <p className="mt-3 max-w-xl leading-7 text-[var(--muted)]">Explore the planned functions and tell us which work you want to hand to a governed AI worker.</p>
-            <Link href="/catalog" className="mt-4 inline-flex min-h-11 items-center self-start font-bold text-[var(--accent)]">Explore the catalog →</Link>
+            <Link href="/catalog" className="mt-4 inline-flex min-h-11 items-center self-start rounded-full bg-white px-4 font-bold text-[var(--accent)]">Explore the catalog →</Link>
           </article>
         </div>
       </section>

@@ -19,7 +19,7 @@ export default function ImprintPage() {
           [POSTCODE] [TOWN]<br />
           Switzerland<br />
           [UID CHE-…]<br />
-          <a className="font-bold text-[var(--accent)] underline" href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
+          <a className="inline-flex rounded-full bg-white px-3 py-1 font-bold text-[var(--accent)] underline" href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
         </address>
       </div>
     </SiteShell>
