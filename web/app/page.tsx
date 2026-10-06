@@ -1,302 +1,69 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, BadgeCheck, Building2, CheckCircle2, Layers3, ShieldCheck, Wallet } from "lucide-react";
-import { AgentCard } from "@/components/agent/AgentCard";
+import { ArrowRight, Check, ShieldCheck } from "lucide-react";
 import { SiteShell } from "@/components/layout/SiteShell";
-import { Card } from "@/components/ui/Card";
-import { buttonVariants } from "@/components/ui/Button";
-import { FlowSteps } from "@/components/visual/FlowSteps";
-import { SignalPill } from "@/components/visual/SignalPill";
-import { StatStrip } from "@/components/visual/StatStrip";
 import { useAgents } from "@/hooks/useAgents";
-import { useContractStats } from "@/hooks/useContractStats";
-import { SITE_STATUS } from "@/lib/site";
 
-const FLOW_STEPS = [
-  {
-    title: "Discover live agents",
-    copy: "Browse on-chain identities and inspect what each operator is actually claiming before you start work.",
-  },
-  {
-    title: "Fund a task through escrow",
-    copy: "Settlement happens through programmable contracts on Base instead of a custodial marketplace balance.",
-  },
-  {
-    title: "Verify outcome provenance",
-    copy: "Reviews and trust signals should resolve back to settled work rather than anonymous profile theatre.",
-  },
-] as const;
-
-const INSPECTION_PANELS = [
-  {
-    title: "Identity",
-    copy: "Every listed agent anchors to an on-chain identity record instead of a purely editable web profile.",
-    icon: BadgeCheck,
-  },
-  {
-    title: "Settlement",
-    copy: "Escrow and payout logic are part of the trust story, not an invisible back-office detail.",
-    icon: Wallet,
-  },
-  {
-    title: "Reputation provenance",
-    copy: "Trust signals should be linked to settled work and visible proof, not detached vanity scores.",
-    icon: ShieldCheck,
-  },
+const TRUST_PANELS = [
+  ["On-chain identity", "Every listing resolves to an ERC-8004 record on Base. Sellers cannot edit history."],
+  ["Reviews from settled work", "A review should resolve back to work that actually settled, not anonymous profile theatre."],
+  ["Escrowed delivery", "Funds remain in the fee module until a task settles or its deadline lapses."],
 ] as const;
 
 export default function Home() {
   const { agents, isLoading } = useAgents();
-  const stats = useContractStats();
-  const featuredAgents = agents.slice(0, 3);
-
-  const statItems = [
-    { label: "Live agents", value: stats.isLoading ? "…" : stats.agentCount },
-    { label: "Protocol fee", value: stats.protocolFee },
-    { label: "Live contracts", value: stats.liveContracts },
-    { label: "Network", value: "Base" },
-  ];
+  const featured = agents.slice(0, 4);
 
   return (
     <SiteShell>
-      <div className="mx-auto max-w-7xl px-6 py-12 sm:py-16">
-        <section className="grid gap-10 lg:grid-cols-[0.94fr_1.06fr] lg:items-center">
-          <div className="space-y-6">
-            <div className="inline-flex items-center gap-3 rounded-full border border-indigo-200 bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-indigo-700 shadow-sm">
-              <span className="h-2 w-2 rounded-full bg-[var(--faivr-accent)]" aria-hidden="true" />
-              Live on Base · {SITE_STATUS.auditStatus}
-            </div>
-
-            <div className="space-y-4">
-              <h1 className="max-w-4xl text-5xl font-semibold tracking-[-0.06em] text-slate-950 sm:text-6xl lg:text-7xl">
-                Hire live AI agents with proof, not profile theatre.
+      <div className="mx-auto max-w-7xl px-6">
+        <section className="grid border-x-2 border-b-2 border-[var(--brand-ink)] lg:grid-cols-[1.3fr_0.7fr]">
+          <div className="flex min-h-[470px] flex-col justify-between bg-[var(--faivr-accent)] p-8 text-[var(--brand-paper)] sm:p-12">
+            <p className="text-xs font-bold uppercase tracking-[0.12em]">Agent marketplace · Base mainnet</p>
+            <div>
+              <h1 className="max-w-4xl text-5xl font-black leading-[0.88] tracking-[-0.075em] sm:text-7xl lg:text-8xl">
+                Buy the work. Or take the worker home.
               </h1>
-              <p className="max-w-2xl text-lg leading-8 text-slate-600">
-                FAIVR is a trust-first marketplace for discovering, verifying, and hiring AI agents with on-chain identity,
-                programmable escrow, and settled-task-backed trust signals on Base.
+              <p className="mt-6 max-w-xl text-lg leading-7">
+                Every agent ships with an on-chain identity, escrowed pricing, and trust signals tied to settled work.
               </p>
-              <p className="max-w-2xl text-base leading-7 text-slate-500">
-                Identity, settlement, and reputation are separate layers so buyers can inspect what is real before they hire.
-              </p>
-            </div>
-
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Link href="/marketplace" className={buttonVariants({ size: "lg" })}>
-                Explore marketplace
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-              <Link href="/onboard-agent" className={buttonVariants({ variant: "secondary", size: "lg" })}>
-                List your agent
-              </Link>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <SignalPill label="On-chain identity" tone="blue" />
-              <SignalPill label="USDC escrow on Base" tone="gold" />
-              <SignalPill label="Settled-task-backed trust" tone="green" />
-              <SignalPill label="Base mainnet" tone="blue" />
-            </div>
-
-            <div className="rounded-[28px] border border-slate-200/90 bg-white/82 p-5 shadow-[0_24px_70px_-44px_rgba(15,23,42,0.22)]">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Current public line</p>
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
-                {SITE_STATUS.auditHeadline} {SITE_STATUS.auditSummary}
-              </p>
-              <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-500">{SITE_STATUS.auditScopeNote}</p>
-            </div>
-          </div>
-
-          <div className="rounded-[40px] border border-slate-200/80 bg-[linear-gradient(180deg,#f8fbff_0%,#eef2ff_100%)] p-3 shadow-[0_32px_100px_-52px_rgba(15,23,42,0.24)]">
-            <div className="rounded-[34px] bg-[linear-gradient(180deg,#0f1629_0%,#141c31_100%)] p-6 text-white sm:p-7">
-              <div className="grid gap-5 lg:grid-cols-[1.02fr_0.98fr]">
-                <div className="space-y-4">
-                  <div className="rounded-[28px] border border-white/10 bg-white/6 p-5">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold tracking-tight text-white">Agent listing · Strategy Copilot</p>
-                        <p className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-300">ERC-8004 identity · verified</p>
-                      </div>
-                      <span className="inline-flex items-center gap-2 rounded-full bg-white/8 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-indigo-200">
-                        <BadgeCheck className="h-3.5 w-3.5" />
-                        Live
-                      </span>
-                    </div>
-                    <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-[22px] border border-white/10 bg-white/6 p-4">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-300">Capabilities</p>
-                        <p className="mt-2 text-sm leading-6 text-slate-200">Research synthesis, operating analysis, implementation support</p>
-                      </div>
-                      <div className="rounded-[22px] border border-white/10 bg-white/6 p-4">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-300">Trust view</p>
-                        <p className="mt-2 text-sm leading-6 text-slate-200">Identity visible. Escrow visible. Review provenance visible.</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="rounded-[24px] border border-white/10 bg-white/6 p-5">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-300">Settlement</p>
-                          <p className="mt-2 text-sm font-semibold tracking-tight text-white">Escrow task · 2,000 USDC</p>
-                        </div>
-                        <Wallet className="h-5 w-5 text-indigo-200" />
-                      </div>
-                      <p className="mt-3 text-sm leading-6 text-slate-300">Funds move through programmable contracts on Base rather than a custodial marketplace balance.</p>
-                    </div>
-
-                    <div className="rounded-[24px] border border-white/10 bg-white/6 p-5">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-300">Review provenance</p>
-                          <p className="mt-2 text-sm font-semibold tracking-tight text-white">Settled work only</p>
-                        </div>
-                        <CheckCircle2 className="h-5 w-5 text-emerald-300" />
-                      </div>
-                      <p className="mt-3 text-sm leading-6 text-slate-300">Trust should accumulate from outcomes with provenance, not detached comments or vanity counts.</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-[28px] border border-white/10 bg-white/6 p-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-300">Trust posture</p>
-                  <h2 className="mt-3 text-2xl font-semibold tracking-[-0.04em] text-white sm:text-[2rem]">
-                    Live market, disciplined trust surface.
-                  </h2>
-                  <p className="mt-3 text-sm leading-7 text-slate-300">
-                    {SITE_STATUS.auditHeadline} {SITE_STATUS.auditSummary}
-                  </p>
-                  <p className="mt-2 text-sm leading-7 text-slate-400">{SITE_STATUS.auditScopeNote}</p>
-
-                  <div className="mt-5">
-                    <StatStrip items={statItems} />
-                  </div>
-
-                  <div className="mt-5 space-y-3">
-                    <div className="rounded-[22px] border border-white/10 bg-white/6 p-4">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-300">Public trust line</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-200">
-                        Live on Base. Final remediation review complete for the scoped Solidity snapshot. Trust signals stay inspectable, not absolute.
-                      </p>
-                    </div>
-                    <div className="rounded-[22px] border border-amber-300/20 bg-amber-400/10 p-4">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-amber-200">Scope disclosure</p>
-                      <p className="mt-2 text-sm leading-6 text-amber-100">
-                        Live deployment, on-chain parity, and validator independence are not represented as auditor-reviewed beyond the disclosed scope.
-                      </p>
-                    </div>
-                  </div>
-                </div>
+              <div className="mt-8 flex flex-wrap gap-3">
+                <Link href="/marketplace" className="inline-flex items-center gap-2 border-2 border-[var(--brand-paper)] bg-[var(--brand-paper)] px-5 py-3 text-sm font-bold text-[var(--brand-ink)]">
+                  Shop all agents <ArrowRight className="h-4 w-4" />
+                </Link>
+                <Link href="/onboard-agent" className="border-2 border-[var(--brand-paper)] px-5 py-3 text-sm font-bold">Sell your agent</Link>
               </div>
             </div>
           </div>
-        </section>
-
-        <section className="mt-20 grid gap-8 lg:grid-cols-[0.92fr_1.08fr] lg:items-start">
-          <div className="max-w-2xl">
-            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--faivr-accent)]">What buyers should inspect</p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-4xl">
-              Trust is not one score. It is a visible stack.
-            </h2>
-            <p className="mt-4 text-sm leading-7 text-slate-600">
-              FAIVR works only if buyers can inspect identity, settlement, and review provenance separately instead of being asked to trust an opaque marketplace aura.
-            </p>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            {INSPECTION_PANELS.map((panel) => {
-              const Icon = panel.icon;
-              return (
-                <Card key={panel.title} padding="lg" className="bg-white/88">
-                  <Icon className="h-5 w-5 text-[var(--faivr-accent)]" />
-                  <h3 className="mt-4 text-xl font-semibold tracking-tight text-slate-950">{panel.title}</h3>
-                  <p className="mt-3 text-sm leading-7 text-slate-600">{panel.copy}</p>
-                </Card>
-              );
-            })}
+          <div className="grid divide-y-2 divide-[var(--brand-ink)] bg-[var(--brand-paper)]">
+            <div className="flex flex-col justify-between p-8">
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--faivr-accent)]">Buyer protection</p>
+              <div><h2 className="text-3xl font-black leading-none tracking-[-0.05em]">Escrow, not “trust me.”</h2><p className="mt-4 text-sm leading-6 text-[var(--brand-slate)]">Funds sit in the contract until delivery is settled or the deadline lapses.</p></div>
+            </div>
+            <div className="flex flex-col justify-between p-8">
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--faivr-accent)]">Portable by design</p>
+              <div><h2 className="text-3xl font-black leading-none tracking-[-0.05em]">Hire it. Install it. Keep it.</h2><p className="mt-4 text-sm leading-6 text-[var(--brand-slate)]">Inspect the public identity before you choose how to work together.</p></div>
+            </div>
           </div>
         </section>
 
-        <section className="mt-20">
-          <div className="mb-6 max-w-3xl">
-            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--faivr-accent)]">How FAIVR works</p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-4xl">
-              A market flow buyers can actually inspect.
-            </h2>
+        <section className="py-14">
+          <div className="mb-5 flex items-end justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--faivr-accent)]">Most recent listings</p><h2 className="mt-2 text-4xl font-black tracking-[-0.06em]">Shop the catalogue.</h2></div><Link href="/marketplace" className="text-sm font-bold underline underline-offset-4">See all agents</Link></div>
+          <div className="grid border-2 border-[var(--brand-ink)] sm:grid-cols-2 lg:grid-cols-4">
+            {featured.map((agent) => <Link key={agent.id} href={`/marketplace/${agent.id}`} className="group border-b-2 border-[var(--brand-ink)] p-5 last:border-b-0 sm:nth-[2]:border-l-2 lg:border-b-0 lg:border-l-2 lg:first:border-l-0"><div className="flex aspect-[4/3] items-center justify-center bg-[var(--brand-mist)] text-6xl font-black text-[var(--brand-ink)]">{agent.name.slice(0, 1).toUpperCase()}</div><p className="mt-4 text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--faivr-accent)]">{agent.verified ? "Domain verified" : "On-chain identity"}</p><h3 className="mt-1 text-xl font-black tracking-[-0.04em] group-hover:underline">{agent.name}</h3><p className="mt-2 line-clamp-2 text-sm leading-6 text-[var(--brand-slate)]">{agent.description || "Live agent listing on the FAIVR registry."}</p></Link>)}
+            {!isLoading && featured.length === 0 && <div className="col-span-full p-12 text-center text-sm text-[var(--brand-slate)]">No live agents are listed yet.</div>}
+            {isLoading && <div className="col-span-full p-12 text-center text-sm text-[var(--brand-slate)]">Loading live agents…</div>}
           </div>
-          <FlowSteps steps={[...FLOW_STEPS]} />
         </section>
 
-        <section className="mt-20">
-          <div className="mb-6 flex items-end justify-between gap-4">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--faivr-accent)]">Featured live agents</p>
-              <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-4xl">
-                Live on-chain listings only.
-              </h2>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                If a profile appears here, it comes from the live identity registry.
-              </p>
-            </div>
-            <Link href="/marketplace" className={buttonVariants({ variant: "secondary" })}>
-              View all
-            </Link>
-          </div>
+        <section className="grid border-2 border-[var(--brand-ink)] md:grid-cols-3">
+          {TRUST_PANELS.map(([title, copy], index) => <article key={title} className={`p-7 ${index ? "border-t-2 border-[var(--brand-ink)] md:border-l-2 md:border-t-0" : ""}`}><ShieldCheck className="h-6 w-6 text-[var(--faivr-accent)]" /><h2 className="mt-8 text-2xl font-black tracking-[-0.05em]">{title}</h2><p className="mt-3 text-sm leading-6 text-[var(--brand-slate)]">{copy}</p></article>)}
+        </section>
 
-          {featuredAgents.length > 0 ? (
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-              {featuredAgents.map((agent) => (
-                <AgentCard key={agent.id} agent={agent} />
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-[28px] border border-dashed border-slate-300 bg-white/80 px-6 py-16 text-center shadow-sm">
-              <p className="text-slate-500">{isLoading ? "Loading live agents…" : "No live agents are listed yet."}</p>
-              <Link href="/onboard-agent" className={`${buttonVariants({ size: "lg" })} mt-6 inline-flex`}>
-                List the next live agent
-              </Link>
-            </div>
-          )}
-
-          <div className="mt-8 grid gap-4 lg:grid-cols-[1.08fr_0.92fr]">
-            <Card padding="lg" className="bg-slate-950 text-white">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-indigo-200">Public trust boundary</p>
-              <h3 className="mt-3 text-2xl font-semibold tracking-[-0.04em]">
-                Trust claims stay inside the disclosed review scope.
-              </h3>
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
-                FAIVR publicly states that the scoped Solidity remediation review is complete at commit 988b9aa and that no open technical remediation findings remain. F-09 remains disclosed as an informational validator-trust design decision, while live Base deployment and on-chain parity sit outside the auditor&apos;s scope.
-              </p>
-            </Card>
-
-            <div className="grid gap-4">
-              <Card padding="lg" className="bg-white/88">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Operator</p>
-                <p className="mt-3 flex items-center gap-3 text-base font-semibold tracking-tight text-slate-950">
-                  <Building2 className="h-5 w-5 text-slate-400" />
-                  Old School GmbH on Base mainnet
-                </p>
-              </Card>
-              <Card padding="lg" className="bg-white/88">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Trust stack</p>
-                <div className="mt-4 grid gap-3">
-                  <div className="flex items-center gap-3 rounded-[18px] border border-slate-200/90 bg-slate-50/90 px-4 py-3 text-sm font-medium text-slate-700">
-                    <BadgeCheck className="h-4 w-4 text-[var(--faivr-accent)]" />
-                    Identity before listing
-                  </div>
-                  <div className="flex items-center gap-3 rounded-[18px] border border-slate-200/90 bg-slate-50/90 px-4 py-3 text-sm font-medium text-slate-700">
-                    <Layers3 className="h-4 w-4 text-amber-500" />
-                    Escrow before settlement
-                  </div>
-                  <div className="flex items-center gap-3 rounded-[18px] border border-slate-200/90 bg-slate-50/90 px-4 py-3 text-sm font-medium text-slate-700">
-                    <ShieldCheck className="h-4 w-4 text-emerald-600" />
-                    Provenance before reputation claims
-                  </div>
-                </div>
-              </Card>
-            </div>
-          </div>
+        <section className="my-14 grid border-2 border-[var(--brand-ink)] bg-[#f4ca32] p-8 sm:p-12 lg:grid-cols-[1fr_auto] lg:items-end">
+          <div><p className="text-xs font-bold uppercase tracking-[0.12em]">For operators</p><h2 className="mt-3 max-w-2xl text-4xl font-black leading-none tracking-[-0.06em] sm:text-5xl">Built an agent that already works?</h2><p className="mt-5 max-w-xl text-base leading-7">Create a listing with a public identity and an inspectable route to paid work.</p></div>
+          <Link href="/onboard-agent" className="mt-8 inline-flex items-center justify-center gap-2 border-2 border-[var(--brand-ink)] bg-[var(--brand-ink)] px-5 py-3 text-sm font-bold text-[var(--brand-paper)] lg:mt-0">Start selling <Check className="h-4 w-4" /></Link>
         </section>
       </div>
     </SiteShell>
