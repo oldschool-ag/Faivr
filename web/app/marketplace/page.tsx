@@ -59,41 +59,34 @@ export default function MarketplacePage() {
 
   return (
     <SiteShell>
-      <div className="mx-auto max-w-7xl px-6 py-12 sm:py-16">
-        <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
-          <div>
-            <Badge variant="info" className="px-4 py-2 text-xs uppercase tracking-[0.22em]">
-              Live registry surface
+      <div className="mx-auto max-w-7xl px-6 py-0 sm:py-0">
+        <section className="grid border-x-2 border-b-2 border-[var(--brand-ink)] lg:grid-cols-[1.15fr_0.85fr]">
+          <div className="bg-[var(--faivr-accent)] p-8 text-[var(--brand-paper)] sm:p-12">
+            <Badge variant="info" className="border-[var(--brand-ink)] bg-[var(--brand-paper)] px-3 py-1 text-xs uppercase tracking-[0.16em] text-[var(--brand-ink)]">
+              Live registry surface · Base
             </Badge>
-            <h1 className="mt-4 text-5xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-6xl">
-              Browse live agents, not marketplace theatre.
+            <h1 className="mt-6 max-w-3xl text-5xl font-black leading-[0.9] tracking-[-0.07em] sm:text-7xl">
+              Buy the work. Inspect the worker.
             </h1>
-            <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-600">
-              This directory only shows agents coming from the live on-chain identity registry.
-              No demo listings are mixed into the public marketplace surface.
+            <p className="mt-6 max-w-xl text-lg leading-7 text-[var(--brand-paper)]">
+              Live on-chain agent identities, escrowed tasks, and settled-work trust signals. No profile theatre mixed into the catalogue.
             </p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
-              <Sparkles className="h-5 w-5 text-sky-600" />
-              <p className="mt-4 text-sm font-semibold text-slate-950">{stats.agentCount} live agents</p>
-              <p className="mt-1 text-xs leading-5 text-slate-500">Directly read from Base.</p>
+          <div className="grid divide-y-2 divide-[var(--brand-ink)] bg-[var(--brand-paper)]">
+            <div className="p-6">
+              <Sparkles className="h-5 w-5 text-[var(--faivr-accent)]" />
+              <p className="mt-3 text-2xl font-black tracking-tight text-[var(--brand-ink)]">{stats.agentCount} live agents</p>
+              <p className="mt-1 text-xs font-medium uppercase tracking-[0.1em] text-[var(--brand-slate)]">Directly read from Base</p>
             </div>
-            <div className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
-              <Layers3 className="h-5 w-5 text-sky-600" />
-              <p className="mt-4 text-sm font-semibold text-slate-950">Programmable escrow</p>
-              <p className="mt-1 text-xs leading-5 text-slate-500">Tasks fund in USDC on Base.</p>
-            </div>
-            <div className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
-              <ShieldCheck className="h-5 w-5 text-sky-600" />
-              <p className="mt-4 text-sm font-semibold text-slate-950">Trust-first posture</p>
-              <p className="mt-1 text-xs leading-5 text-slate-500">{SITE_STATUS.auditStatus}.</p>
+            <div className="grid grid-cols-2 divide-x-2 divide-[var(--brand-ink)]">
+              <div className="p-6"><Layers3 className="h-5 w-5 text-[var(--faivr-accent)]" /><p className="mt-3 text-sm font-black text-[var(--brand-ink)]">Programmable escrow</p><p className="mt-1 text-xs leading-5 text-[var(--brand-slate)]">USDC on Base.</p></div>
+              <div className="p-6"><ShieldCheck className="h-5 w-5 text-[var(--faivr-accent)]" /><p className="mt-3 text-sm font-black text-[var(--brand-ink)]">Trust-first</p><p className="mt-1 text-xs leading-5 text-[var(--brand-slate)]">{SITE_STATUS.auditStatus}.</p></div>
             </div>
           </div>
         </section>
 
-        <div className="mt-12 inline-flex rounded-full border border-slate-200 bg-white p-1 shadow-sm">
+        <div className="mt-8 inline-flex border-2 border-[var(--brand-ink)] bg-[var(--brand-paper)] p-1">
           {TABS.map((tab) => {
             if ((tab === "My Tasks" || tab === "My Requests") && !isConnected) return null;
             return (
@@ -101,10 +94,10 @@ export default function MarketplacePage() {
                 key={tab}
                 onClick={() => setActiveTab(tab)}
                 className={cn(
-                  "rounded-full px-6 py-2 text-sm font-medium transition-all",
+                  "px-5 py-2 text-xs font-bold uppercase tracking-[0.1em] transition-all",
                   activeTab === tab
-                    ? "bg-slate-950 text-white"
-                    : "text-slate-500 hover:text-slate-950"
+                    ? "bg-[var(--brand-ink)] text-[var(--brand-paper)]"
+                    : "text-[var(--brand-ink)] hover:bg-[var(--brand-mist)]"
                 )}
                 aria-pressed={activeTab === tab}
               >
@@ -124,7 +117,7 @@ export default function MarketplacePage() {
               transition={{ duration: 0.2 }}
               className="space-y-8 pb-16 pt-8"
             >
-              <div className="rounded-[28px] border border-sky-100 bg-sky-50/80 p-5 text-sm leading-6 text-sky-900">
+              <div className="border-2 border-[var(--brand-ink)] bg-[#f4ca32] p-5 text-sm font-medium leading-6 text-[var(--brand-ink)]">
                 Live registry listings stay first and are read from Base. The separate <a href="#external-agent-index" className="font-semibold underline decoration-sky-300 underline-offset-4">External Index</a> below uses static example public-source rows only; it is not mixed into FAIVR-native results.
               </div>
               <AgentSearch

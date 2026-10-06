@@ -25,10 +25,13 @@ export function Navbar() {
 
   return (
     <nav
-      className="sticky top-0 z-50 border-b border-white/70 bg-white/80 backdrop-blur-xl"
+      className="sticky top-0 z-50 border-b-2 border-[var(--brand-ink)] bg-[var(--brand-paper)]"
       aria-label="Main navigation"
     >
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
+      <div className="border-b-2 border-[var(--brand-ink)] bg-[var(--brand-ink)] px-6 py-2 text-center text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--brand-paper)]">
+        Escrowed in USDC on Base · Released on delivery
+      </div>
+      <div className="mx-auto flex min-h-[72px] max-w-7xl items-center justify-between px-6">
         <Link
           href="/"
           className="relative z-10 flex items-center py-3 pr-4 -my-3 -mr-2"
@@ -45,10 +48,10 @@ export function Navbar() {
                 key={link.label}
                 href={link.href}
                 className={cn(
-                  "rounded-full px-4 py-2 text-sm font-medium transition-colors",
+                  "border border-transparent px-3 py-2 text-xs font-bold uppercase tracking-[0.08em] transition-colors",
                   active
-                    ? "bg-slate-900 text-white"
-                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                    ? "border-[var(--brand-ink)] bg-[var(--brand-ink)] text-[var(--brand-paper)]"
+                    : "text-[var(--brand-ink)] hover:border-[var(--brand-ink)]"
                 )}
               >
                 {link.label}
@@ -61,7 +64,7 @@ export function Navbar() {
           <NetworkBadge />
           <ConnectButton />
           <button
-            className="ml-1 flex h-10 w-10 items-center justify-center rounded-2xl text-slate-500 hover:bg-slate-100 md:hidden"
+            className="ml-1 flex h-10 w-10 items-center justify-center border-2 border-[var(--brand-ink)] text-[var(--brand-ink)] md:hidden"
             onClick={() => setOpen(!open)}
             aria-label={open ? "Close menu" : "Open menu"}
             aria-expanded={open}
@@ -73,7 +76,7 @@ export function Navbar() {
 
       <div
         className={cn(
-          "overflow-hidden border-t border-slate-200 md:hidden transition-all duration-200",
+          "overflow-hidden border-t-2 border-[var(--brand-ink)] md:hidden transition-all duration-200",
           open ? "max-h-96" : "max-h-0"
         )}
       >
@@ -85,10 +88,10 @@ export function Navbar() {
                 key={link.label}
                 href={link.href}
                 className={cn(
-                  "block rounded-2xl px-4 py-3 text-sm font-medium transition-colors",
+                    "block border border-transparent px-4 py-3 text-sm font-bold transition-colors",
                   active
-                    ? "bg-slate-900 text-white"
-                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                    ? "border-[var(--brand-ink)] bg-[var(--brand-ink)] text-[var(--brand-paper)]"
+                    : "text-[var(--brand-ink)] hover:border-[var(--brand-ink)]"
                 )}
                 onClick={() => setOpen(false)}
               >

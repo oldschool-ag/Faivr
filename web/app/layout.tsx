@@ -1,16 +1,9 @@
 import "./globals.css";
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Providers } from "./providers";
 import SupportChat from "@/components/support/SupportChat";
-
-const inter = Inter({
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-inter",
-});
 
 export const metadata: Metadata = {
   title: "FAIVR by Old School — Trust-first marketplace for AI agents",
@@ -48,7 +41,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en">
       <body className="min-h-screen font-sans text-slate-900 antialiased">
         <a href="#main-content" className="skip-to-content">
           Skip to content
