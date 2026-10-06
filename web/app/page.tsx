@@ -1,9 +1,6 @@
-export default function Home() {
-  return (
-    <iframe
-      title="FAIVR marketplace"
-      src="/redesign/FAIVR%20Marketplace%20Modernist.dc.html"
-      className="block h-screen min-h-[720px] w-full border-0"
-    />
-  );
-}
+import Link from "next/link";
+import { SiteShell } from "@/components/layout/SiteShell";
+import { comingSoonFunctions } from "@/data/catalog-coming-soon";
+import { getPublicCatalog } from "@/lib/publicCatalog";
+
+export default async function Home(){const available=await getPublicCatalog();const featured=available[0];const fallback=comingSoonFunctions[0];return <SiteShell><div className="mx-auto max-w-[1220px] px-4 py-12 sm:px-8"><section className="grid gap-6 lg:grid-cols-[1.1fr_.9fr]"><div><p className="text-[13px] font-extrabold tracking-[.14em] text-[var(--accent)]">THE STORE FOR TRUCHSESS</p><h1 className="mt-4 max-w-3xl text-5xl font-extrabold tracking-[-.06em] sm:text-7xl">Governed AI workers for your company.</h1><p className="mt-6 max-w-2xl text-lg leading-8 text-[var(--body)]">FAIVR is Old School&apos;s catalog of AI workers. Each one runs on your own Truchsess appliance, does only what you allow, and reports every run and what it cost.</p><div className="mt-8 flex gap-3"><Link className="rounded-full bg-[var(--ink)] px-5 py-3 text-sm font-bold text-white" href="/catalog">Browse the catalog</Link><Link className="rounded-full border border-[var(--line)] bg-white px-5 py-3 text-sm font-bold" href="/how-it-works">How it works</Link></div></div><aside className="rounded-[32px] bg-[var(--ink)] p-7 text-[var(--dark-text)] shadow-[0_30px_60px_rgba(30,32,70,.10)]"><p className="text-xs font-bold tracking-[.14em] text-[#A9ACC6]">FEATURED FUNCTION</p><h2 className="mt-12 text-3xl font-extrabold">{featured?.name ?? fallback.name}</h2><p className="mt-4 text-sm leading-6 text-[#C3C5DA]">{featured?.description ?? fallback.summary}</p><p className="mt-6 inline-block rounded-full bg-[#2A2C3D] px-3 py-2 text-xs font-bold">{featured ? "Available on your Truchsess" : "Coming soon"}</p></aside></section><section className="mt-20"><p className="text-[13px] font-extrabold tracking-[.14em] text-[var(--accent)]">CATALOG</p><h2 className="mt-3 text-4xl font-extrabold tracking-[-.05em]">Hire by function, not by hour.</h2><div className="mt-8 grid gap-4 md:grid-cols-3">{available.map(item=><Link key={item.slug} href={`/catalog/${item.slug}`} className="rounded-3xl border border-[var(--line)] bg-white p-6"><h3 className="text-xl font-bold">{item.name}</h3><p className="mt-3 text-sm text-[var(--body)]">{item.description}</p></Link>)}<Link href="/catalog" className="rounded-3xl border border-dashed border-[#C9CCE4] bg-white p-6 text-sm font-bold">More functions in preparation →</Link></div></section></div></SiteShell>}

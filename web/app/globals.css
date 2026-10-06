@@ -3,14 +3,22 @@
 @tailwind utilities;
 
 :root {
-  --brand-ink: #151515;
-  --brand-slate: #55524d;
-  --brand-paper: #f4f1e8;
-  --brand-mist: #dfdbcf;
-  --brand-line: #151515;
-  --brand-accent: #e6532d;
-  --faivr-accent: #e6532d;
-  --faivr-deep: #151515;
+  --page: #EEF0FA;
+  --card: #FFFFFF;
+  --ink: #12131A;
+  --body: #3D4155;
+  --muted: #4B5064;
+  --line: #E1E3F2;
+  --accent: #4338CA;
+  --dark-text: #E9EAF5;
+  --brand-ink: #111421;
+  --brand-slate: #5d6679;
+  --brand-paper: #f4f6fb;
+  --brand-mist: #dbe2ee;
+  --brand-line: rgba(17, 20, 33, 0.08);
+  --brand-accent: #4964ff;
+  --faivr-accent: #5e86ff;
+  --faivr-deep: #0f1629;
 }
 
 * {
@@ -22,11 +30,18 @@ html {
 }
 
 body {
-  background: var(--brand-paper);
-  color: var(--brand-ink);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--page);
+  color: var(--ink);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(120deg, rgba(255,255,255,0.24), transparent 42%);
 }
 
 a {
@@ -34,7 +49,7 @@ a {
 }
 
 ::selection {
-  background: #f4ca32;
+  background: rgba(73, 100, 255, 0.18);
 }
 
 .skip-to-content {
