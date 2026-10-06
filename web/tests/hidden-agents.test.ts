@@ -1,26 +1,15 @@
 import { readFileSync } from "node:fs";
 import { NextRequest } from "next/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-const NOT_FOUND = vi.hoisted(() => new Error("NEXT_NOT_FOUND (test sentinel)"));
-vi.mock("next/navigation", () => ({
-  notFound: () => {
-    throw NOT_FOUND;
-  },
-}));
-vi.mock("@/components/agent/AgentDetailView", () => ({
-  AgentDetailView: (props: { agentId: number }) => ({ type: "AgentDetailView", props }),
-}));
+import { describe, expect, it } from "vitest";
 
 import { HIDDEN_REGISTRY_AGENTS, HIDDEN_REGISTRY_AGENT_IDS, isHiddenAgentId, visibleAgentCount, withoutHiddenAgents } from "@/lib/hiddenAgents";
 import { assembleRegistryAgents } from "@/lib/registryAgents";
-import AgentWorkflowPage from "@/app/marketplace/[agentId]/page";
 import { GET as verifyStatus } from "@/app/api/verify/status/[agentId]/route";
 import { OLD_SCHOOL_TRUSTED_AGENTS } from "@/data/oldschoolTrustedInventory";
 
 /**
  * F1: registry entries faivr.ai does not show. Hidden by on-chain agent id, never by name;
- * left out of the list, the count, the detail page and the per-agent API; the inventory
+ * left out of the registry helpers and the retained per-agent API; the inventory
  * files carry no Clara entry.
  */
 
@@ -82,17 +71,6 @@ describe("the hidden registry entries", () => {
     expect(visibleAgentCount(1, new Set([2]))).toBe(1);
     expect(visibleAgentCount(0, new Set([1]))).toBe(0);
     expect(visibleAgentCount(2, new Set([1, 2]))).toBe(0);
-  });
-
-  it("answer not found on the detail page's direct URL", async () => {
-    const [hiddenId] = Array.from(HIDDEN_REGISTRY_AGENT_IDS);
-    await expect(AgentWorkflowPage({ params: Promise.resolve({ agentId: String(hiddenId) }) })).rejects.toBe(NOT_FOUND);
-    await expect(AgentWorkflowPage({ params: Promise.resolve({ agentId: "abc" }) })).rejects.toBe(NOT_FOUND);
-    await expect(AgentWorkflowPage({ params: Promise.resolve({ agentId: "0" }) })).rejects.toBe(NOT_FOUND);
-    const visibleId = 1;
-    expect(HIDDEN_REGISTRY_AGENT_IDS.has(visibleId)).toBe(false);
-    const rendered = (await AgentWorkflowPage({ params: Promise.resolve({ agentId: String(visibleId) }) })) as unknown as { props: { agentId: number } };
-    expect(rendered.props.agentId).toBe(visibleId);
   });
 
   it("answer not found on the per-agent API route", async () => {

@@ -23,18 +23,18 @@ export const metadata: Metadata = {
   },
   manifest: "/site.webmanifest",
   openGraph: {
-    title: "FAIVR by Old School — Trust-first marketplace for AI agents",
+    title: "FAIVR — The store for Truchsess",
     description:
-      "Discover, verify, and hire AI agents with on-chain identity, settled-task-backed reputation, and programmable escrow on Base.",
-    siteName: "FAIVR by Old School",
+      "Governed AI workers for your company. Browse the catalog and subscribe on your Truchsess appliance.",
+    siteName: "FAIVR",
     type: "website",
     url: "https://faivr.ai",
   },
   twitter: {
     card: "summary_large_image",
-    title: "FAIVR by Old School — Trust-first marketplace for AI agents",
+    title: "FAIVR — The store for Truchsess",
     description:
-      "Discover, verify, and hire AI agents with on-chain identity, settled-task-backed reputation, and programmable escrow.",
+      "Governed AI workers for your company. Browse the catalog and subscribe on your Truchsess appliance.",
   },
 };
 
@@ -45,7 +45,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${jakarta.variable} ${mono.variable}`}>
-      <body className="min-h-screen font-sans text-slate-900 antialiased">
+      <body className="min-h-screen font-sans antialiased">
         <a href="#main-content" className="skip-to-content">
           Skip to content
         </a>

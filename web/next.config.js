@@ -6,6 +6,8 @@ const nextConfig = {
     { source: "/marketplace", destination: "/catalog", permanent: true },
     { source: "/marketplace/:path*", destination: "/catalog", permanent: true },
     { source: "/dashboard", destination: "/", permanent: true },
+    { source: "/genesis", destination: "/", permanent: true },
+    { source: "/onboard/:path*", destination: "/", permanent: true },
     { source: "/onboard-agent", destination: "/", permanent: true },
     { source: "/audit/:path*", destination: "/", permanent: true },
   ]; },

@@ -36,20 +36,18 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(120deg, rgba(255,255,255,0.24), transparent 42%);
-}
-
 a {
   color: inherit;
 }
 
+a:focus-visible,
+button:focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: 4px;
+}
+
 ::selection {
-  background: rgba(73, 100, 255, 0.18);
+  background: #E4E5FB;
 }
 
 .skip-to-content {
