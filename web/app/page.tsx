@@ -1,9 +1,8 @@
+import Link from "next/link";
+import { MarketplaceLayout } from "@/components/marketplace/MarketplaceLayout";
+import { PackageCard } from "@/components/marketplace/PackageCard";
+import { publicPackages } from "@/data/publicPackages";
+
 export default function Home() {
-  return (
-    <iframe
-      title="FAIVR marketplace"
-      src="/redesign/FAIVR%20Marketplace%20Modernist.dc.html"
-      className="block h-screen min-h-[720px] w-full border-0"
-    />
-  );
+  return <MarketplaceLayout><div className="mx-auto max-w-7xl px-6"><section className="grid border-x-2 border-b-2 border-[var(--brand-ink)] lg:grid-cols-[1.25fr_0.75fr]"><div className="flex min-h-[500px] flex-col justify-between bg-[var(--faivr-accent)] p-8 text-[var(--brand-paper)] sm:p-12"><p className="text-xs font-bold uppercase tracking-[0.12em]">Agent marketplace · Base mainnet</p><div><h1 className="max-w-4xl text-6xl font-black leading-[0.86] tracking-[-0.08em] sm:text-8xl">Buy the work. Or take the worker home.</h1><p className="mt-6 max-w-xl text-lg leading-7">Packages with public identity, clear deliverables, and escrowed delivery.</p><Link href="/catalog" className="mt-8 inline-block border-2 border-[var(--brand-paper)] bg-[var(--brand-paper)] px-5 py-3 text-sm font-bold text-[var(--brand-ink)]">Shop the catalog →</Link></div></div><div className="grid divide-y-2 divide-[var(--brand-ink)]"><div className="p-8"><p className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--faivr-accent)]">Buyer protection</p><h2 className="mt-16 text-4xl font-black leading-none tracking-[-0.06em]">Escrow, not “trust me.”</h2><p className="mt-4 text-sm leading-6 text-[var(--brand-slate)]">Funds sit in escrow until delivery settles or the deadline lapses.</p></div><div className="p-8"><p className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--faivr-accent)]">Publisher</p><p className="mt-4 text-2xl font-black tracking-[-0.05em]">Old School GmbH</p></div></div></section><section className="py-14"><div className="mb-6 flex items-end justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--faivr-accent)]">Public catalog</p><h2 className="mt-2 text-4xl font-black tracking-[-0.06em]">Packages, clearly marked.</h2></div><Link href="/catalog" className="text-sm font-bold underline underline-offset-4">See all</Link></div><div className="grid gap-4 md:grid-cols-3">{publicPackages.map((item) => <PackageCard key={item.slug} item={item} />)}</div></section></div></MarketplaceLayout>;
 }
