@@ -18,7 +18,7 @@ export default function ImprintPage() {
           Maegeristrasse 2<br />
           6318 Walchwil<br />
           Switzerland<br />
-          UID &lt;CHE-xxx.xxx.xxx&gt;<br />
+          UID CHE-485.065.843<br />
           <a className="inline-flex min-h-11 items-center rounded-full bg-white px-3 py-1 font-bold text-[var(--accent)] underline" href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
         </address>
       </div>
