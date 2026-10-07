@@ -47,7 +47,8 @@ describe("W1 coming-soon public surfaces",()=>{
 describe("W1 supporting pages",()=>{
   it("shows the supplied legal contact details",()=>{
     const html=renderToStaticMarkup(ImprintPage());
-    for(const text of ["Old School GmbH","Maegeristrasse 2","6318 Walchwil","Switzerland","UID &lt;CHE-xxx.xxx.xxx&gt;","info@oldschool.ag"])expect(html).toContain(text);
+    for(const text of ["Old School GmbH","Maegeristrasse 2","6318 Walchwil","Switzerland","UID CHE-485.065.843","info@oldschool.ag"])expect(html).toContain(text);
+    expect(html).not.toContain("xxx");
     expect(html).not.toMatch(forbidden);
   });
   it("states the approved privacy notice and links to the trust explanation",()=>{
