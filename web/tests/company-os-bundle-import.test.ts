@@ -89,6 +89,48 @@ describe("importing a signed Truchsess bundle file into the store", () => {
     expect(report.artifactUrl).toBe(`https://store.faivr.test/company-os/v1/packages/${modelId}/${version}/${digest(payload)}.tar.gz`);
   });
 
+  it("validates signed install slots and rejects invalid slot contracts", () => {
+    const dir = mkdtempSync(join(tmpdir(), "faivr-import-slots-"));
+    writeFileSync(join(dir, "publisher.pub"), publicPem);
+    const slots = [
+      { id: "product", question: "Which product does this product owner own?", kind: "product", required: true },
+      { id: "code-repository", question: "Which repository holds the product's code and documents (read only)?", kind: "repository", required: false },
+    ];
+    const signManifest = (input: Record<string, unknown>) => {
+      const signed = { ...input, signature: { keyId, algorithm: "Ed25519", value: edSign(null, Buffer.from(canonicalJson(input)), privateKey).toString("base64url") } };
+      const bytes = Buffer.from(JSON.stringify(signed));
+      const bundleIndex = { ...index, manifestSha256: digest(bytes) };
+      return tar([["bundle-index.json", Buffer.from(JSON.stringify(bundleIndex))], ["manifest.json", bytes], ["package.tar.gz", payload]]);
+    };
+    const valid = { ...unsigned, permissions: ["workspace.read", "repo.read:{code-repository}", "knowledge.read:{product}"], slots };
+    const validFile = join(dir, "slots-valid.truchsess-bundle.tar");
+    writeFileSync(validFile, signManifest(valid));
+    const env = { FAIVR_VALIDATE_ONLY: "1", FAIVR_PUBLISHER_PUBLIC_KEY_PATH: join(dir, "publisher.pub"), FAIVR_PACKAGE_ORIGIN: "https://store.faivr.test", FAIVR_STORE_ARTIFACT_INLINE: "1" };
+    expect(run([validFile], env).status).toBe(0);
+    const invalid = [
+      { ...valid, slots: [{ ...slots[0], extra: true }] },
+      { ...valid, slots: [{ ...slots[0], id: "Bad_id" }] },
+      { ...valid, slots: [{ ...slots[0], kind: "other" }] },
+      { ...valid, permissions: ["repo.read:{missing}"], slots },
+      { ...valid, slots: [slots[0], slots[0]] },
+    ];
+    for (let position = 0; position < invalid.length; position += 1) {
+      const candidate = invalid[position];
+      const file = join(dir, `slots-invalid-${position}.truchsess-bundle.tar`);
+      writeFileSync(file, signManifest(candidate));
+      expect(run([file], env).status).not.toBe(0);
+    }
+    const signed = { ...valid, signature: { keyId, algorithm: "Ed25519", value: edSign(null, Buffer.from(canonicalJson(valid)), privateKey).toString("base64url") } };
+    const altered = { ...signed, slots: [{ ...slots[0], question: "A changed question" }, slots[1]] };
+    const alteredBytes = Buffer.from(JSON.stringify(altered));
+    const alteredIndex = { ...index, manifestSha256: digest(alteredBytes) };
+    const alteredFile = join(dir, "slots-tampered.truchsess-bundle.tar");
+    writeFileSync(alteredFile, tar([["bundle-index.json", Buffer.from(JSON.stringify(alteredIndex))], ["manifest.json", alteredBytes], ["package.tar.gz", payload]]));
+    const tamperedResult = run([alteredFile], env);
+    expect(tamperedResult.status).not.toBe(0);
+    expect(tamperedResult.stderr).toContain("invalid publisher signature");
+  });
+
   it("refuses a bundle whose payload was swapped or whose signature does not verify", () => {
     const dir = mkdtempSync(join(tmpdir(), "faivr-import-bad-"));
     writeFileSync(join(dir, "publisher.pub"), publicPem);

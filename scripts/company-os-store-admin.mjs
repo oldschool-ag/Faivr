@@ -10,6 +10,7 @@
 //                     provider's reference. Without the active provider's reference the bundle is listed but cannot be subscribed
 //   set-price         --id design-review [--polar-product <uuid>] [--stripe-price price_...] [--amount-cents 4900]
 //   add-package       --bundle design-review --model-id faivr.agent.<slug>
+//   remove-package    --bundle design-review --package faivr.agent.<slug>
 //   issue-code        --label "Bernd's appliance" [--tenant <uuid>] [--days 14] [--by bernd@example] [--owner-email bernd@example]
 //                     prints the one-time enrolment code ONCE; only its hash is stored. The owner email, if given, pre-fills the
 //                     billing provider's checkout for that tenant (one provider customer per owner)
@@ -59,7 +60,7 @@ function enrolmentCode() {
 }
 
 if (!command || !process.env.DATABASE_URL) {
-  console.error("Usage: DATABASE_URL=... node scripts/company-os-store-admin.mjs enrol-publisher|create-bundle|set-price|add-package|issue-code|list [options]");
+  console.error("Usage: DATABASE_URL=... node scripts/company-os-store-admin.mjs enrol-publisher|create-bundle|set-price|add-package|remove-package|issue-code|list [options]");
   process.exit(2);
 }
 
@@ -112,6 +113,18 @@ try {
     if (!bundleRow.rowCount) throw new Error(`bundle ${bundle} does not exist`);
     await client.query("INSERT INTO company_os_bundle_packages(bundle_id,package_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [bundle, modelId]);
     console.log(JSON.stringify({ bundle, modelId, added: true }));
+  } else if (command === "remove-package") {
+    const bundle = need("bundle"), packageId = need("package");
+    if (!modelIdPattern.test(packageId)) throw new Error("package must be faivr.agent.<slug>");
+    const bundleRow = await client.query("SELECT id,public_listing FROM company_os_function_bundles WHERE id=$1", [bundle]);
+    if (!bundleRow.rowCount) throw new Error(`bundle ${bundle} does not exist`);
+    const member = await client.query("SELECT 1 FROM company_os_bundle_packages WHERE bundle_id=$1 AND package_id=$2", [bundle, packageId]);
+    if (!member.rowCount) throw new Error(`package ${packageId} is not in bundle ${bundle}`);
+    const count = await client.query("SELECT count(*)::int AS members FROM company_os_bundle_packages WHERE bundle_id=$1", [bundle]);
+    if (bundleRow.rows[0].public_listing && Number(count.rows[0].members) <= 1) throw new Error("cannot empty a public bundle");
+    await client.query("DELETE FROM company_os_bundle_packages WHERE bundle_id=$1 AND package_id=$2", [bundle, packageId]);
+    await client.query("UPDATE company_os_packages SET public_listing=false WHERE id=$1 AND NOT EXISTS (SELECT 1 FROM company_os_bundle_packages bp JOIN company_os_function_bundles b ON b.id=bp.bundle_id WHERE bp.package_id=$1 AND b.public_listing=true)", [packageId]);
+    console.log(JSON.stringify({ bundle, packageId, removed: true }));
   } else if (command === "issue-code") {
     const label = need("label");
     const tenantId = options.tenant ?? randomUUID();
