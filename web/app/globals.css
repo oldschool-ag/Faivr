@@ -3,14 +3,22 @@
 @tailwind utilities;
 
 :root {
-  --brand-ink: #151515;
-  --brand-slate: #55524d;
-  --brand-paper: #f4f1e8;
-  --brand-mist: #dfdbcf;
-  --brand-line: #151515;
-  --brand-accent: #e6532d;
-  --faivr-accent: #e6532d;
-  --faivr-deep: #151515;
+  --page: #EEF0FA;
+  --card: #FFFFFF;
+  --ink: #12131A;
+  --body: #3D4155;
+  --muted: #4B5064;
+  --line: #E1E3F2;
+  --accent: #B45309;
+  --dark-text: #E9EAF5;
+  --brand-ink: #111421;
+  --brand-slate: #5d6679;
+  --brand-paper: #f4f6fb;
+  --brand-mist: #dbe2ee;
+  --brand-line: rgba(17, 20, 33, 0.08);
+  --brand-accent: #B45309;
+  --faivr-accent: #B45309;
+  --faivr-deep: #0f1629;
 }
 
 * {
@@ -22,9 +30,8 @@ html {
 }
 
 body {
-  background: var(--brand-paper);
-  color: var(--brand-ink);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--page);
+  color: var(--ink);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -33,10 +40,16 @@ a {
   color: inherit;
 }
 
+a:focus-visible,
+button:focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: 4px;
+}
+
 ::selection {
-  background: #f4ca32;
+  background: #F5E6D8;
 }
 
 .skip-to-content {
-  @apply absolute -top-10 left-4 z-[100] rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition-all focus:top-4;
+  @apply absolute -top-16 left-4 z-[100] inline-flex min-h-11 min-w-11 items-center rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition-all focus:top-4;
 }

@@ -1,14 +1,17 @@
 import "./globals.css";
 import type { Metadata } from "next";
-import { Analytics } from "@vercel/analytics/react";
-import { SpeedInsights } from "@vercel/speed-insights/next";
-import { Providers } from "./providers";
-import SupportChat from "@/components/support/SupportChat";
+import { JetBrains_Mono, Plus_Jakarta_Sans } from "next/font/google";
+const jakarta = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-jakarta",
+});
+const mono = JetBrains_Mono({ subsets:["latin"], variable:"--font-mono" });
 
 export const metadata: Metadata = {
-  title: "FAIVR by Old School — Trust-first marketplace for AI agents",
+  title: "FAIVR — The store for Truchsess",
   description:
-    "Discover, verify, and hire AI agents with on-chain identity, settled-task-backed reputation, and programmable escrow on Base.",
+    "Governed AI workers for your company.",
   metadataBase: new URL("https://faivr.ai"),
   icons: {
     icon: [
@@ -20,18 +23,18 @@ export const metadata: Metadata = {
   },
   manifest: "/site.webmanifest",
   openGraph: {
-    title: "FAIVR by Old School — Trust-first marketplace for AI agents",
+    title: "FAIVR — The store for Truchsess",
     description:
-      "Discover, verify, and hire AI agents with on-chain identity, settled-task-backed reputation, and programmable escrow on Base.",
-    siteName: "FAIVR by Old School",
+      "Governed AI workers for your company. Browse the catalog and subscribe on your Truchsess appliance.",
+    siteName: "FAIVR",
     type: "website",
     url: "https://faivr.ai",
   },
   twitter: {
     card: "summary_large_image",
-    title: "FAIVR by Old School — Trust-first marketplace for AI agents",
+    title: "FAIVR — The store for Truchsess",
     description:
-      "Discover, verify, and hire AI agents with on-chain identity, settled-task-backed reputation, and programmable escrow.",
+      "Governed AI workers for your company. Browse the catalog and subscribe on your Truchsess appliance.",
   },
 };
 
@@ -41,17 +44,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className="min-h-screen font-sans text-slate-900 antialiased">
+    <html lang="en" className={`${jakarta.variable} ${mono.variable}`}>
+      <body className="min-h-screen font-sans antialiased">
         <a href="#main-content" className="skip-to-content">
           Skip to content
         </a>
-        <Providers>
-          {children}
-          <SupportChat />
-          <Analytics />
-          <SpeedInsights />
-        </Providers>
+        {children}
       </body>
     </html>
   );
