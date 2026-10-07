@@ -17,7 +17,7 @@ export const NEVER_PERMISSIONS = [
   "Spends money",
 ] as const;
 
-export function describePermission(permission: string, optional = false): string {
+export function describePermission(permission: string, optional = false, slotQuestion?: string): string {
   let description = words[permission];
   const separator = permission.indexOf(":");
   const kind = permission.slice(0, separator);
@@ -31,5 +31,6 @@ export function describePermission(permission: string, optional = false): string
     if (kind === "knowledge.write") description = slot ? "Update the knowledge of one product you choose" : `Update the knowledge of ${value}`;
     if (kind === "delegate") description = `Hand work to ${value}`;
   }
-  return `${description ?? `${permission} (not yet described)`}${optional ? " (optional)" : ""}`;
+  const safeDescription = slot && !description ? "Permission chosen at install" : (description ?? `${permission} (not yet described)`);
+  return `${safeDescription}${slotQuestion ? ` at install: ${slotQuestion}` : ""}${optional ? " (optional)" : ""}`;
 }

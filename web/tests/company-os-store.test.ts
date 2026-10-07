@@ -70,7 +70,7 @@ describe("the private Truchsess store on FAIVR", () => {
     expect((await enrolPublisher({ publicKeyPem: pair.publicPem, publisherId: "old-school", name: "Old School AG" })).keyId).toBe(keyId);
 
     // one catalog entry from a signed export, with the payload bytes stored in the store itself
-    manifest = signedManifest({ modelId: MODEL_ID, version: VERSION, payload: PAYLOAD, publisherKeyId: keyId, publisherPrivatePem: pair.privatePem, permissions: PERMISSIONS });
+    manifest = signedManifest({ modelId: MODEL_ID, version: VERSION, payload: PAYLOAD, publisherKeyId: keyId, publisherPrivatePem: pair.privatePem, permissions: PERMISSIONS, slots: [{ id: "product", question: "Which product does this worker support?", kind: "product", required: true }] });
     versionId = randomUUID();
     await holder.pool.query("INSERT INTO company_os_packages(id,slug,name,summary,status) VALUES($1,'example-reviewer','Example reviewer','Reviews supplied artifacts and returns findings.','active')", [MODEL_ID]);
     await holder.pool.query(
@@ -150,7 +150,7 @@ describe("the private Truchsess store on FAIVR", () => {
     expect(bundles).toHaveLength(1);
     expect(bundles[0]).toMatchObject({ bundleId: BUNDLE, monthlyPriceCents: 4900, currency: "chf", priceConfigured: true, subscription: null });
     const pkg = (bundles[0].packages as Array<Record<string, unknown>>)[0];
-    expect(pkg).toMatchObject({ modelId: MODEL_ID, version: VERSION, versionId, packageDigest: manifest.packageDigest, publisherKeyId: publisher.keyId, publisherId: "old-school", publisherName: "Old School AG", permissions: PERMISSIONS, installation: null });
+    expect(pkg).toMatchObject({ modelId: MODEL_ID, version: VERSION, versionId, packageDigest: manifest.packageDigest, publisherKeyId: publisher.keyId, publisherId: "old-school", publisherName: "Old School AG", permissions: PERMISSIONS, slots: [{ id: "product", question: "Which product does this worker support?", kind: "product", required: true }], installation: null });
     // last contact is recorded for the Store tab
     const key = await holder.pool.query("SELECT last_contact_at FROM company_os_instance_keys WHERE key_id=$1", [appliance.keyId]);
     expect(key.rows[0].last_contact_at).toBeTruthy();

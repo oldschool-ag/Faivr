@@ -3,8 +3,9 @@ import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { comingSoonFunctions } from "@/data/catalog-coming-soon";
 
+const catalog=vi.hoisted(()=>({functions:[] as unknown[]}));
 vi.mock("@/lib/publicCatalog",()=>({
-  getPublicCatalog:async()=>[],
+  getPublicCatalog:async()=>catalog.functions,
   getPublicCatalogState:async()=>({functions:[],unavailable:true}),
 }));
 vi.mock("@/components/layout/SiteShell",()=>({SiteShell:({children}:{children:ReactNode})=>children}));
@@ -65,5 +66,15 @@ describe("W1 supporting pages",()=>{
     for(const href of ["/how-it-works","/trust","https://github.com/oldschool-ag/Faivr"])expect(html).toContain(`href="${href}"`);
     expect(html).toContain("Publishing on FAIVR: coming later");
     expect(html).not.toMatch(forbidden);
+  });
+});
+
+describe("F2 slot permission presentation",()=>{
+  it("shows the install question without exposing the raw placeholder",async()=>{
+    catalog.functions=[{slug:"fixture",name:"Fixture",description:"",workers:[{id:"faivr.agent.fixture",slug:"fixture-worker",name:"Fixture worker",role:"",version:"1.0.0",publisherName:"Old School GmbH",publisherKeyId:"key",digest:"sha256:test",permissions:["repo.read:{code-repository}"],slots:[{id:"code-repository",question:"Which repository holds the product's code and documents?",kind:"repository",required:false}]}]}];
+    const html=renderToStaticMarkup(await WorkerPage({params:Promise.resolve({worker:"fixture-worker"})}));
+    expect(html).toContain("Read one repository you choose at install: Which repository holds the product&#x27;s code and documents? (optional)");
+    expect(html).not.toContain("{code-repository}");
+    catalog.functions=[];
   });
 });

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createStoreDb } from "./helpers/companyOsStoreDb";
 import { loadPublicCatalog, queryPublicCatalog } from "@/lib/publicCatalogData";
-import { renamePublicPublisher, setBundlePublic } from "@/lib/publicCatalogAdmin";
+import { removePackageFromBundle, renamePublicPublisher, setBundlePublic } from "@/lib/publicCatalogAdmin";
 import { describePermission } from "@/lib/publicPermissions";
 
 describe("W1 public catalog boundary", () => {
@@ -27,7 +27,8 @@ describe("W1 public catalog boundary", () => {
     expect(data).toHaveLength(1);
     expect(data[0]).toMatchObject({slug:"fixture-function",monthlyPriceCents:1234,currency:"chf"});
     expect(Object.keys(data[0]).sort()).toEqual(["currency","description","monthlyPriceCents","name","slug","workers"]);
-    expect(Object.keys(data[0].workers[0]).sort()).toEqual(["digest","id","name","permissions","publisherKeyId","publisherName","role","slug","version"]);
+    expect(Object.keys(data[0].workers[0]).sort()).toEqual(["digest","id","name","permissions","publisherKeyId","publisherName","role","slots","slug","version"]);
+    expect(data[0].workers[0].slots).toEqual([]);
     expect(JSON.stringify(data)).not.toMatch(/privateField|subscription|tenant|polar|artifact_url|signature/i);
   });
   it("hides private bundles and private members",async()=>{
@@ -42,6 +43,16 @@ describe("W1 public catalog boundary", () => {
     await pool.query("UPDATE company_os_package_versions SET status='draft'");
     await expect(setBundlePublic(pool,"fixture-function",true)).rejects.toThrow("published signed version");
     expect(await queryPublicCatalog(pool)).toEqual([]);
+  });
+  it("removes a package without deleting it and refuses to empty a public bundle",async()=>{
+    await setBundlePublic(pool,"fixture-function",true);
+    await pool.query("INSERT INTO company_os_packages(id,slug,name,summary,status,public_listing) VALUES('faivr.agent.second','second','Second','Second role','active',true)");
+    await pool.query("INSERT INTO company_os_bundle_packages(bundle_id,package_id) VALUES('fixture-function','faivr.agent.second')");
+    await expect(removePackageFromBundle(pool,"fixture-function","faivr.agent.fixture")).resolves.toMatchObject({removed:true});
+    expect((await pool.query("SELECT 1 FROM company_os_bundle_packages WHERE bundle_id='fixture-function' AND package_id='faivr.agent.fixture' ")).rowCount).toBe(0);
+    expect((await pool.query("SELECT public_listing FROM company_os_packages WHERE id='faivr.agent.fixture' ")).rows[0].public_listing).toBe(false);
+    expect((await pool.query("SELECT 1 FROM company_os_packages WHERE id='faivr.agent.fixture' ")).rowCount).toBe(1);
+    await expect(removePackageFromBundle(pool,"fixture-function","faivr.agent.second")).rejects.toThrow("Cannot empty a public bundle");
   });
   it("excludes withdrawn packages and inactive publishers even after a bundle was public",async()=>{
     await setBundlePublic(pool,"fixture-function",true);
@@ -77,5 +88,10 @@ describe("W1 permission explanations",()=>{
   it("marks optional slots and preserves unknown vocabulary",()=>{
     expect(describePermission("net.domain:{website}",true)).toBe("Reach one website you choose (optional)");
     expect(describePermission("future.access")).toBe("future.access (not yet described)");
+  });
+  it("renders an install question instead of a raw slot placeholder",()=>{
+    const rendered=describePermission("repo.read:{code-repository}",true,"Which repository holds the product's code and documents?");
+    expect(rendered).toBe("Read one repository you choose at install: Which repository holds the product's code and documents? (optional)");
+    expect(rendered).not.toContain("{code-repository}");
   });
 });

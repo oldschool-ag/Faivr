@@ -1,8 +1,9 @@
 import type { PoolClient } from "pg";
 
+export type PublicSlot = { id: string; question: string; kind: "repository" | "product" | "website"; required: boolean };
 export type PublicWorker = {
   id: string; slug: string; name: string; role: string; version: string;
-  publisherName: string; publisherKeyId: string; digest: string; permissions: string[];
+  publisherName: string; publisherKeyId: string; digest: string; permissions: string[]; slots: PublicSlot[];
 };
 export type PublicFunction = {
   slug: string; name: string; description: string;
@@ -18,7 +19,7 @@ export const PUBLIC_CATALOG_SQL = `
          b.monthly_price_cents,b.currency,
          p.id AS package_id,p.slug AS worker_slug,p.name AS worker_name,p.summary,
          v.version,v.publisher_key_id,v.artifact_sha256,
-         pub.name AS publisher_name,v.manifest->'permissions' AS permissions
+         pub.name AS publisher_name,v.manifest->'permissions' AS permissions,v.manifest->'slots' AS slots
   FROM company_os_function_bundles b
   JOIN company_os_bundle_packages bp ON bp.bundle_id=b.id
   JOIN company_os_packages p ON p.id=bp.package_id
@@ -50,6 +51,7 @@ export async function queryPublicCatalog(client: CatalogDb): Promise<PublicFunct
       publisherKeyId: row.publisher_key_id, digest: row.artifact_sha256,
       permissions: Array.isArray(row.permissions)
         ? row.permissions.filter((permission: unknown): permission is string => typeof permission === "string") : [],
+      slots: Array.isArray(row.slots) ? row.slots.filter((slot: unknown): slot is PublicSlot => Boolean(slot&&typeof slot==="object"&&typeof (slot as PublicSlot).id==="string"&&typeof (slot as PublicSlot).question==="string"&&(["repository","product","website"] as string[]).includes((slot as PublicSlot).kind)&&typeof (slot as PublicSlot).required==="boolean")) : [],
     });
     functions.set(item.slug, item);
   }

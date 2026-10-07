@@ -43,3 +43,23 @@ export async function setBundlePublic(db: AdminDb, bundleId: string, published: 
     throw error;
   }
 }
+
+/** Remove a package from one bundle without touching versions, artifacts, or installations. */
+export async function removePackageFromBundle(db: AdminDb, bundleId: string, packageId: string) {
+  await db.query("BEGIN");
+  try {
+    const bundle = await db.query("SELECT id,public_listing FROM company_os_function_bundles WHERE id=$1", [bundleId]);
+    if (!bundle.rows.length) throw new Error("Bundle not found");
+    const member = await db.query("SELECT 1 FROM company_os_bundle_packages WHERE bundle_id=$1 AND package_id=$2", [bundleId, packageId]);
+    if (!member.rows.length) throw new Error("Package is not in bundle");
+    const count = await db.query("SELECT count(*)::int AS members FROM company_os_bundle_packages WHERE bundle_id=$1", [bundleId]);
+    if (bundle.rows[0].public_listing && Number(count.rows[0].members) <= 1) throw new Error("Cannot empty a public bundle");
+    await db.query("DELETE FROM company_os_bundle_packages WHERE bundle_id=$1 AND package_id=$2", [bundleId, packageId]);
+    await db.query("UPDATE company_os_packages SET public_listing=false WHERE id=$1 AND NOT EXISTS (SELECT 1 FROM company_os_bundle_packages bp JOIN company_os_function_bundles b ON b.id=bp.bundle_id WHERE bp.package_id=$1 AND b.public_listing=true)", [packageId]);
+    await db.query("COMMIT");
+    return { bundleId, packageId, removed: true };
+  } catch (error) {
+    await db.query("ROLLBACK");
+    throw error;
+  }
+}
