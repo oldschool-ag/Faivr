@@ -7,7 +7,7 @@ import { getPublicCatalogState } from "@/lib/publicCatalog";
 export const metadata: Metadata = {
   title: "FAIVR — The store for Truchsess",
   description: "Governed AI workers for your company. Browse the catalog and subscribe on your own Truchsess appliance.",
-  openGraph: { title: "FAIVR — The store for Truchsess", description: "Governed AI workers for your company." },
+  openGraph: { title: "FAIVR — The store for Truchsess", description: "Governed AI workers for your company.", locale: "en_US" },
 };
 
 const steps = [
