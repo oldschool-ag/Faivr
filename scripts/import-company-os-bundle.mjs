@@ -148,7 +148,7 @@ function validateManifest(raw,artifact,files){
   if(!Array.isArray(raw.contents)||raw.contents.length!==files.size)throw new Error("contents must exhaustively enumerate regular files");
   const paths=[];
   for(const entry of raw.contents){exactKeys(entry,["path","sha256","bytes"],"contents entry");if(!cleanPath(entry.path)||!contentDigestPattern.test(entry.sha256)||!Number.isSafeInteger(entry.bytes)||entry.bytes<0)throw new Error("invalid contents entry");const actual=files.get(entry.path);if(!actual||actual.sha256!==entry.sha256||actual.bytes!==entry.bytes)throw new Error(`contents mismatch at ${entry.path}`);paths.push(entry.path);}
-  if(new Set(paths).size!==paths.length||paths.join("\n")!==[...paths].sort().join("\n")||!paths.includes(raw.entrypoint))throw new Error("contents paths must be stable, unique, and bind entrypoint");
+  if(new Set(paths).size!==paths.length||!paths.includes(raw.entrypoint))throw new Error("contents paths must be unique and include the entrypoint");
   if(raw.signature.algorithm!=="Ed25519"||typeof raw.signature.keyId!=="string"||!raw.signature.keyId||typeof raw.signature.value!=="string"||!base64url.test(raw.signature.value))throw new Error("invalid signature envelope");
 }
 
