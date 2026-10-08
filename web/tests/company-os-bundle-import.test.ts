@@ -113,18 +113,18 @@ describe("importing a signed Truchsess bundle file into the store", () => {
     expect(duplicateResult.status).not.toBe(0);
     expect(duplicateResult.stderr).toContain("contents paths must be unique and include the entrypoint");
 
-    const missingEntrypoint = { ...unsigned, contents: contents.map((entry) => entry.path === "agent-definition.json" ? { ...contents[0] } : entry) };
+    const missingEntrypoint = { ...unsigned, contents: contents.filter((entry) => entry.path !== "agent-definition.json") };
     const missingEntrypointFile = join(dir, "missing-entrypoint.truchsess-bundle.tar");
     writeFileSync(missingEntrypointFile, signedBundle(missingEntrypoint));
     const missingEntrypointResult = run([missingEntrypointFile], env);
     expect(missingEntrypointResult.status).not.toBe(0);
-    expect(missingEntrypointResult.stderr).toContain("contents paths must be unique and include the entrypoint");
+    expect(missingEntrypointResult.stderr).toContain("contents must exhaustively enumerate regular files");
   });
 
   it("rejects contents reordered after the publisher signed the manifest", () => {
     const dir = mkdtempSync(join(tmpdir(), "faivr-import-reordered-"));
     writeFileSync(join(dir, "publisher.pub"), publicPem);
-    const reordered = { ...manifest, contents: [...contents].sort((left, right) => left.path.localeCompare(right.path)) };
+    const reordered = { ...manifest, contents: [...contents].reverse() };
     const bytes = Buffer.from(JSON.stringify(reordered));
     const bundleFile = join(dir, "reordered.truchsess-bundle.tar");
     writeFileSync(bundleFile, tar([["bundle-index.json", Buffer.from(JSON.stringify({ ...index, manifestSha256: digest(bytes) }))], ["manifest.json", bytes], ["package.tar.gz", payload]]));
