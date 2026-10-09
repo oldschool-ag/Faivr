@@ -11,7 +11,7 @@ const mono = JetBrains_Mono({ subsets:["latin"], variable:"--font-mono" });
 export const metadata: Metadata = {
   title: "FAIVR — The store for Truchsess",
   description:
-    "Governed AI workers for your company.",
+    "Governed AI agents for your company.",
   metadataBase: new URL("https://faivr.ai"),
   icons: {
     icon: [{ url: "/brand/faivr-logo.svg", type: "image/svg+xml" }],
@@ -20,7 +20,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "FAIVR — The store for Truchsess",
     description:
-      "Governed AI workers for your company. Browse the catalog and subscribe on your Truchsess appliance.",
+      "Governed AI agents for your company. Browse the catalog and subscribe on your Truchsess appliance.",
     siteName: "FAIVR",
     type: "website",
     url: "https://faivr.ai",
@@ -30,7 +30,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "FAIVR — The store for Truchsess",
     description:
-      "Governed AI workers for your company. Browse the catalog and subscribe on your Truchsess appliance.",
+      "Governed AI agents for your company. Browse the catalog and subscribe on your Truchsess appliance.",
   },
 };
 

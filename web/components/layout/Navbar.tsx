@@ -14,11 +14,11 @@ export function Navbar() {
       </Link>
       <nav aria-label="Main navigation" className="order-3 flex w-full flex-wrap justify-center gap-1 lg:order-none lg:w-auto">
         {links.map(([name,href]) => {
-          const active = href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href+"/") || (href === "/catalog" && pathname.startsWith("/workers/"));
+          const active = href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href+"/") || (href === "/catalog" && pathname.startsWith("/agents/"));
           return <Link key={href} href={href} aria-current={active ? "page" : undefined} className={`inline-flex min-h-11 items-center rounded-full px-4 py-2 text-sm font-semibold ${active ? "bg-[var(--ink)] text-white" : "hover:bg-[var(--page)]"}`}>{name}</Link>;
         })}
       </nav>
-      <Link href="/how-it-works#contact" className="inline-flex min-h-11 items-center justify-center rounded-full bg-[var(--ink)] px-5 py-3 text-sm font-semibold text-white">Get Truchsess</Link>
+      <a href="https://www.truchsess.com" className="inline-flex min-h-11 items-center justify-center rounded-full bg-[var(--ink)] px-5 py-3 text-sm font-semibold text-white">Get Truchsess</a>
     </div>
   </header>;
 }

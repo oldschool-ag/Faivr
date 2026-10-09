@@ -14,6 +14,8 @@ const nextConfig = {
     { source: "/audit", destination: "/", permanent: true },
     { source: "/audit/:path*", destination: "/", permanent: true },
     { source: "/audit-:path(.*)", destination: "/", permanent: true },
+    { source: "/workers", destination: "/agents", permanent: true },
+    { source: "/workers/:path*", destination: "/agents/:path*", permanent: true },
   ]; },
 };
 module.exports = nextConfig;

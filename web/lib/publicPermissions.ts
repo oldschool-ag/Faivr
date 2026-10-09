@@ -13,7 +13,7 @@ const words: Record<string, string> = {
 export const NEVER_PERMISSIONS = [
   "Acts without a task someone started",
   "Changes its own permissions",
-  "Sees other workers' files",
+  "Sees other agents' files",
   "Spends money",
 ] as const;
 
