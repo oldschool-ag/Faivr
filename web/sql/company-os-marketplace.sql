@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS company_os_enrolment_codes (code_hash text PRIMARY KE
 -- T6b.1: billing through a provider interface (Polar by default, Stripe as the second implementation).
 -- A bundle carries the Polar product id of its recurring product; provider objects are opaque ids next to the state.
 ALTER TABLE company_os_function_bundles ADD COLUMN IF NOT EXISTS polar_product_id text UNIQUE;
+ALTER TABLE company_os_function_bundles ADD COLUMN IF NOT EXISTS public_listing boolean NOT NULL DEFAULT false;
+ALTER TABLE company_os_packages ADD COLUMN IF NOT EXISTS public_listing boolean NOT NULL DEFAULT false;
 ALTER TABLE company_os_bundle_subscriptions ADD COLUMN IF NOT EXISTS billing_provider text;
 ALTER TABLE company_os_bundle_subscriptions ADD COLUMN IF NOT EXISTS provider_checkout_id text;
 ALTER TABLE company_os_bundle_subscriptions ADD COLUMN IF NOT EXISTS provider_subscription_id text;

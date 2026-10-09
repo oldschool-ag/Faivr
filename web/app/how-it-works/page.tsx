@@ -1,0 +1,27 @@
+import type { Metadata } from "next";
+import { SiteShell } from "@/components/layout/SiteShell";
+import { CONTACT_EMAIL } from "@/lib/contact";
+
+export const metadata: Metadata = {
+  title: "How it works | FAIVR",
+  description: "How governed AI agents run on your Truchsess.",
+  openGraph: { title: "How it works | FAIVR", description: "How governed AI agents run on your Truchsess." },
+};
+
+const steps = [
+  ["Get a Truchsess", "A small computer in your office. Your agents run on it, each in its own sandbox."],
+  ["Connect it to the store", "Link your appliance to the catalog."],
+  ["Subscribe on the appliance", "Choose a function on your Truchsess. Buying and connecting happen there, never on this site."],
+  ["Approve and install", "You see every permission in plain words before installation."],
+] as const;
+
+export default function Page() {
+  return <SiteShell><div className="mx-auto max-w-[1220px] px-4 py-14 sm:px-8">
+    <p className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-bold tracking-[.14em] text-[var(--accent)]">HOW IT WORKS</p>
+    <h1 className="mt-3 max-w-4xl text-5xl font-extrabold tracking-[-.06em] sm:text-7xl">Your appliance. Your rules. Our agents.</h1>
+    <section className="mt-10 rounded-3xl bg-white p-7"><h2 className="text-2xl font-bold">You need</h2><ul className="mt-4 space-y-2 text-[var(--body)]"><li>A Truchsess appliance</li><li>A network cable and internet access</li><li>A model account, or our managed one</li></ul></section>
+    <ol className="mt-8 grid gap-4 md:grid-cols-4">{steps.map(([title, copy], index) => <li key={title} className="rounded-3xl bg-white p-6"><b className="grid h-10 w-10 place-items-center rounded-xl bg-[var(--ink)] text-white">{index + 1}</b><h2 className="mt-6 text-xl font-bold">{title}</h2><p className="mt-3 text-sm leading-6 text-[var(--body)]">{copy}</p>{title === "Get a Truchsess" && <a className="mt-4 inline-flex min-h-11 items-center font-bold underline" href="https://www.truchsess.com">About the Truchsess box</a>}</li>)}</ol>
+    <section className="mt-12"><h2 className="text-3xl font-extrabold">What you pay for</h2><p className="mt-4 max-w-2xl text-[var(--body)]">A fixed monthly price per function; the AI model as used, with a monthly budget you set.</p></section>
+    <section id="contact" className="mt-12 rounded-[32px] bg-[var(--ink)] p-8 text-[var(--dark-text)]"><h2 className="text-3xl font-extrabold">Talk to us about a Truchsess</h2><a className="mt-6 inline-block rounded-full bg-white px-5 py-3 text-sm font-bold text-[var(--ink)]" href={`mailto:${CONTACT_EMAIL}`}>Contact Old School</a><p className="mt-4 text-sm">Already have a Truchsess? Write to <a className="inline-flex min-h-11 items-center font-bold underline" href="mailto:support@truchsess.com">support@truchsess.com</a>.</p></section>
+  </div></SiteShell>;
+}

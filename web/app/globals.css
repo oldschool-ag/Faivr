@@ -3,13 +3,21 @@
 @tailwind utilities;
 
 :root {
+  --page: #EEF0FA;
+  --card: #FFFFFF;
+  --ink: #12131A;
+  --body: #3D4155;
+  --muted: #4B5064;
+  --line: #E1E3F2;
+  --accent: #B45309;
+  --dark-text: #E9EAF5;
   --brand-ink: #111421;
   --brand-slate: #5d6679;
   --brand-paper: #f4f6fb;
   --brand-mist: #dbe2ee;
   --brand-line: rgba(17, 20, 33, 0.08);
-  --brand-accent: #4964ff;
-  --faivr-accent: #5e86ff;
+  --brand-accent: #B45309;
+  --faivr-accent: #B45309;
   --faivr-deep: #0f1629;
 }
 
@@ -22,31 +30,26 @@ html {
 }
 
 body {
-  background:
-    radial-gradient(circle at 12% 0%, rgba(94, 134, 255, 0.16), transparent 28%),
-    radial-gradient(circle at 88% 8%, rgba(219, 226, 238, 0.6), transparent 22%),
-    linear-gradient(180deg, #fbfcff 0%, var(--brand-paper) 46%, #eef2f8 100%);
-  color: var(--brand-ink);
+  background: var(--page);
+  color: var(--ink);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(120deg, rgba(255,255,255,0.24), transparent 42%);
 }
 
 a {
   color: inherit;
 }
 
+a:focus-visible,
+button:focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: 4px;
+}
+
 ::selection {
-  background: rgba(73, 100, 255, 0.18);
+  background: #F5E6D8;
 }
 
 .skip-to-content {
-  @apply absolute -top-10 left-4 z-[100] rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition-all focus:top-4;
+  @apply absolute -top-16 left-4 z-[100] inline-flex min-h-11 min-w-11 items-center rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition-all focus:top-4;
 }

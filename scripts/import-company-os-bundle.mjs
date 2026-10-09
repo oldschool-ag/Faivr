@@ -36,12 +36,29 @@ const digestPattern=/^sha256:[a-f0-9]{64}$/;
 const contentDigestPattern=/^[a-f0-9]{64}$/;
 const base64url=/^[A-Za-z0-9_-]+$/;
 const bundleIdPattern=/^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const slotIdPattern=/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const secretPatterns=[/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,/(?:sk_live_|rk_live_|AKIA)[A-Za-z0-9_\-]{12,}/,/\b(?:password|secret|api[_-]?key)\s*[:=]\s*["'][^"']{8,}/i];
 const exactKeys=(value,keys,label)=>{if(!value||typeof value!=="object"||Array.isArray(value)||Object.keys(value).sort().join("\n")!==[...keys].sort().join("\n"))throw new Error(`invalid ${label} fields`);};
 // T6b: permission strings are carried verbatim, in the order the signed manifest declares them.
 // The appliance owns the closed vocabulary and re-validates them at install; the store only
 // wants unique, non-empty strings.
 const uniqueStrings=(value,label)=>{if(!Array.isArray(value)||value.some(v=>typeof v!=="string"||!v||v.length>256||/\s/.test(v))||new Set(value).size!==value.length)throw new Error(`${label} must be unique non-empty strings`);};
+const validateSlots=(slots,permissions)=>{
+  if(slots===undefined)slots=[];
+  if(!Array.isArray(slots))throw new Error("slots must be an array");
+  const ids=new Set();
+  for(const slot of slots){
+    exactKeys(slot,["id","question","kind","required"],"slot");
+    if(typeof slot.id!=="string"||!slotIdPattern.test(slot.id)||typeof slot.question!=="string"||slot.question.length<1||slot.question.length>200||!(["repository","product","website"].includes(slot.kind))||typeof slot.required!=="boolean")throw new Error("invalid slot");
+    if(ids.has(slot.id))throw new Error("slot ids must be unique");
+    ids.add(slot.id);
+  }
+  for(const permission of permissions){
+    const placeholder=permission.match(/:\{([^{}]+)\}$/)?.[1];
+    if(placeholder&&!ids.has(placeholder))throw new Error(`permission references unknown slot ${placeholder}`);
+  }
+  return slots;
+};
 const cleanPath=(value)=>typeof value==="string"&&value.length>0&&!value.includes("\\")&&!value.startsWith("/")&&!value.split("/").includes("..")&&!value.includes("//");
 const octal=(field)=>{const value=field.toString("ascii").replace(/\0.*$/s,"").trim();if(!/^[0-7]*$/.test(value))throw new Error("invalid tar numeric field");return value?Number.parseInt(value,8):0;};
 
@@ -112,7 +129,8 @@ function readBundleFile(bytes){
 }
 
 function validateManifest(raw,artifact,files){
-  exactKeys(raw,["schemaVersion","modelId","version","displayName","summary","publisher","packageDigest","artifactBytes","entrypoint","companyOsCompatibility","permissions","dependencies","managedPaths","tenantDataIncluded","monthlyPrice","contents","signature"],"manifest");
+  const manifestKeys=["schemaVersion","modelId","version","displayName","summary","publisher","packageDigest","artifactBytes","entrypoint","companyOsCompatibility","permissions","dependencies","managedPaths","tenantDataIncluded","monthlyPrice","contents","signature"];
+  exactKeys(raw,raw.slots===undefined?manifestKeys:[...manifestKeys,"slots"],"manifest");
   exactKeys(raw.publisher,["publisherId","name"],"publisher");
   exactKeys(raw.companyOsCompatibility,["minVersion","maxVersion"],"companyOsCompatibility");
   exactKeys(raw.monthlyPrice,["billingPeriod","amountCents","stripePriceId","activationState"],"monthlyPrice");
@@ -121,7 +139,7 @@ function validateManifest(raw,artifact,files){
   if(typeof raw.publisher.publisherId!=="string"||!raw.publisher.publisherId||typeof raw.publisher.name!=="string"||!raw.publisher.name)throw new Error("invalid publisher");
   if(!digestPattern.test(raw.packageDigest)||raw.packageDigest!==sha256(artifact)||!Number.isSafeInteger(raw.artifactBytes)||raw.artifactBytes!==artifact.length)throw new Error("artifact size or digest mismatch");
   if(raw.entrypoint!=="agent-definition.json"||!semver.test(raw.companyOsCompatibility.minVersion)||(raw.companyOsCompatibility.maxVersion!==null&&!semver.test(raw.companyOsCompatibility.maxVersion)))throw new Error("invalid entrypoint or compatibility range");
-  uniqueStrings(raw.permissions,"permissions");uniqueStrings(raw.dependencies,"dependencies");
+  uniqueStrings(raw.permissions,"permissions");uniqueStrings(raw.dependencies,"dependencies");validateSlots(raw.slots,raw.permissions);
   const managedRoot=`agents/${raw.modelId}/${raw.version}`;
   if(!Array.isArray(raw.managedPaths)||raw.managedPaths.length!==1||raw.managedPaths[0]!==managedRoot)throw new Error("invalid managedPaths root");
   if(raw.tenantDataIncluded!==false)throw new Error("tenant data must not be included");
@@ -130,7 +148,7 @@ function validateManifest(raw,artifact,files){
   if(!Array.isArray(raw.contents)||raw.contents.length!==files.size)throw new Error("contents must exhaustively enumerate regular files");
   const paths=[];
   for(const entry of raw.contents){exactKeys(entry,["path","sha256","bytes"],"contents entry");if(!cleanPath(entry.path)||!contentDigestPattern.test(entry.sha256)||!Number.isSafeInteger(entry.bytes)||entry.bytes<0)throw new Error("invalid contents entry");const actual=files.get(entry.path);if(!actual||actual.sha256!==entry.sha256||actual.bytes!==entry.bytes)throw new Error(`contents mismatch at ${entry.path}`);paths.push(entry.path);}
-  if(new Set(paths).size!==paths.length||paths.join("\n")!==[...paths].sort().join("\n")||!paths.includes(raw.entrypoint))throw new Error("contents paths must be stable, unique, and bind entrypoint");
+  if(new Set(paths).size!==paths.length||!paths.includes(raw.entrypoint))throw new Error("contents paths must be unique and include the entrypoint");
   if(raw.signature.algorithm!=="Ed25519"||typeof raw.signature.keyId!=="string"||!raw.signature.keyId||typeof raw.signature.value!=="string"||!base64url.test(raw.signature.value))throw new Error("invalid signature envelope");
 }
 
@@ -155,7 +173,7 @@ try{
     if(!publisher.rowCount)throw new Error("publisher key is not enrolled");publicKey=publisher.rows[0].public_key;
   }
   if(!verify(null,Buffer.from(canonical(signedManifest)),createPublicKey(publicKey),Buffer.from(signature.value,"base64url")))throw new Error("invalid publisher signature");
-  if(validateOnly){console.log(JSON.stringify({valid:true,modelId:raw.modelId,version:raw.version,digest:raw.packageDigest,artifactBytes:raw.artifactBytes,artifactUrl:artifactUrl.href,permissions:raw.permissions,bundle:bundleId,inlineArtifact}));}
+  if(validateOnly){console.log(JSON.stringify({valid:true,modelId:raw.modelId,version:raw.version,digest:raw.packageDigest,artifactBytes:raw.artifactBytes,artifactUrl:artifactUrl.href,permissions:raw.permissions,slots:raw.slots??[],bundle:bundleId,inlineArtifact}));}
   else{
     const slug=raw.modelId.slice("faivr.agent.".length).replace(/[._]+/g,"-");
     await client.query("INSERT INTO company_os_packages(id,slug,name,summary,status) VALUES($1,$2,$3,$4,'active') ON CONFLICT(id) DO UPDATE SET slug=EXCLUDED.slug,name=EXCLUDED.name,summary=EXCLUDED.summary",[raw.modelId,slug,raw.displayName,raw.summary]);
@@ -171,6 +189,6 @@ try{
       if(!bundle.rowCount)throw new Error(`function bundle ${bundleId} does not exist; create it with scripts/company-os-store-admin.mjs create-bundle first`);
       await client.query("INSERT INTO company_os_bundle_packages(bundle_id,package_id) VALUES($1,$2) ON CONFLICT DO NOTHING",[bundleId,raw.modelId]);
     }
-    await client.query("COMMIT");console.log(JSON.stringify({imported:true,modelId:raw.modelId,version:raw.version,versionId,digest:raw.packageDigest,artifactBytes:raw.artifactBytes,artifactUrl:artifactUrl.href,inlineArtifact,bundle:bundleId,permissions:raw.permissions}));
+    await client.query("COMMIT");console.log(JSON.stringify({imported:true,modelId:raw.modelId,version:raw.version,versionId,digest:raw.packageDigest,artifactBytes:raw.artifactBytes,artifactUrl:artifactUrl.href,inlineArtifact,bundle:bundleId,permissions:raw.permissions,slots:raw.slots??[]}));
   }
 }catch(e){if(client)await client.query("ROLLBACK");throw e;}finally{if(client)await client.end();}

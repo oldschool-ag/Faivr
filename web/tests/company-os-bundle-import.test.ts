@@ -51,7 +51,10 @@ describe("importing a signed Truchsess bundle file into the store", () => {
     ["AGENT.md", Buffer.from("# Example reviewer\n")],
     ["agent-definition.json", Buffer.from(JSON.stringify({ agentDefinitionId: "agdef_example_reviewer", permissions }))],
     ["skills/", Buffer.alloc(0), "5"],
-    ["skills/example/SKILL.md", Buffer.from("---\nname: example\n---\n")],
+    // The exporter walks folders, so strategy precedes strategy-advisor even though
+    // plain lexicographic ordering would put strategy-advisor first.
+    ["skills/strategy/SKILL.md", Buffer.from("---\nname: strategy\n---\n")],
+    ["skills/strategy-advisor/SKILL.md", Buffer.from("---\nname: strategy-advisor\n---\n")],
     ["tools/tool-policy.json", Buffer.from("{}")],
     ["workflows/example.md", Buffer.from("workflow")],
     ["docs/operator-guide.md", Buffer.from("guide")],
@@ -62,7 +65,7 @@ describe("importing a signed Truchsess bundle file into the store", () => {
   const publicPem = publicKey.export({ type: "spki", format: "pem" }).toString();
   const der = publicKey.export({ type: "spki", format: "der" });
   const keyId = `ed25519-${createHash("sha256").update(der.subarray(der.length - 32)).digest("hex").slice(0, 16)}`;
-  const contents = files.filter(([, , type]) => type !== "5").map(([path, body]) => ({ path, sha256: digest(body), bytes: body.length })).sort((a, b) => (a.path < b.path ? -1 : 1));
+  const contents = files.filter(([, , type]) => type !== "5").map(([path, body]) => ({ path, sha256: digest(body), bytes: body.length }));
   const unsigned = {
     schemaVersion: "faivr-portable-agent-bundle.v1", modelId, version, displayName: "Example reviewer", summary: "Reviews supplied artifacts.",
     publisher: { publisherId: "old-school", name: "Old School AG" }, packageDigest: `sha256:${digest(payload)}`, artifactBytes: payload.length, entrypoint: "agent-definition.json",
@@ -72,6 +75,12 @@ describe("importing a signed Truchsess bundle file into the store", () => {
   const manifest = { ...unsigned, signature: { keyId, algorithm: "Ed25519", value: edSign(null, Buffer.from(canonicalJson(unsigned)), createPrivateKey(privateKey.export({ type: "pkcs8", format: "pem" }).toString())).toString("base64url") } };
   const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2) + "\n");
   const index = { schemaVersion: "truchsess-signed-bundle-file.v1", modelId, version, packageDigest: manifest.packageDigest, artifactBytes: payload.length, manifestSha256: digest(manifestBytes), publisherKeyId: keyId, publicationState: "local_install" };
+
+  function signedBundle(input: typeof unsigned) {
+    const signed = { ...input, signature: { keyId, algorithm: "Ed25519", value: edSign(null, Buffer.from(canonicalJson(input)), privateKey).toString("base64url") } };
+    const bytes = Buffer.from(JSON.stringify(signed));
+    return tar([["bundle-index.json", Buffer.from(JSON.stringify({ ...index, manifestSha256: digest(bytes) }))], ["manifest.json", bytes], ["package.tar.gz", payload]]);
+  }
 
   function run(args: string[], env: Record<string, string>) {
     return spawnSync(process.execPath, [importer, ...args], { encoding: "utf8", env: { ...process.env, ...env, DATABASE_URL: "" } });
@@ -87,6 +96,83 @@ describe("importing a signed Truchsess bundle file into the store", () => {
     const report = JSON.parse(result.stdout.trim());
     expect(report).toMatchObject({ valid: true, modelId, version, digest: manifest.packageDigest, permissions, bundle: "design-review", inlineArtifact: true });
     expect(report.artifactUrl).toBe(`https://store.faivr.test/company-os/v1/packages/${modelId}/${version}/${digest(payload)}.tar.gz`);
+  });
+
+  it("accepts the publisher's folder order but still rejects duplicate or missing contents paths", () => {
+    const dir = mkdtempSync(join(tmpdir(), "faivr-import-contents-"));
+    writeFileSync(join(dir, "publisher.pub"), publicPem);
+    const env = { FAIVR_VALIDATE_ONLY: "1", FAIVR_PUBLISHER_PUBLIC_KEY_PATH: join(dir, "publisher.pub"), FAIVR_PACKAGE_ORIGIN: "https://store.faivr.test", FAIVR_STORE_ARTIFACT_INLINE: "1" };
+    const folderOrder = join(dir, "folder-order.truchsess-bundle.tar");
+    writeFileSync(folderOrder, signedBundle(unsigned));
+    expect(run([folderOrder], env).status).toBe(0);
+
+    const duplicate = { ...unsigned, contents: [...contents.slice(0, -1), contents[0]] };
+    const duplicateFile = join(dir, "duplicate.truchsess-bundle.tar");
+    writeFileSync(duplicateFile, signedBundle(duplicate));
+    const duplicateResult = run([duplicateFile], env);
+    expect(duplicateResult.status).not.toBe(0);
+    expect(duplicateResult.stderr).toContain("contents paths must be unique and include the entrypoint");
+
+    const missingEntrypoint = { ...unsigned, contents: contents.filter((entry) => entry.path !== "agent-definition.json") };
+    const missingEntrypointFile = join(dir, "missing-entrypoint.truchsess-bundle.tar");
+    writeFileSync(missingEntrypointFile, signedBundle(missingEntrypoint));
+    const missingEntrypointResult = run([missingEntrypointFile], env);
+    expect(missingEntrypointResult.status).not.toBe(0);
+    expect(missingEntrypointResult.stderr).toContain("contents must exhaustively enumerate regular files");
+  });
+
+  it("rejects contents reordered after the publisher signed the manifest", () => {
+    const dir = mkdtempSync(join(tmpdir(), "faivr-import-reordered-"));
+    writeFileSync(join(dir, "publisher.pub"), publicPem);
+    const reordered = { ...manifest, contents: [...contents].reverse() };
+    const bytes = Buffer.from(JSON.stringify(reordered));
+    const bundleFile = join(dir, "reordered.truchsess-bundle.tar");
+    writeFileSync(bundleFile, tar([["bundle-index.json", Buffer.from(JSON.stringify({ ...index, manifestSha256: digest(bytes) }))], ["manifest.json", bytes], ["package.tar.gz", payload]]));
+    const result = run([bundleFile], { FAIVR_VALIDATE_ONLY: "1", FAIVR_PUBLISHER_PUBLIC_KEY_PATH: join(dir, "publisher.pub"), FAIVR_PACKAGE_ORIGIN: "https://store.faivr.test", FAIVR_STORE_ARTIFACT_INLINE: "1" });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("invalid publisher signature");
+  });
+
+  it("validates signed install slots and rejects invalid slot contracts", () => {
+    const dir = mkdtempSync(join(tmpdir(), "faivr-import-slots-"));
+    writeFileSync(join(dir, "publisher.pub"), publicPem);
+    const slots = [
+      { id: "product", question: "Which product does this product owner own?", kind: "product", required: true },
+      { id: "code-repository", question: "Which repository holds the product's code and documents (read only)?", kind: "repository", required: false },
+    ];
+    const signManifest = (input: Record<string, unknown>) => {
+      const signed = { ...input, signature: { keyId, algorithm: "Ed25519", value: edSign(null, Buffer.from(canonicalJson(input)), privateKey).toString("base64url") } };
+      const bytes = Buffer.from(JSON.stringify(signed));
+      const bundleIndex = { ...index, manifestSha256: digest(bytes) };
+      return tar([["bundle-index.json", Buffer.from(JSON.stringify(bundleIndex))], ["manifest.json", bytes], ["package.tar.gz", payload]]);
+    };
+    const valid = { ...unsigned, permissions: ["workspace.read", "repo.read:{code-repository}", "knowledge.read:{product}"], slots };
+    const validFile = join(dir, "slots-valid.truchsess-bundle.tar");
+    writeFileSync(validFile, signManifest(valid));
+    const env = { FAIVR_VALIDATE_ONLY: "1", FAIVR_PUBLISHER_PUBLIC_KEY_PATH: join(dir, "publisher.pub"), FAIVR_PACKAGE_ORIGIN: "https://store.faivr.test", FAIVR_STORE_ARTIFACT_INLINE: "1" };
+    expect(run([validFile], env).status).toBe(0);
+    const invalid = [
+      { ...valid, slots: [{ ...slots[0], extra: true }] },
+      { ...valid, slots: [{ ...slots[0], id: "Bad_id" }] },
+      { ...valid, slots: [{ ...slots[0], kind: "other" }] },
+      { ...valid, permissions: ["repo.read:{missing}"], slots },
+      { ...valid, slots: [slots[0], slots[0]] },
+    ];
+    for (let position = 0; position < invalid.length; position += 1) {
+      const candidate = invalid[position];
+      const file = join(dir, `slots-invalid-${position}.truchsess-bundle.tar`);
+      writeFileSync(file, signManifest(candidate));
+      expect(run([file], env).status).not.toBe(0);
+    }
+    const signed = { ...valid, signature: { keyId, algorithm: "Ed25519", value: edSign(null, Buffer.from(canonicalJson(valid)), privateKey).toString("base64url") } };
+    const altered = { ...signed, slots: [{ ...slots[0], question: "A changed question" }, slots[1]] };
+    const alteredBytes = Buffer.from(JSON.stringify(altered));
+    const alteredIndex = { ...index, manifestSha256: digest(alteredBytes) };
+    const alteredFile = join(dir, "slots-tampered.truchsess-bundle.tar");
+    writeFileSync(alteredFile, tar([["bundle-index.json", Buffer.from(JSON.stringify(alteredIndex))], ["manifest.json", alteredBytes], ["package.tar.gz", payload]]));
+    const tamperedResult = run([alteredFile], env);
+    expect(tamperedResult.status).not.toBe(0);
+    expect(tamperedResult.stderr).toContain("invalid publisher signature");
   });
 
   it("refuses a bundle whose payload was swapped or whose signature does not verify", () => {

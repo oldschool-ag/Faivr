@@ -1,103 +1,24 @@
 "use client";
-
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
-import { Menu, X } from "lucide-react";
-import { ConnectButton } from "@/components/wallet/ConnectButton";
-import { NetworkBadge } from "@/components/wallet/NetworkBadge";
-import { ProductLockup } from "@/components/layout/ProductLockup";
-import { cn } from "@/lib/utils";
 
-const NAV_LINKS = [
-  { label: "Home", href: "/" },
-  { label: "Marketplace", href: "/marketplace" },
-  { label: "Dashboard", href: "/dashboard" },
-  { label: "Onboard Agent", href: "/onboard-agent" },
-  { label: "Audit", href: "/audit" },
-  { label: "Docs", href: "/docs" },
-  { label: "About", href: "/about" },
-] as const;
+const links = [["Home","/"],["Catalog","/catalog"],["How it works","/how-it-works"],["Trust","/trust"],["Docs","/docs"]] as const;
 
 export function Navbar() {
-  const [open, setOpen] = useState(false);
-  const pathname = usePathname();
-
-  return (
-    <nav
-      className="sticky top-0 z-50 border-b border-white/70 bg-white/80 backdrop-blur-xl"
-      aria-label="Main navigation"
-    >
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
-        <Link
-          href="/"
-          className="relative z-10 flex items-center py-3 pr-4 -my-3 -mr-2"
-          aria-label="FAIVR home"
-        >
-          <ProductLockup product="FAIVR" accentClass="bg-[var(--faivr-accent)]" compact />
-        </Link>
-
-        <div className="hidden items-center gap-1 md:flex">
-          {NAV_LINKS.map((link) => {
-            const active = pathname === link.href;
-            return (
-              <Link
-                key={link.label}
-                href={link.href}
-                className={cn(
-                  "rounded-full px-4 py-2 text-sm font-medium transition-colors",
-                  active
-                    ? "bg-slate-900 text-white"
-                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                )}
-              >
-                {link.label}
-              </Link>
-            );
-          })}
-        </div>
-
-        <div className="flex items-center gap-3">
-          <NetworkBadge />
-          <ConnectButton />
-          <button
-            className="ml-1 flex h-10 w-10 items-center justify-center rounded-2xl text-slate-500 hover:bg-slate-100 md:hidden"
-            onClick={() => setOpen(!open)}
-            aria-label={open ? "Close menu" : "Open menu"}
-            aria-expanded={open}
-          >
-            {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </button>
-        </div>
-      </div>
-
-      <div
-        className={cn(
-          "overflow-hidden border-t border-slate-200 md:hidden transition-all duration-200",
-          open ? "max-h-96" : "max-h-0"
-        )}
-      >
-        <div className="space-y-1 px-6 py-3">
-          {NAV_LINKS.map((link) => {
-            const active = pathname === link.href;
-            return (
-              <Link
-                key={link.label}
-                href={link.href}
-                className={cn(
-                  "block rounded-2xl px-4 py-3 text-sm font-medium transition-colors",
-                  active
-                    ? "bg-slate-900 text-white"
-                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                )}
-                onClick={() => setOpen(false)}
-              >
-                {link.label}
-              </Link>
-            );
-          })}
-        </div>
-      </div>
-    </nav>
-  );
+  const pathname = usePathname() ?? "/";
+  return <header className="border-b border-[var(--line)] bg-white">
+    <div className="mx-auto flex max-w-[1220px] flex-wrap items-center justify-between gap-x-4 gap-y-4 px-4 py-4 sm:px-8">
+      <Link href="/" aria-label="FAIVR home" className="flex min-h-11 items-center">
+        <Image src="/brand/faivr-logo.svg" alt="FAIVR" width={112} height={40} priority className="h-10 w-auto" />
+      </Link>
+      <nav aria-label="Main navigation" className="order-3 flex w-full flex-wrap justify-center gap-1 lg:order-none lg:w-auto">
+        {links.map(([name,href]) => {
+          const active = href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href+"/") || (href === "/catalog" && pathname.startsWith("/agents/"));
+          return <Link key={href} href={href} aria-current={active ? "page" : undefined} className={`inline-flex min-h-11 items-center rounded-full px-4 py-2 text-sm font-semibold ${active ? "bg-[var(--ink)] text-white" : "hover:bg-[var(--page)]"}`}>{name}</Link>;
+        })}
+      </nav>
+      <a href="https://www.truchsess.com" className="inline-flex min-h-11 items-center justify-center rounded-full bg-[var(--ink)] px-5 py-3 text-sm font-semibold text-white">Get Truchsess</a>
+    </div>
+  </header>;
 }
