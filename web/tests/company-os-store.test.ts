@@ -7,7 +7,7 @@ const holder = vi.hoisted(() => ({ pool: null as unknown as import("pg").Pool })
 vi.mock("@/lib/postgres", () => ({ getPgPool: () => holder.pool }));
 
 import { canonicalSignedMessage, signCompanyOsRequest, verifyMessageSignature } from "@/lib/companyOs/auth";
-import { enrolPublisher, hashEnrolmentCode, issueEnrolmentCode, upsertBundle, addPackageToBundle } from "@/lib/companyOs/privateStore";
+import { addPackageToBundle, compareSemver, enrolPublisher, hashEnrolmentCode, issueEnrolmentCode, upsertBundle } from "@/lib/companyOs/privateStore";
 import { keyIdFor, loadEd25519PublicKey } from "@/lib/companyOs/publisherKeys";
 import { enrol, storeCatalog, storeCheckoutSessions, storeInstallations, storeSubscriptionCancel, storeSubscriptions } from "@/app/api/company-os/v1/storeHandlers";
 import { activationReceipts, billing, packageDownload, uninstallReceipts, uninstallRequests } from "@/app/api/company-os/v1/handlers";
@@ -31,6 +31,11 @@ function stripeFixture(name: string, values: Record<string, string>) {
   for (const [key, value] of Object.entries(values)) text = text.replaceAll(`{{${key}}}`, value);
   return text;
 }
+
+it("orders prerelease identifiers with embedded hyphens deterministically", () => {
+  expect(compareSemver("1.0.1-alpha-beta.1", "1.0.1-alpha-beta.2")).toBeLessThan(0);
+  expect(compareSemver("1.0.1-rc.1", "1.0.1")).toBeLessThan(0);
+});
 
 async function deliverWebhook(payload: string) {
   return stripeWebhook(new NextRequest("https://store.faivr.test/api/company-os/stripe/webhook", { method: "POST", headers: { "stripe-signature": stripeSignature(payload), "Content-Type": "application/json" }, body: payload }));
@@ -202,6 +207,11 @@ describe("the private Truchsess store on FAIVR", () => {
     await holder.pool.query("INSERT INTO company_os_package_versions(id,package_id,version,status,manifest,publisher_key_id,publisher_signature,artifact_url,artifact_sha256,monthly_price_cents,stripe_price_id,min_company_os_version,published_at) VALUES($1,$2,'9.0.0','published',$3,$4,$5,$6,$7,1,NULL,'1.0.0',now())", [foreignVersionId, foreignModel, JSON.stringify(updatedManifest), publisher.keyId, (updatedManifest.signature as { value: string }).value, `https://packages.faivr.test/company-os/v1/packages/${foreignModel}/9.0.0/x.tar.gz`, updatedDigest]);
     const foreignDownload = await packageDownload(signedRequest(appliance, "GET", `/api/company-os/v1/installations/${installationId}/package?versionId=${foreignVersionId}`), { params: Promise.resolve({ id: installationId }) });
     expect([403, 404]).toContain(foreignDownload.status);
+    const foreignInstalledVersions = Buffer.from(JSON.stringify([{ installationId, versionId: foreignVersionId }])).toString("base64url");
+    const foreignReported = await bodyOf(await storeCatalog(signedRequest(appliance, "GET", `/api/company-os/v1/store/catalog?installedVersions=${foreignInstalledVersions}`)));
+    const foreignReportedPackage = ((foreignReported.bundles as Array<Record<string, unknown>>)[0].packages as Array<Record<string, unknown>>)[0];
+    expect(foreignReportedPackage.installedVersion).toBeUndefined();
+    expect(foreignReportedPackage.permissionChanges).toBeUndefined();
 
     await holder.pool.query("UPDATE company_os_installations SET installed_version_id=$2 WHERE id=$1", [installationId, latestVersionId]);
     const current = await bodyOf(await storeCatalog(signedRequest(appliance, "GET", "/api/company-os/v1/store/catalog")));

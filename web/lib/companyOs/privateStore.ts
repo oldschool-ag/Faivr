@@ -143,7 +143,7 @@ export async function addPackageToBundle(bundleId: string, packageId: string, cl
   await db(client).query("INSERT INTO company_os_bundle_packages(bundle_id,package_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [bundleId, packageId]);
 }
 
-function compareSemver(a: string, b: string): number {
+export function compareSemver(a: string, b: string): number {
   const parse = (value: string) => {
     const clean = value.split("+", 1)[0];
     const dash = clean.indexOf("-");
