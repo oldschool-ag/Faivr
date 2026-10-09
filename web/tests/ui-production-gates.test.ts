@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 
 const supportChat = readFileSync(new URL("../components/support/SupportChat.tsx", import.meta.url), "utf8");
 const companyOsPage = readFileSync(new URL("../app/company-os/page.tsx", import.meta.url), "utf8");
+const rootLayout = readFileSync(new URL("../app/layout.tsx", import.meta.url), "utf8");
+const homePage = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
+const webManifest = readFileSync(new URL("../public/site.webmanifest", import.meta.url), "utf8");
 
 describe("preview UI production gates", () => {
   it("keeps the floating support launcher out of narrow mobile viewports", () => {
@@ -40,5 +43,16 @@ describe("preview UI production gates", () => {
   it("does not overstate production readiness", () => {
     expect(companyOsPage).toContain("verified locally and in staging");
     expect(companyOsPage).toContain("Production credentials, package publication, billing, and activation are not enabled");
+  });
+
+  it("uses the FAIVR logo and English metadata for browser and social surfaces", () => {
+    expect(rootLayout).toContain('url: "/brand/faivr-logo.svg"');
+    expect(rootLayout).toContain('locale: "en_US"');
+    expect(rootLayout).toContain('<html lang="en"');
+    expect(rootLayout).toContain('title: "FAIVR — The store for Truchsess"');
+    expect(rootLayout).toMatch(/description:\s+"Governed AI agents for your company\."/);
+    expect(homePage).toContain('locale: "en_US"');
+    expect(webManifest).toContain('"src": "/brand/faivr-logo.svg"');
+    expect(webManifest).toContain('"name": "FAIVR — The store for Truchsess"');
   });
 });
