@@ -50,7 +50,7 @@ describe("preview UI production gates", () => {
     expect(rootLayout).toContain('locale: "en_US"');
     expect(rootLayout).toContain('<html lang="en"');
     expect(rootLayout).toContain('title: "FAIVR — The store for Truchsess"');
-    expect(rootLayout).toMatch(/description:\s+"Governed AI workers for your company\."/);
+    expect(rootLayout).toMatch(/description:\s+"Governed AI agents for your company\."/);
     expect(homePage).toContain('locale: "en_US"');
     expect(webManifest).toContain('"src": "/brand/faivr-logo.svg"');
     expect(webManifest).toContain('"name": "FAIVR — The store for Truchsess"');
