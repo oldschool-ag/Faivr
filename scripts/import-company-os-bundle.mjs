@@ -41,7 +41,7 @@ const digestPattern=/^sha256:[a-f0-9]{64}$/;
 const contentDigestPattern=/^[a-f0-9]{64}$/;
 const base64url=/^[A-Za-z0-9_-]+$/;
 const bundleIdPattern=/^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const compareSemver=(a,b)=>{const parse=value=>value.split("-",1)[0].split(".").map(part=>Number.parseInt(part,10)||0);const [left,right]=[parse(a),parse(b)];for(let i=0;i<3;i+=1)if((left[i]??0)!==(right[i]??0))return (left[i]??0)-(right[i]??0);return 0;};
+const compareSemver=(a,b)=>{const parse=value=>{const clean=value.split("+",1)[0],dash=clean.indexOf("-");return {core:(dash<0?clean:clean.slice(0,dash)).split(".").map(part=>Number.parseInt(part,10)||0),pre:dash<0?[]:clean.slice(dash+1).split(".")};};const [left,right]=[parse(a),parse(b)];for(let i=0;i<3;i+=1)if((left.core[i]??0)!==(right.core[i]??0))return (left.core[i]??0)-(right.core[i]??0);if(!left.pre.length||!right.pre.length)return left.pre.length===right.pre.length?0:left.pre.length?-1:1;for(let i=0;i<Math.max(left.pre.length,right.pre.length);i+=1){const[x,y]=[left.pre[i],right.pre[i]];if(x===undefined||y===undefined)return x===undefined?-1:1;if(x===y)continue;const[xn,yn]=[/^\d+$/.test(x),/^\d+$/.test(y)];if(xn&&yn)return Number(x)-Number(y);if(xn!==yn)return xn?-1:1;return x<y?-1:1;}return 0;};
 const slotIdPattern=/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const secretPatterns=[/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,/(?:sk_live_|rk_live_|AKIA)[A-Za-z0-9_\-]{12,}/,/\b(?:password|secret|api[_-]?key)\s*[:=]\s*["'][^"']{8,}/i];
 const exactKeys=(value,keys,label)=>{if(!value||typeof value!=="object"||Array.isArray(value)||Object.keys(value).sort().join("\n")!==[...keys].sort().join("\n"))throw new Error(`invalid ${label} fields`);};
@@ -203,7 +203,7 @@ try{
       await client.query("INSERT INTO company_os_bundle_packages(bundle_id,package_id) VALUES($1,$2) ON CONFLICT DO NOTHING",[bundleId,raw.modelId]);
       latestVersion=previousLatest===null||compareSemver(raw.version,previousLatest)>0?raw.version:previousLatest;
       latestVersionChanged=latestVersion===raw.version&&raw.version!==previousLatest;
-      if(latestVersionChanged)await client.query("INSERT INTO company_os_audit_events(tenant_id,event_type,payload) VALUES('store','package.latest_version.changed',$1)",[JSON.stringify({bundleId,modelId:raw.modelId,previousLatestVersion:previousLatest,latestVersion:raw.version,versionId})]);
+      if(latestVersionChanged){const affected=await client.query("SELECT bundle_id FROM company_os_bundle_packages WHERE package_id=$1 ORDER BY bundle_id",[raw.modelId]);for(const row of affected.rows)await client.query("INSERT INTO company_os_audit_events(tenant_id,event_type,payload) VALUES('store','package.latest_version.changed',$1)",[JSON.stringify({bundleId:row.bundle_id,modelId:raw.modelId,previousLatestVersion:previousLatest,latestVersion:raw.version,versionId})]);}
     }
     await client.query("COMMIT");console.log(JSON.stringify({imported:true,modelId:raw.modelId,version:raw.version,versionId,digest:raw.packageDigest,artifactBytes:raw.artifactBytes,artifactUrl:artifactUrl.href,inlineArtifact,bundle:bundleId,latestVersion,latestVersionChanged,releaseNotes,permissions:raw.permissions,slots:raw.slots??[]}));
   }

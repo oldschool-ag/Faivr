@@ -181,6 +181,8 @@ describe("the private Truchsess store on FAIVR", () => {
       [latestVersionId, MODEL_ID, JSON.stringify(updatedManifest), publisher.keyId, (updatedManifest.signature as { value: string }).value, `https://packages.faivr.test/company-os/v1/packages/${MODEL_ID}/1.2.1/x.tar.gz`, updatedDigest, "Fixes the misleading report output."],
     );
     await holder.pool.query("INSERT INTO company_os_package_artifacts(version_id,artifact,artifact_bytes,artifact_sha256) VALUES($1,$2,$3,$4)", [latestVersionId, updatedPayload, updatedPayload.length, updatedDigest]);
+    const prerelease = signedManifest({ modelId: MODEL_ID, version: "1.2.1-rc.1", payload: updatedPayload, publisherKeyId: publisher.keyId, publisherPrivatePem: publisher.privatePem, permissions: PERMISSIONS });
+    await holder.pool.query("INSERT INTO company_os_package_versions(id,package_id,version,status,manifest,publisher_key_id,publisher_signature,artifact_url,artifact_sha256,monthly_price_cents,stripe_price_id,min_company_os_version,published_at) VALUES($1,$2,'1.2.1-rc.1','published',$3,$4,$5,$6,$7,1,NULL,'1.0.0',now())", [randomUUID(), MODEL_ID, JSON.stringify(prerelease), publisher.keyId, (prerelease.signature as { value: string }).value, `https://packages.faivr.test/company-os/v1/packages/${MODEL_ID}/1.2.1-rc.1/x.tar.gz`, (prerelease as Record<string, unknown>).packageDigest]);
     await holder.pool.query("INSERT INTO company_os_bundle_subscriptions(id,tenant_id,instance_id,bundle_id,subscription_state) VALUES($1,$2,$3,$4,'active')", [subscriptionId, tenantId, appliance.instanceId, BUNDLE]);
     await holder.pool.query("INSERT INTO company_os_installations(id,tenant_id,instance_id,package_id,desired_version_id,installed_version_id,subscription_id,bundle_subscription_id,installation_state,subscription_state) VALUES($1,$2,$3,$4,$5,$5,$6,$6,'active','active')", [installationId, tenantId, appliance.instanceId, MODEL_ID, versionId, subscriptionId]);
 
@@ -194,6 +196,12 @@ describe("the private Truchsess store on FAIVR", () => {
     const updateDownload = await packageDownload(signedRequest(appliance, "GET", `/api/company-os/v1/installations/${installationId}/package?versionId=${latestVersionId}`), { params: Promise.resolve({ id: installationId }) });
     expect(updateDownload.status).toBe(200);
     expect(Buffer.from(await updateDownload.arrayBuffer()).equals(updatedPayload)).toBe(true);
+    const foreignModel = "faivr.agent.foreign-update";
+    const foreignVersionId = randomUUID();
+    await holder.pool.query("INSERT INTO company_os_packages(id,slug,name,summary,status) VALUES($1,'foreign-update','Foreign update','Not this installation.','active')", [foreignModel]);
+    await holder.pool.query("INSERT INTO company_os_package_versions(id,package_id,version,status,manifest,publisher_key_id,publisher_signature,artifact_url,artifact_sha256,monthly_price_cents,stripe_price_id,min_company_os_version,published_at) VALUES($1,$2,'9.0.0','published',$3,$4,$5,$6,$7,1,NULL,'1.0.0',now())", [foreignVersionId, foreignModel, JSON.stringify(updatedManifest), publisher.keyId, (updatedManifest.signature as { value: string }).value, `https://packages.faivr.test/company-os/v1/packages/${foreignModel}/9.0.0/x.tar.gz`, updatedDigest]);
+    const foreignDownload = await packageDownload(signedRequest(appliance, "GET", `/api/company-os/v1/installations/${installationId}/package?versionId=${foreignVersionId}`), { params: Promise.resolve({ id: installationId }) });
+    expect([403, 404]).toContain(foreignDownload.status);
 
     await holder.pool.query("UPDATE company_os_installations SET installed_version_id=$2 WHERE id=$1", [installationId, latestVersionId]);
     const current = await bodyOf(await storeCatalog(signedRequest(appliance, "GET", "/api/company-os/v1/store/catalog")));
@@ -201,11 +209,45 @@ describe("the private Truchsess store on FAIVR", () => {
     expect(currentPackage).toMatchObject({ installedVersion: "1.2.1", latestVersion: "1.2.1", updateAvailable: false });
     expect(currentPackage.artifact).toBeUndefined();
 
+    // T55 supplies its locally installed versions in the signed catalog URL. This wins over
+    // a delayed activation receipt, so an already-updated box is not offered 1.2.1 again.
+    await holder.pool.query("UPDATE company_os_installations SET installed_version_id=$2 WHERE id=$1", [installationId, versionId]);
+    const installedVersions = Buffer.from(JSON.stringify([{ installationId, versionId: latestVersionId }])).toString("base64url");
+    const reportedCurrent = await bodyOf(await storeCatalog(signedRequest(appliance, "GET", `/api/company-os/v1/store/catalog?installedVersions=${installedVersions}`)));
+    const reportedCurrentPackage = ((reportedCurrent.bundles as Array<Record<string, unknown>>)[0].packages as Array<Record<string, unknown>>)[0];
+    expect(reportedCurrentPackage).toMatchObject({ installedVersion: "1.2.1", latestVersion: "1.2.1", updateAvailable: false });
+    expect(reportedCurrentPackage.artifact).toBeUndefined();
+
     await holder.pool.query("UPDATE company_os_bundle_subscriptions SET subscription_state='cancelled' WHERE id=$1", [subscriptionId]);
     const unsubscribed = await bodyOf(await storeCatalog(signedRequest(appliance, "GET", "/api/company-os/v1/store/catalog")));
     const unsubscribedPackage = ((unsubscribed.bundles as Array<Record<string, unknown>>)[0].packages as Array<Record<string, unknown>>)[0];
     expect(unsubscribedPackage.updateAvailable).toBeUndefined();
     expect(unsubscribedPackage.artifact).toBeUndefined();
+  });
+
+  it("never leaks an update or artifact to another enrolled box in the same tenant", async () => {
+    await enrolAppliance();
+    const subscriptionId = randomUUID();
+    const installationId = randomUUID();
+    const nextPayload = Buffer.from("isolated update payload");
+    const nextManifest = signedManifest({ modelId: MODEL_ID, version: "1.2.1", payload: nextPayload, publisherKeyId: publisher.keyId, publisherPrivatePem: publisher.privatePem, permissions: PERMISSIONS });
+    const nextVersionId = randomUUID();
+    const nextDigest = (nextManifest as Record<string, unknown>).packageDigest as string;
+    await holder.pool.query("INSERT INTO company_os_package_versions(id,package_id,version,status,manifest,publisher_key_id,publisher_signature,artifact_url,artifact_sha256,monthly_price_cents,stripe_price_id,min_company_os_version,published_at) VALUES($1,$2,'1.2.1','published',$3,$4,$5,$6,$7,1,NULL,'1.0.0',now())", [nextVersionId, MODEL_ID, JSON.stringify(nextManifest), publisher.keyId, (nextManifest.signature as { value: string }).value, `https://packages.faivr.test/company-os/v1/packages/${MODEL_ID}/1.2.1/x.tar.gz`, nextDigest]);
+    await holder.pool.query("INSERT INTO company_os_package_artifacts(version_id,artifact,artifact_bytes,artifact_sha256) VALUES($1,$2,$3,$4)", [nextVersionId, nextPayload, nextPayload.length, nextDigest]);
+    await holder.pool.query("INSERT INTO company_os_bundle_subscriptions(id,tenant_id,instance_id,bundle_id,subscription_state) VALUES($1,$2,$3,$4,'active')", [subscriptionId, tenantId, appliance.instanceId, BUNDLE]);
+    await holder.pool.query("INSERT INTO company_os_installations(id,tenant_id,instance_id,package_id,desired_version_id,installed_version_id,subscription_id,bundle_subscription_id,installation_state,subscription_state) VALUES($1,$2,$3,$4,$5,$5,$6,$6,'active','active')", [installationId, tenantId, appliance.instanceId, MODEL_ID, versionId, subscriptionId]);
+
+    const secondKeys = ed25519Pair();
+    const secondCode = await issueEnrolmentCode({ tenantId, label: "Second box", createdBy: "test" });
+    const secondEnrol = await enrol(new NextRequest("https://store.faivr.test/api/company-os/v1/enrol", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enrolmentCode: secondCode.code, appliancePublicKeyPem: secondKeys.publicPem, label: "Second box" }) }));
+    const secondIdentity = await bodyOf(secondEnrol);
+    const secondBox: Appliance = { tenantId, instanceId: secondIdentity.instanceId as string, keyId: secondIdentity.keyId as string, keys: secondKeys };
+    const secondCatalog = await bodyOf(await storeCatalog(signedRequest(secondBox, "GET", "/api/company-os/v1/store/catalog")));
+    const secondPackage = ((secondCatalog.bundles as Array<Record<string, unknown>>)[0].packages as Array<Record<string, unknown>>)[0];
+    expect(secondPackage.updateAvailable).toBeUndefined();
+    const secondDownload = await packageDownload(signedRequest(secondBox, "GET", `/api/company-os/v1/installations/${installationId}/package?versionId=${nextVersionId}`), { params: Promise.resolve({ id: installationId }) });
+    expect([403, 404]).toContain(secondDownload.status);
   });
 
   it("runs subscribe, webhook, install, signed download, activation, uninstall with receipt, cancellation and billing stop in order", async () => {

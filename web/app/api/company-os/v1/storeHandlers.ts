@@ -20,6 +20,24 @@ import { billingProvider, billingProviderFor, BillingProviderError } from "@/lib
 
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
 
+/** T55: the signed catalog URL may include installedVersions=base64url(JSON([{installationId,versionId}])). */
+function installedVersionsFromCatalog(req: NextRequest): Map<string, string> | undefined {
+  const encoded = req.nextUrl.searchParams.get("installedVersions");
+  if (encoded === null) return undefined;
+  if (encoded.length > 16_384) throw new StoreError("installed_versions_invalid", 400);
+  let entries: unknown;
+  try { entries = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")); } catch { throw new StoreError("installed_versions_invalid", 400); }
+  if (!Array.isArray(entries) || entries.length > 256) throw new StoreError("installed_versions_invalid", 400);
+  const versions = new Map<string, string>();
+  for (const entry of entries) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new StoreError("installed_versions_invalid", 400);
+    const { installationId, versionId } = entry as Record<string, unknown>;
+    if (typeof installationId !== "string" || typeof versionId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(installationId) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(versionId) || versions.has(installationId)) throw new StoreError("installed_versions_invalid", 400);
+    versions.set(installationId, versionId);
+  }
+  return versions;
+}
+
 function failure(error: unknown) {
   if (error instanceof StoreError) return json({ error: error.message }, error.status);
   if (error instanceof PublicKeyError) return json({ error: `public_key_invalid: ${error.message}` }, 400);
@@ -81,7 +99,7 @@ export async function storeCatalog(req: NextRequest) {
   if (auth instanceof NextResponse) return auth;
   try {
     const provider = billingProvider();
-    const bundles = await catalogForAppliance(auth.principal.tenantId, auth.principal.instanceId, { priceConfigured: (bundle) => !("error" in provider.productReference(bundle)) });
+    const bundles = await catalogForAppliance(auth.principal.tenantId, auth.principal.instanceId, { priceConfigured: (bundle) => !("error" in provider.productReference(bundle)), installedVersions: installedVersionsFromCatalog(req) });
     const publishers = await activePublishers();
     return json({
       storeOrigin: req.nextUrl.origin,
