@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
-const links = [["Catalog","/catalog"],["Trust","/trust"],["Docs","/docs"],["GitHub","https://github.com/oldschool-ag/Faivr"],["Imprint","/imprint"],["Privacy","/privacy"]] as const;
+const links = [["Catalog","/catalog"],["Trust","/trust"],["Docs","/docs"],["User docs","https://docs.truchsess.com"],["Support: support@truchsess.com","mailto:support@truchsess.com"],["GitHub","https://github.com/oldschool-ag/Faivr"],["Imprint","/imprint"],["Privacy","/privacy"]] as const;
 
 export function Footer() {
   return <footer className="mt-auto bg-[var(--ink)] text-[var(--dark-text)]">

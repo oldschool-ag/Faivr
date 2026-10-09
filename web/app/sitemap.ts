@@ -9,11 +9,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const paths = new Set(["/", "/catalog", "/how-it-works", "/trust", "/docs", "/imprint", "/privacy"]);
   for (const item of available) {
     paths.add(`/catalog/${item.slug}`);
-    for (const worker of item.workers) paths.add(`/workers/${worker.slug}`);
+    for (const agent of item.workers) paths.add(`/agents/${agent.slug}`);
   }
   for (const item of comingSoonFunctions) {
     paths.add(`/catalog/${item.slug}`);
-    for (const worker of item.workers) paths.add(`/workers/${slugify(worker)}`);
+    for (const agent of item.agents) paths.add(`/agents/${slugify(agent)}`);
   }
   return Array.from(paths).map(route => ({ url: base + route }));
 }

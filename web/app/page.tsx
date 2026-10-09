@@ -6,20 +6,20 @@ import { getPublicCatalogState } from "@/lib/publicCatalog";
 
 export const metadata: Metadata = {
   title: "FAIVR — The store for Truchsess",
-  description: "Governed AI workers for your company. Browse the catalog and subscribe on your own Truchsess appliance.",
-  openGraph: { title: "FAIVR — The store for Truchsess", description: "Governed AI workers for your company." },
+  description: "Governed AI agents for your company. Browse the catalog and subscribe on your own Truchsess appliance.",
+  openGraph: { title: "FAIVR — The store for Truchsess", description: "Governed AI agents for your company." },
 };
 
 const steps = [
-  ["Get a Truchsess", "A small computer in your office. Your workers run on it, each in its own sandbox."],
+  ["Get a Truchsess", "A small computer in your office. Your agents run on it, each in its own sandbox."],
   ["Connect it to the store", "One code links your appliance to this catalog."],
   ["Subscribe on the appliance", "Choose a function on your Truchsess. Payments are handled by Polar, the merchant of record."],
   ["Approve and install", "You see every permission in plain words before installation. Your appliance checks the package."],
 ] as const;
 const rules = [
-  ["Signed, or not installed", "Your appliance checks the publisher signature and package digest before it installs a worker."],
-  ["Only what you allow", "You approve each requested permission. Your policy decides what the worker may do."],
-  ["Nothing on its own", "Workers act only on a task someone started."],
+  ["Signed, or not installed", "Your appliance checks the publisher signature and package digest before it installs an agent."],
+  ["Only what you allow", "You approve each requested permission. Your policy decides what the agent may do."],
+  ["Nothing on its own", "Agents act only on a task someone started."],
   ["Every run on the record", "Your appliance reports every run and what it cost."],
 ] as const;
 const primary = "inline-flex min-h-[50px] items-center justify-center rounded-full bg-[var(--ink)] px-6 py-3 font-semibold text-white";
@@ -37,8 +37,8 @@ export default async function Home() {
       <section className="mx-auto grid max-w-[1220px] items-center gap-12 px-4 pb-16 pt-12 sm:px-8 sm:pt-20 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="min-w-0">
           <p className={label + " border border-[#DADCEB] px-4 py-2"}>THE STORE FOR TRUCHSESS</p>
-          <h1 className="mt-7 text-[46px] font-extrabold leading-[1.04] tracking-[-0.035em] sm:text-[64px] lg:text-[72px]">Governed AI workers for your company.</h1>
-          <p className="mt-7 max-w-[580px] text-xl leading-[1.6] text-[var(--body)]">FAIVR is Old School&apos;s catalog of AI workers. Each one runs on your own Truchsess appliance, does only what you allow, and reports every run and what it cost.</p>
+          <h1 className="mt-7 text-[46px] font-extrabold leading-[1.04] tracking-[-0.035em] sm:text-[64px] lg:text-[72px]">Governed AI agents for your company.</h1>
+          <p className="mt-7 max-w-[580px] text-xl leading-[1.6] text-[var(--body)]">FAIVR is Old School&apos;s catalog of AI agents. Each one runs on your own Truchsess appliance, does only what you allow, and reports every run and what it cost.</p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link href="/catalog" className={primary}>Browse the catalog</Link>
             <Link href="/how-it-works" className={secondary}>How it works</Link>
@@ -52,7 +52,7 @@ export default async function Home() {
             </div>
             <div>
               <h2 className="text-[34px] font-extrabold leading-tight tracking-[-0.02em] text-white">{featured?.name ?? planned.name}</h2>
-              <p className="mt-2 text-[#C3C5DA]">with {featured ? featured.workers.map(item => item.name).join(", ") : planned.workers.join(", ")}</p>
+              <p className="mt-2 text-[#C3C5DA]">with {featured ? featured.workers.map(item => item.name).join(", ") : planned.agents.join(", ")}</p>
             </div>
             <p className="leading-7 text-[#C3C5DA]">{featured?.description ?? planned.summary}</p>
             <dl className="grid grid-cols-2 gap-3">
@@ -81,7 +81,7 @@ export default async function Home() {
           </article>)}
           <article className="flex min-h-[230px] flex-col justify-center rounded-[28px] border-2 border-dashed border-[#C9CCE4] p-7 sm:p-9">
             <h3 className="text-[26px] font-extrabold">More functions in preparation</h3>
-            <p className="mt-3 max-w-xl leading-7 text-[var(--muted)]">Explore the planned functions and tell us which work you want to hand to a governed AI worker.</p>
+            <p className="mt-3 max-w-xl leading-7 text-[var(--muted)]">Explore the planned functions and tell us which work you want to hand to a governed AI agent.</p>
             <Link href="/catalog" className="mt-4 inline-flex min-h-11 items-center self-start rounded-full bg-white px-4 font-bold text-[var(--accent)]">Explore the catalog →</Link>
           </article>
         </div>
@@ -105,7 +105,7 @@ export default async function Home() {
       <section aria-labelledby="trust-title" className="mx-auto max-w-[1220px] px-4 py-16 sm:px-8 sm:py-20">
         <p className={label}>Trust</p>
         <h2 id="trust-title" className="mt-3 text-4xl font-extrabold tracking-[-0.025em] sm:text-[44px]">What &quot;governed&quot; means.</h2>
-        <p className="mt-4 max-w-2xl text-lg leading-7 text-[var(--muted)]">Four rules your appliance enforces for every worker from this store.</p>
+        <p className="mt-4 max-w-2xl text-lg leading-7 text-[var(--muted)]">Four rules your appliance enforces for every agent from this store.</p>
         <div className="mt-9 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {rules.map(([title,copy]) => <article key={title} className="rounded-3xl bg-white p-7">
             <h3 className="text-xl font-extrabold">{title}</h3><p className="mt-3 leading-7 text-[var(--body)]">{copy}</p>

@@ -6,15 +6,20 @@ import { comingSoonFunctions } from "@/data/catalog-coming-soon";
 const catalog=vi.hoisted(()=>({functions:[] as unknown[]}));
 vi.mock("@/lib/publicCatalog",()=>({
   getPublicCatalog:async()=>catalog.functions,
-  getPublicCatalogState:async()=>({functions:[],unavailable:true}),
+  getPublicCatalogState:async()=>({functions:catalog.functions,unavailable:false}),
 }));
 vi.mock("@/components/layout/SiteShell",()=>({SiteShell:({children}:{children:ReactNode})=>children}));
 
 import FunctionPage from "@/app/catalog/[function]/page";
-import WorkerPage from "@/app/workers/[worker]/page";
+import AgentPage from "@/app/agents/[agent]/page";
+import CatalogPage from "@/app/catalog/page";
 import DocsPage from "@/app/docs/page";
 import ImprintPage from "@/app/imprint/page";
 import PrivacyPage from "@/app/privacy/page";
+import HomePage from "@/app/page";
+import HowItWorksPage from "@/app/how-it-works/page";
+import TrustPage from "@/app/trust/page";
+import { Footer } from "@/components/layout/Footer";
 
 const slugify=(value:string)=>value.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"");
 const forbidden=/\b(?:USDC|Clara|Shopify|Codex)\b|Connect Wallet|Old School AG|Bob the Builder|escrow/i;
@@ -30,9 +35,9 @@ describe("W1 coming-soon public surfaces",()=>{
     it(`${item.slug} has no purchase/proof facts`,async()=>{
       assertPlanned(renderToStaticMarkup(await FunctionPage({params:Promise.resolve({function:item.slug})})));
     });
-    for(const worker of item.workers){
-      it(`${worker} has no fabricated package facts`,async()=>{
-        const html=renderToStaticMarkup(await WorkerPage({params:Promise.resolve({worker:slugify(worker)})}));
+    for(const agent of item.agents){
+      it(`${agent} has no fabricated package facts`,async()=>{
+        const html=renderToStaticMarkup(await AgentPage({params:Promise.resolve({agent:slugify(agent)})}));
         assertPlanned(html);
         expect(html).toContain("mailto:info@oldschool.ag");
         expect(html).toContain("Tell me when it is ready");
@@ -41,7 +46,7 @@ describe("W1 coming-soon public surfaces",()=>{
   }
   it("unknown slugs return not found",async()=>{
     await expect(FunctionPage({params:Promise.resolve({function:"not-a-function"})})).rejects.toThrow();
-    await expect(WorkerPage({params:Promise.resolve({worker:"not-a-worker"})})).rejects.toThrow();
+    await expect(AgentPage({params:Promise.resolve({agent:"not-an-agent"})})).rejects.toThrow();
   });
 });
 
@@ -61,20 +66,55 @@ describe("W1 supporting pages",()=>{
     expect(html).toContain('href="/trust"');
     expect(html).not.toMatch(forbidden);
   });
-  it("replaces old marketplace documentation with the three specified links",()=>{
+  it("links to user docs and support",()=>{
     const html=renderToStaticMarkup(DocsPage());
-    for(const href of ["/how-it-works","/trust","https://github.com/oldschool-ag/Faivr"])expect(html).toContain(`href="${href}"`);
+    for(const href of ["https://docs.truchsess.com","/how-it-works","/trust","https://github.com/oldschool-ag/Faivr","mailto:support@truchsess.com"])expect(html).toContain(`href="${href}"`);
+    expect(html).toContain("How to set up the box, add people, install agents and use them.");
     expect(html).toContain("Publishing on FAIVR: coming later");
     expect(html).not.toMatch(forbidden);
+    const howItWorks=renderToStaticMarkup(HowItWorksPage());
+    expect(howItWorks).toContain('href="https://www.truchsess.com"');
+    expect(howItWorks).toContain("Already have a Truchsess?");
+    const footer=renderToStaticMarkup(Footer());
+    expect(footer).toContain('href="https://docs.truchsess.com"');
+    expect(footer).toContain('href="mailto:support@truchsess.com"');
   });
 });
 
 describe("F2 slot permission presentation",()=>{
   it("shows the install question without exposing the raw placeholder",async()=>{
-    catalog.functions=[{slug:"fixture",name:"Fixture",description:"",workers:[{id:"faivr.agent.fixture",slug:"fixture-worker",name:"Fixture worker",role:"",version:"1.0.0",publisherName:"Old School GmbH",publisherKeyId:"key",digest:"sha256:test",permissions:["repo.read:{code-repository}"],slots:[{id:"code-repository",question:"Which repository holds the product's code and documents?",kind:"repository",required:false}]}]}];
-    const html=renderToStaticMarkup(await WorkerPage({params:Promise.resolve({worker:"fixture-worker"})}));
+    catalog.functions=[{slug:"fixture",name:"Fixture",description:"",workers:[{id:"faivr.agent.fixture",slug:"fixture-agent",name:"Fixture agent",role:"",version:"1.0.0",publisherName:"Old School GmbH",publisherKeyId:"key",digest:"sha256:test",permissions:["repo.read:{code-repository}"],slots:[{id:"code-repository",question:"Which repository holds the product's code and documents?",kind:"repository",required:false}]}]}];
+    const html=renderToStaticMarkup(await AgentPage({params:Promise.resolve({agent:"fixture-agent"})}));
     expect(html).toContain("Read one repository you choose at install: Which repository holds the product&#x27;s code and documents? (optional)");
     expect(html).not.toContain("{code-repository}");
     catalog.functions=[];
+  });
+});
+
+describe("W2 public catalog presentation",()=>{
+  it("maps design review to the current Ivo package",()=>{
+    expect(comingSoonFunctions.find((item)=>item.slug==="design-review")?.becomes).toContain("faivr.agent.ivo-design-v2");
+  });
+
+  it("shows the published Gideon function as available and removes its coming-soon card",async()=>{
+    catalog.functions=[{slug:"visibility-in-ai-search",name:"Visibility in AI search",description:"Checks how AI search engines see your website and what to change.",monthlyPriceCents:7900,currency:"chf",workers:[{id:"faivr.agent.gideon",slug:"gideon",name:"Gideon",role:"",version:"1.0.0",publisherName:"Old School GmbH",publisherKeyId:"key",digest:"sha256:test",permissions:[],slots:[]}]}];
+    const html=renderToStaticMarkup(await CatalogPage());
+    expect(html).toContain("CHF 79.00");
+    expect(html).toContain("Early access: talk to us to get a Truchsess");
+    expect(html).toContain('href="/agents/gideon"');
+    expect(html).not.toMatch(/COMING SOON[\s\S]*Visibility in AI search/);
+    catalog.functions=[];
+  });
+
+  it("uses agent language on public pages",async()=>{
+    catalog.functions=[];
+    const pages=[
+      renderToStaticMarkup(await HomePage()),
+      renderToStaticMarkup(await CatalogPage()),
+      renderToStaticMarkup(HowItWorksPage()),
+      renderToStaticMarkup(await TrustPage()),
+      renderToStaticMarkup(DocsPage()),
+    ];
+    for(const html of pages)expect(html).not.toMatch(/\bworkers?\b/i);
   });
 });
