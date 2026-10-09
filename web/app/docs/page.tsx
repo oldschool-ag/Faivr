@@ -14,11 +14,13 @@ export default function DocsPage() {
     <SiteShell>
       <div className="mx-auto max-w-[1220px] px-4 py-14 sm:px-8">
         <h1 className="text-5xl font-extrabold">Docs</h1>
-        <nav aria-label="Documentation" className="mt-8 grid gap-4 md:grid-cols-3">
+        <nav aria-label="Documentation" className="mt-8 grid gap-4 md:grid-cols-2">
+          <a className={linkStyle} href="https://docs.truchsess.com"><span>User documentation for Truchsess</span><span className="ml-2 text-sm font-normal text-[var(--body)]">How to set up the box, add people, install agents and use them.</span></a>
           <Link className={linkStyle} href="/how-it-works">How it works</Link>
           <Link className={linkStyle} href="/trust">Trust</Link>
           <a className={linkStyle} href="https://github.com/oldschool-ag/Faivr">Store code on GitHub</a>
         </nav>
+        <p className="mt-6 text-[var(--body)]">Support: <a className="inline-flex min-h-11 items-center font-bold underline" href="mailto:support@truchsess.com">support@truchsess.com</a></p>
         <p className="mt-10 text-[var(--body)]">Publishing on FAIVR: coming later</p>
       </div>
     </SiteShell>
