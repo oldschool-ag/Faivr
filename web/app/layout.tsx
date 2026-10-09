@@ -14,12 +14,7 @@ export const metadata: Metadata = {
     "Governed AI agents for your company.",
   metadataBase: new URL("https://faivr.ai"),
   icons: {
-    icon: [
-      { url: "/favicon.ico", sizes: "any" },
-      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
-      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
-    ],
-    apple: "/apple-touch-icon.png",
+    icon: [{ url: "/brand/faivr-logo.svg", type: "image/svg+xml" }],
   },
   manifest: "/site.webmanifest",
   openGraph: {
@@ -29,6 +24,7 @@ export const metadata: Metadata = {
     siteName: "FAIVR",
     type: "website",
     url: "https://faivr.ai",
+    locale: "en_US",
   },
   twitter: {
     card: "summary_large_image",

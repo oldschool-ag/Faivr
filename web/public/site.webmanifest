@@ -1,11 +1,10 @@
 {
-  "name": "FAIVR — The Open Agent Marketplace",
+  "name": "FAIVR — The store for Truchsess",
   "short_name": "FAIVR",
   "icons": [
-    { "src": "/android-chrome-192x192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/android-chrome-512x512.png", "sizes": "512x512", "type": "image/png" }
+    { "src": "/brand/faivr-logo.svg", "sizes": "any", "type": "image/svg+xml" }
   ],
-  "theme_color": "#6366f1",
-  "background_color": "#0a0a0a",
+  "theme_color": "#B45309",
+  "background_color": "#EEF0FA",
   "display": "standalone"
 }
