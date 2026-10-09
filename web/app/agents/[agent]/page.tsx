@@ -16,7 +16,8 @@ const availableAgentForSlug = (functions: Awaited<ReturnType<typeof getPublicCat
   const planned = plannedAgentForSlug(slug);
   const mappedFunction = planned && functions.find((item) => comingSoonFunctionForPackageIds(item.workers.map((agent) => agent.id))?.slug === planned.function.slug);
   const aliasPackageId = planned?.function.agentAliases?.[planned.name];
-  const mappedAgent = mappedFunction && (mappedFunction.workers.find((agent) => slugify(agent.name) === slug) ?? (aliasPackageId ? mappedFunction.workers.find((agent) => agent.id === aliasPackageId) : undefined));
+  const fallback = mappedFunction && mappedFunction.workers.length === 1 && planned?.function.agents.length === 1 ? mappedFunction.workers[0] : undefined;
+  const mappedAgent = mappedFunction && (mappedFunction.workers.find((agent) => slugify(agent.name) === slug) ?? (aliasPackageId ? mappedFunction.workers.find((agent) => agent.id === aliasPackageId) : fallback));
   return mappedFunction && mappedAgent ? { function: mappedFunction, ...mappedAgent } : undefined;
 };
 
