@@ -12,7 +12,7 @@ export function createStoreDb() {
   db.public.none(`
     CREATE TABLE company_os_packages(id text PRIMARY KEY,slug text,name text,summary text,status text DEFAULT 'active',created_at timestamptz DEFAULT now());
     CREATE TABLE company_os_publishers(key_id text PRIMARY KEY,public_key text,status text DEFAULT 'active',publisher_id text,name text,created_at timestamptz DEFAULT now());
-    CREATE TABLE company_os_package_versions(id uuid PRIMARY KEY,package_id text,version text,status text,manifest jsonb,publisher_key_id text,publisher_signature text,artifact_url text,artifact_sha256 text,monthly_price_cents integer,stripe_price_id text,min_company_os_version text,published_at timestamptz);
+    CREATE TABLE company_os_package_versions(id uuid PRIMARY KEY,package_id text,version text,status text,manifest jsonb,publisher_key_id text,publisher_signature text,artifact_url text,artifact_sha256 text,monthly_price_cents integer,stripe_price_id text,min_company_os_version text,release_notes text,published_at timestamptz);
     CREATE TABLE company_os_instance_keys(tenant_id uuid,instance_id uuid,key_id text,public_key text,not_before timestamptz DEFAULT now(),not_after timestamptz,revoked_at timestamptz,label text,enrolled_at timestamptz,last_contact_at timestamptz,PRIMARY KEY(tenant_id,instance_id,key_id));
     CREATE TABLE company_os_request_nonces(tenant_id text,instance_id text,nonce text,expires_at timestamptz,PRIMARY KEY(tenant_id,instance_id,nonce));
     CREATE TABLE company_os_installations(id uuid PRIMARY KEY,tenant_id uuid,instance_id uuid,package_id text,desired_version_id uuid,installed_version_id uuid,subscription_id uuid,bundle_subscription_id uuid,checkout_session_id uuid,local_agent_definition_id text,installation_state text,subscription_state text,stripe_checkout_session_id text,stripe_subscription_id text,entitled_at timestamptz,installed_at timestamptz,uninstall_request_id uuid,uninstall_requested_at timestamptz,receipt_accepted_at timestamptz,billing_cancel_effective_at timestamptz,billing_stopped_at timestamptz,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
@@ -79,7 +79,7 @@ export function envelope(appliance: Appliance, extra: Record<string, unknown> = 
 }
 
 /** A signed portable manifest for one payload, the way the Truchsess exporter signs it (RFC 8785 minus `signature`). */
-export function signedManifest(input: { modelId: string; version: string; payload: Buffer; publisherKeyId: string; publisherPrivatePem: string; permissions: string[]; slots?: Array<{ id: string; question: string; kind: "repository" | "product" | "website"; required: boolean }>; summary?: string }) {
+export function signedManifest(input: { modelId: string; version: string; payload: Buffer; publisherKeyId: string; publisherPrivatePem: string; permissions: string[]; slots?: Array<{ id: string; question: string; kind: "repository" | "product" | "website"; required: boolean }>; summary?: string; releaseNotes?: string }) {
   const sha256 = (value: Buffer) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
   const manifest: Record<string, unknown> = {
     schemaVersion: "faivr-portable-agent-bundle.v1",
@@ -100,6 +100,7 @@ export function signedManifest(input: { modelId: string; version: string; payloa
     contents: [{ path: "agent-definition.json", sha256: "0".repeat(64), bytes: 2 }],
   };
   if (input.slots) manifest.slots=input.slots;
+  if (input.releaseNotes) manifest.releaseNotes=input.releaseNotes;
   const value = edSign(null, Buffer.from(canonicalJson(manifest)), createPrivateKey(input.publisherPrivatePem)).toString("base64url");
   return { ...manifest, signature: { keyId: input.publisherKeyId, algorithm: "Ed25519", value } };
 }
