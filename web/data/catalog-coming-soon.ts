@@ -12,7 +12,7 @@ export const comingSoonFunctions: ComingSoonFunction[] = [
     name: "Design review",
     agents: ["Ivo"],
     summary: "Reviews your web pages and product screens and writes a design brief with screenshots.",
-    becomes: ["faivr.agent.ivo-design-v2"],
+    becomes: ["faivr.agent.ivo-design", "faivr.agent.ivo-design-v2"],
   },
   {
     slug: "product-ownership",
@@ -61,7 +61,7 @@ export const comingSoonFunctions: ComingSoonFunction[] = [
     name: "Visibility in AI search",
     agents: ["Gideon"],
     summary: "Checks how AI search engines see your website and what to change.",
-    becomes: [],
+    becomes: ["faivr.agent.ai-visibility"],
   },
   {
     slug: "linkedin-posting",
@@ -71,3 +71,7 @@ export const comingSoonFunctions: ComingSoonFunction[] = [
     becomes: [],
   },
 ];
+
+export function comingSoonFunctionForPackageIds(packageIds: readonly string[]): ComingSoonFunction | undefined {
+  return comingSoonFunctions.find((item) => item.becomes.some((id) => packageIds.includes(id)));
+}

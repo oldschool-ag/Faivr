@@ -93,16 +93,18 @@ describe("F2 slot permission presentation",()=>{
 
 describe("W2 public catalog presentation",()=>{
   it("maps design review to the current Ivo package",()=>{
-    expect(comingSoonFunctions.find((item)=>item.slug==="design-review")?.becomes).toContain("faivr.agent.ivo-design-v2");
+    expect(comingSoonFunctions.find((item)=>item.slug==="design-review")?.becomes).toEqual(expect.arrayContaining(["faivr.agent.ivo-design","faivr.agent.ivo-design-v2"]));
   });
 
   it("shows the published Gideon function as available and removes its coming-soon card",async()=>{
-    catalog.functions=[{slug:"visibility-in-ai-search",name:"Visibility in AI search",description:"Checks how AI search engines see your website and what to change.",monthlyPriceCents:7900,currency:"chf",workers:[{id:"faivr.agent.gideon",slug:"gideon",name:"Gideon",role:"",version:"1.0.0",publisherName:"Old School GmbH",publisherKeyId:"key",digest:"sha256:test",permissions:[],slots:[]}]}];
+    catalog.functions=[{slug:"published-ai-search",name:"Published bundle name",description:"Published bundle description",monthlyPriceCents:7900,currency:"chf",workers:[{id:"faivr.agent.ai-visibility",slug:"gideon",name:"Gideon",role:"",version:"1.0.0",publisherName:"Old School GmbH",publisherKeyId:"key",digest:"sha256:test",permissions:[],slots:[]}]}];
     const html=renderToStaticMarkup(await CatalogPage());
     expect(html).toContain("CHF 79.00");
     expect(html).toContain("Early access: talk to us to get a Truchsess");
     expect(html).toContain('href="/agents/gideon"');
     expect(html).not.toMatch(/COMING SOON[\s\S]*Visibility in AI search/);
+    const home=renderToStaticMarkup(await HomePage());
+    expect(home).toContain("Early access: talk to us to get a Truchsess.");
     catalog.functions=[];
   });
 
@@ -116,5 +118,10 @@ describe("W2 public catalog presentation",()=>{
       renderToStaticMarkup(DocsPage()),
     ];
     for(const html of pages)expect(html).not.toMatch(/\bworkers?\b/i);
+    catalog.functions=[{slug:"fixture",name:"Fixture",description:"",monthlyPriceCents:0,currency:"chf",workers:[{id:"faivr.agent.fixture",slug:"fixture-agent",name:"Fixture agent",role:"",version:"1.0.0",publisherName:"Old School GmbH",publisherKeyId:"key",digest:"sha256:test",permissions:[],slots:[]}]}];
+    const agentHtml=renderToStaticMarkup(await AgentPage({params:Promise.resolve({agent:"fixture-agent"})}));
+    expect(agentHtml).toContain("sees other agents");
+    expect(agentHtml).not.toMatch(/\bworkers?\b/i);
+    catalog.functions=[];
   });
 });

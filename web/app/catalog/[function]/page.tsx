@@ -2,15 +2,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { SiteShell } from "@/components/layout/SiteShell";
-import { comingSoonFunctions } from "@/data/catalog-coming-soon";
+import { comingSoonFunctionForPackageIds, comingSoonFunctions } from "@/data/catalog-coming-soon";
 import { getPublicCatalog } from "@/lib/publicCatalog";
 import { CONTACT_EMAIL } from "@/lib/contact";
 
 const slugify = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+const availableFor = (functions: Awaited<ReturnType<typeof getPublicCatalog>>, slug: string) => functions.find((item) => comingSoonFunctionForPackageIds(item.workers.map((agent) => agent.id))?.slug === slug || item.slug === slug);
 
 export async function generateMetadata({ params }: { params: Promise<{ function: string }> }): Promise<Metadata> {
   const slug = (await params).function;
-  const available = (await getPublicCatalog()).find((item) => item.slug === slug);
+  const available = availableFor(await getPublicCatalog(), slug);
   const planned = comingSoonFunctions.find((item) => item.slug === slug);
   const title = `${available?.name ?? planned?.name ?? "Function"} | FAIVR`;
   const description = available?.description ?? planned?.summary ?? "FAIVR function details.";
@@ -19,7 +20,7 @@ export async function generateMetadata({ params }: { params: Promise<{ function:
 
 export default async function FunctionPage({ params }: { params: Promise<{ function: string }> }) {
   const slug = (await params).function;
-  const available = (await getPublicCatalog()).find((item) => item.slug === slug);
+  const available = availableFor(await getPublicCatalog(), slug);
   const planned = comingSoonFunctions.find((item) => item.slug === slug);
   if (!available && !planned) notFound();
   return <SiteShell><div className="mx-auto max-w-[1220px] px-4 py-14 sm:px-8">

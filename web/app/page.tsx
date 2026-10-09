@@ -56,7 +56,7 @@ export default async function Home() {
             </div>
             <p className="leading-7 text-[#C3C5DA]">{featured?.description ?? planned.summary}</p>
             <dl className="grid grid-cols-2 gap-3">
-              {featured && <div className="rounded-2xl bg-[#1D1F2C] p-4"><dt className="text-xs text-[#A9ACC6]">Price</dt><dd className="mt-1 font-bold">{price(featured.monthlyPriceCents, featured.currency)} / month</dd></div>}
+              {featured && <div className="rounded-2xl bg-[#1D1F2C] p-4"><dt className="text-xs text-[#A9ACC6]">Price</dt><dd className="mt-1 font-bold">{price(featured.monthlyPriceCents, featured.currency)} / month</dd><p className="mt-2 text-xs leading-5 text-[#C3C5DA]">Early access: talk to us to get a Truchsess.</p></div>}
               {worker && <div className="rounded-2xl bg-[#1D1F2C] p-4"><dt className="text-xs text-[#A9ACC6]">Permissions</dt><dd className="mt-1 font-bold">{worker.permissions.length}, you approve</dd></div>}
               <div className="rounded-2xl bg-[#1D1F2C] p-4"><dt className="text-xs text-[#A9ACC6]">Runs on</dt><dd className="mt-1 font-bold">Your Truchsess</dd></div>
               <div className="rounded-2xl bg-[#1D1F2C] p-4"><dt className="text-xs text-[#A9ACC6]">Publisher</dt><dd className="mt-1 font-bold">{worker?.publisherName ?? "Old School GmbH"}</dd></div>
