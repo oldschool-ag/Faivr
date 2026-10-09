@@ -3,6 +3,7 @@ import Link from "next/link";
 import { SiteShell } from "@/components/layout/SiteShell";
 import { comingSoonFunctionForPackageIds, comingSoonFunctions } from "@/data/catalog-coming-soon";
 import { getPublicCatalogState } from "@/lib/publicCatalog";
+import { agentTerminology } from "@/lib/publicCopy";
 
 export const metadata: Metadata = {
   title: "FAIVR — The store for Truchsess",
@@ -52,10 +53,10 @@ export default async function Home() {
               <span className="rounded-full bg-[#2A2C3D] px-3 py-1.5 text-xs font-bold">{featured ? "Available on Truchsess" : "Coming soon"}</span>
             </div>
             <div>
-              <h2 className="text-[34px] font-extrabold leading-tight tracking-[-0.02em] text-white">{featuredPlan?.name ?? featured?.name ?? planned.name}</h2>
+              <h2 className="text-[34px] font-extrabold leading-tight tracking-[-0.02em] text-white">{featured?.name ?? planned.name}</h2>
               <p className="mt-2 text-[#C3C5DA]">with {featured ? featured.workers.map(item => item.name).join(", ") : planned.agents.join(", ")}</p>
             </div>
-            <p className="leading-7 text-[#C3C5DA]">{featuredPlan?.summary ?? featured?.description ?? planned.summary}</p>
+            <p className="leading-7 text-[#C3C5DA]">{featured ? agentTerminology(featured.description) : planned.summary}</p>
             <dl className="grid grid-cols-2 gap-3">
               {featured && <div className="rounded-2xl bg-[#1D1F2C] p-4"><dt className="text-xs text-[#A9ACC6]">Price</dt><dd className="mt-1 font-bold">{price(featured.monthlyPriceCents, featured.currency)} / month</dd><p className="mt-2 text-xs leading-5 text-[#C3C5DA]">Early access: talk to us to get a Truchsess.</p></div>}
               {worker && <div className="rounded-2xl bg-[#1D1F2C] p-4"><dt className="text-xs text-[#A9ACC6]">Permissions</dt><dd className="mt-1 font-bold">{worker.permissions.length}, you approve</dd></div>}
@@ -73,13 +74,13 @@ export default async function Home() {
         <h2 id="catalog-title" className="mt-3 text-4xl font-extrabold tracking-[-0.025em] sm:text-[44px]">Hire by function, not by hour.</h2>
         {unavailable && <p role="status" className="mt-4 max-w-2xl text-[var(--muted)]">The available catalog is temporarily unavailable. You can still explore the functions in preparation.</p>}
         <div className="mt-7 grid gap-6 lg:grid-cols-2">
-          {functions.map(item => <article key={item.slug} className="rounded-[28px] border border-[var(--line)] bg-white p-7 sm:p-9">
+          {functions.map(item => { const itemPlan = comingSoonFunctionForPackageIds(item.workers.map((agent) => agent.id)); const functionSlug = itemPlan?.slug ?? item.slug; return <article key={item.slug} className="rounded-[28px] border border-[var(--line)] bg-white p-7 sm:p-9">
             <h3 className="text-[28px] font-extrabold">{item.name}</h3>
-            <p className="mt-3 leading-7 text-[var(--body)]">{item.description}</p>
+            <p className="mt-3 leading-7 text-[var(--body)]">{agentTerminology(item.description)}</p>
             <p className="mt-4 text-2xl font-extrabold">{price(item.monthlyPriceCents, item.currency)} <span className="text-base font-medium text-[var(--muted)]">/ month</span></p>
             <p className="mt-2 text-sm text-[var(--muted)]">Plus VAT where applicable. Early access: talk to us to get a Truchsess.</p>
-            <Link className={primary + " mt-6"} href={`/catalog/${item.slug}`}>View details</Link>
-          </article>)}
+            <Link className={primary + " mt-6"} href={`/catalog/${functionSlug}`}>View details</Link>
+          </article>; })}
           <article className="flex min-h-[230px] flex-col justify-center rounded-[28px] border-2 border-dashed border-[#C9CCE4] p-7 sm:p-9">
             <h3 className="text-[26px] font-extrabold">More functions in preparation</h3>
             <p className="mt-3 max-w-xl leading-7 text-[var(--muted)]">Explore the planned functions and tell us which work you want to hand to a governed AI agent.</p>

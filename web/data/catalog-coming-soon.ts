@@ -4,6 +4,7 @@ export type ComingSoonFunction = {
   agents: string[];
   summary: string;
   becomes: string[];
+  agentAliases?: Record<string, string>;
 };
 
 export const comingSoonFunctions: ComingSoonFunction[] = [
@@ -13,6 +14,7 @@ export const comingSoonFunctions: ComingSoonFunction[] = [
     agents: ["Ivo"],
     summary: "Reviews your web pages and product screens and writes a design brief with screenshots.",
     becomes: ["faivr.agent.ivo-design", "faivr.agent.ivo-design-v2"],
+    agentAliases: { Ivo: "faivr.agent.ivo-design-v2" },
   },
   {
     slug: "product-ownership",
@@ -45,8 +47,8 @@ export const comingSoonFunctions: ComingSoonFunction[] = [
   {
     slug: "strategy-and-challenge",
     name: "Strategy and challenge",
-    agents: ["Challenger"],
-    summary: "Includes Challenger. Package details will be published when this function is available.",
+    agents: ["Strategy", "Challenger"],
+    summary: "One writes the strategy and the recommendations, the other attacks it. The one who writes never reviews.",
     becomes: ["faivr.agent.challenger"],
   },
   {

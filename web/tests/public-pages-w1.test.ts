@@ -10,7 +10,7 @@ vi.mock("@/lib/publicCatalog",()=>({
 }));
 vi.mock("@/components/layout/SiteShell",()=>({SiteShell:({children}:{children:ReactNode})=>children}));
 
-import FunctionPage from "@/app/catalog/[function]/page";
+import FunctionPage, { generateMetadata as functionMetadata } from "@/app/catalog/[function]/page";
 import AgentPage from "@/app/agents/[agent]/page";
 import CatalogPage from "@/app/catalog/page";
 import DocsPage from "@/app/docs/page";
@@ -102,7 +102,7 @@ describe("W2 public catalog presentation",()=>{
   });
 
   it("shows the published Gideon function as available and removes its coming-soon card",async()=>{
-    catalog.functions=[{slug:"published-ai-search",name:"Published bundle name",description:"Published bundle description",monthlyPriceCents:7900,currency:"chf",workers:[{id:"faivr.agent.ai-visibility",slug:"ai-visibility",name:"Gideon",role:"",version:"1.0.0",publisherName:"Old School GmbH",publisherKeyId:"key",digest:"sha256:test",permissions:[],slots:[]}]}];
+    catalog.functions=[{slug:"published-ai-search",name:"Visibility in AI search",description:"Checks how AI search engines see your website and what to change.",monthlyPriceCents:7900,currency:"chf",workers:[{id:"faivr.agent.ai-visibility",slug:"ai-visibility",name:"Gideon",role:"",version:"1.0.0",publisherName:"Old School GmbH",publisherKeyId:"key",digest:"sha256:test",permissions:[],slots:[]}]}];
     const html=renderToStaticMarkup(await CatalogPage());
     expect(html).toContain("CHF 79.00");
     expect(html).toContain("Early access: talk to us to get a Truchsess");
@@ -117,6 +117,31 @@ describe("W2 public catalog presentation",()=>{
     const entries=await sitemap();
     expect(entries.map((entry)=>entry.url)).toContain("https://faivr.ai/catalog/visibility-in-ai-search");
     expect(entries.map((entry)=>entry.url)).not.toContain("https://faivr.ai/catalog/published-ai-search");
+    catalog.functions=[];
+  });
+
+  it("does not map a missing planned agent to another package in a multi-agent function",async()=>{
+    catalog.functions=[{slug:"software-bundle",name:"Software delivery: Bob",description:"",monthlyPriceCents:34900,currency:"chf",workers:[{id:"faivr.agent.build-merge-gate",slug:"build-merge-gate",name:"Bob - Merge Gate",role:"",version:"1.2.0",publisherName:"Old School GmbH",publisherKeyId:"key",digest:"sha256:test",permissions:[],slots:[]},{id:"faivr.agent.build-qa-reviewer",slug:"build-qa-reviewer",name:"Bob - QA Reviewer",role:"",version:"1.2.0",publisherName:"Old School GmbH",publisherKeyId:"key",digest:"sha256:test",permissions:[],slots:[]}]}];
+    const html=renderToStaticMarkup(await AgentPage({params:Promise.resolve({agent:"bob-issue-writer"})}));
+    expect(html).toMatch(/COMING SOON/);
+    expect(html).not.toContain("Package id:");
+    catalog.functions=[];
+  });
+
+  it("normalizes published worker terminology without replacing the description",async()=>{
+    const published="Owns one product: decisions, priorities, routing work to other workers and checking their results. One install per product.";
+    catalog.functions=[{slug:"published-product",name:"Product ownership",description:published,monthlyPriceCents:24900,currency:"chf",workers:[{id:"faivr.agent.product-owner",slug:"product-owner",name:"Product Owner",role:"Routes work to workers",version:"1.2.0",publisherName:"Old School GmbH",publisherKeyId:"key",digest:"sha256:test",permissions:[],slots:[]}]}];
+    const catalogHtml=renderToStaticMarkup(await CatalogPage());
+    const functionHtml=renderToStaticMarkup(await FunctionPage({params:Promise.resolve({function:"product-ownership"})}));
+    const homeHtml=renderToStaticMarkup(await HomePage());
+    const agentHtml=renderToStaticMarkup(await AgentPage({params:Promise.resolve({agent:"product-owner"})}));
+    const metadata=await functionMetadata({params:Promise.resolve({function:"product-ownership"})});
+    for(const html of [catalogHtml,functionHtml,homeHtml,agentHtml])expect(html).not.toMatch(/\bworkers?\b/i);
+    expect(catalogHtml).toContain("routing work to other agents and checking their results");
+    expect(functionHtml).toContain("routing work to other agents and checking their results");
+    expect(homeHtml).toContain("routing work to other agents and checking their results");
+    expect(agentHtml).toContain("Routes work to agents");
+    expect(metadata.description).toContain("other agents");
     catalog.functions=[];
   });
 
@@ -135,7 +160,7 @@ describe("W2 public catalog presentation",()=>{
       renderToStaticMarkup(DocsPage()),
     ];
     for(const html of pages)expect(html).not.toMatch(/\bworkers?\b/i);
-    catalog.functions=[{slug:"fixture",name:"Fixture",description:"",monthlyPriceCents:0,currency:"chf",workers:[{id:"faivr.agent.fixture",slug:"fixture-agent",name:"Fixture agent",role:"",version:"1.0.0",publisherName:"Old School GmbH",publisherKeyId:"key",digest:"sha256:test",permissions:[],slots:[]}]}];
+    catalog.functions=[{slug:"fixture",name:"Fixture",description:"",monthlyPriceCents:0,currency:"chf",workers:[{id:"faivr.agent.fixture",slug:"fixture-agent",name:"Fixture agent",role:"Routes work to workers",version:"1.0.0",publisherName:"Old School GmbH",publisherKeyId:"key",digest:"sha256:test",permissions:[],slots:[]}]}];
     const agentHtml=renderToStaticMarkup(await AgentPage({params:Promise.resolve({agent:"fixture-agent"})}));
     expect(agentHtml).toContain("sees other agents");
     expect(agentHtml).not.toMatch(/\bworkers?\b/i);
