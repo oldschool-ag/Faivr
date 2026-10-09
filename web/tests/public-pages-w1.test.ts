@@ -19,6 +19,9 @@ import PrivacyPage from "@/app/privacy/page";
 import HomePage from "@/app/page";
 import HowItWorksPage from "@/app/how-it-works/page";
 import TrustPage from "@/app/trust/page";
+import TermsPage from "@/app/terms/page";
+import RiskDisclosurePage from "@/app/risk-disclosure/page";
+import sitemap from "@/app/sitemap";
 import { Footer } from "@/components/layout/Footer";
 
 const slugify=(value:string)=>value.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"");
@@ -92,20 +95,34 @@ describe("F2 slot permission presentation",()=>{
 });
 
 describe("W2 public catalog presentation",()=>{
-  it("maps design review to the current Ivo package",()=>{
-    expect(comingSoonFunctions.find((item)=>item.slug==="design-review")?.becomes).toEqual(expect.arrayContaining(["faivr.agent.ivo-design","faivr.agent.ivo-design-v2"]));
+  it("maps every verified published package to its planned function",()=>{
+    const ids=comingSoonFunctions.flatMap((item)=>item.becomes);
+    expect(ids).toEqual(expect.arrayContaining(["faivr.agent.ai-visibility","faivr.agent.build-ci-fixer","faivr.agent.build-instructions-keeper","faivr.agent.build-issue-writer","faivr.agent.build-merge-gate","faivr.agent.build-qa-reviewer","faivr.agent.build-security-reviewer","faivr.agent.challenger","faivr.agent.ivo-design","faivr.agent.ivo-design-v2","faivr.agent.marketing-planner","faivr.agent.pricing-models","faivr.agent.product-owner","faivr.agent.website-owner"]));
+    expect(ids).toHaveLength(14);
   });
 
   it("shows the published Gideon function as available and removes its coming-soon card",async()=>{
-    catalog.functions=[{slug:"published-ai-search",name:"Published bundle name",description:"Published bundle description",monthlyPriceCents:7900,currency:"chf",workers:[{id:"faivr.agent.ai-visibility",slug:"gideon",name:"Gideon",role:"",version:"1.0.0",publisherName:"Old School GmbH",publisherKeyId:"key",digest:"sha256:test",permissions:[],slots:[]}]}];
+    catalog.functions=[{slug:"published-ai-search",name:"Published bundle name",description:"Published bundle description",monthlyPriceCents:7900,currency:"chf",workers:[{id:"faivr.agent.ai-visibility",slug:"ai-visibility",name:"Gideon",role:"",version:"1.0.0",publisherName:"Old School GmbH",publisherKeyId:"key",digest:"sha256:test",permissions:[],slots:[]}]}];
     const html=renderToStaticMarkup(await CatalogPage());
     expect(html).toContain("CHF 79.00");
     expect(html).toContain("Early access: talk to us to get a Truchsess");
-    expect(html).toContain('href="/agents/gideon"');
+    expect(html).toContain('href="/agents/ai-visibility"');
     expect(html).not.toMatch(/COMING SOON[\s\S]*Visibility in AI search/);
     const home=renderToStaticMarkup(await HomePage());
+    expect(home).toContain("Visibility in AI search");
     expect(home).toContain("Early access: talk to us to get a Truchsess.");
+    const legacyGideon=renderToStaticMarkup(await AgentPage({params:Promise.resolve({agent:"gideon"})}));
+    expect(legacyGideon).toContain("Gideon");
+    expect(legacyGideon).not.toMatch(/COMING SOON/);
+    const entries=await sitemap();
+    expect(entries.map((entry)=>entry.url)).toContain("https://faivr.ai/catalog/visibility-in-ai-search");
+    expect(entries.map((entry)=>entry.url)).not.toContain("https://faivr.ai/catalog/published-ai-search");
     catalog.functions=[];
+  });
+
+  it("redirects retired public legal routes to trust",()=>{
+    expect(()=>TermsPage()).toThrow();
+    expect(()=>RiskDisclosurePage()).toThrow();
   });
 
   it("uses agent language on public pages",async()=>{

@@ -1,5 +1,5 @@
-import { LegalDocumentPage } from "@/components/layout/LegalDocumentPage";
+import { permanentRedirect } from "next/navigation";
 
 export default function TermsPage() {
-  return <LegalDocumentPage title="Terms and Conditions" fileName="TERMS.md" />;
+  permanentRedirect("/trust");
 }

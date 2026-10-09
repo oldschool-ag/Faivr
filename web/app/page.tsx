@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { SiteShell } from "@/components/layout/SiteShell";
-import { comingSoonFunctions } from "@/data/catalog-coming-soon";
+import { comingSoonFunctionForPackageIds, comingSoonFunctions } from "@/data/catalog-coming-soon";
 import { getPublicCatalogState } from "@/lib/publicCatalog";
 
 export const metadata: Metadata = {
@@ -30,6 +30,7 @@ const price = (cents: number, currency: string) => new Intl.NumberFormat("en", {
 export default async function Home() {
   const { functions, unavailable } = await getPublicCatalogState();
   const featured = functions[0];
+  const featuredPlan = featured && comingSoonFunctionForPackageIds(featured.workers.map((agent) => agent.id));
   const planned = comingSoonFunctions[0];
   const worker = featured?.workers[0];
   return (
@@ -51,10 +52,10 @@ export default async function Home() {
               <span className="rounded-full bg-[#2A2C3D] px-3 py-1.5 text-xs font-bold">{featured ? "Available on Truchsess" : "Coming soon"}</span>
             </div>
             <div>
-              <h2 className="text-[34px] font-extrabold leading-tight tracking-[-0.02em] text-white">{featured?.name ?? planned.name}</h2>
+              <h2 className="text-[34px] font-extrabold leading-tight tracking-[-0.02em] text-white">{featuredPlan?.name ?? featured?.name ?? planned.name}</h2>
               <p className="mt-2 text-[#C3C5DA]">with {featured ? featured.workers.map(item => item.name).join(", ") : planned.agents.join(", ")}</p>
             </div>
-            <p className="leading-7 text-[#C3C5DA]">{featured?.description ?? planned.summary}</p>
+            <p className="leading-7 text-[#C3C5DA]">{featuredPlan?.summary ?? featured?.description ?? planned.summary}</p>
             <dl className="grid grid-cols-2 gap-3">
               {featured && <div className="rounded-2xl bg-[#1D1F2C] p-4"><dt className="text-xs text-[#A9ACC6]">Price</dt><dd className="mt-1 font-bold">{price(featured.monthlyPriceCents, featured.currency)} / month</dd><p className="mt-2 text-xs leading-5 text-[#C3C5DA]">Early access: talk to us to get a Truchsess.</p></div>}
               {worker && <div className="rounded-2xl bg-[#1D1F2C] p-4"><dt className="text-xs text-[#A9ACC6]">Permissions</dt><dd className="mt-1 font-bold">{worker.permissions.length}, you approve</dd></div>}
@@ -62,7 +63,7 @@ export default async function Home() {
               <div className="rounded-2xl bg-[#1D1F2C] p-4"><dt className="text-xs text-[#A9ACC6]">Publisher</dt><dd className="mt-1 font-bold">{worker?.publisherName ?? "Old School GmbH"}</dd></div>
             </dl>
             {worker && <p className="break-all font-mono text-xs leading-6 text-[#A9ACC6]">{worker.publisherKeyId}<br />{worker.digest}</p>}
-            <Link className="mt-auto inline-flex min-h-11 items-center self-start font-semibold text-white underline underline-offset-4" href={`/catalog/${featured?.slug ?? planned.slug}`}>View function details</Link>
+            <Link className="mt-auto inline-flex min-h-11 items-center self-start font-semibold text-white underline underline-offset-4" href={`/catalog/${featuredPlan?.slug ?? featured?.slug ?? planned.slug}`}>View function details</Link>
           </div>
         </aside>
       </section>

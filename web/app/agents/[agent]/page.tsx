@@ -8,20 +8,29 @@ import { getPublicCatalog } from "@/lib/publicCatalog";
 import { describePermission, NEVER_PERMISSIONS } from "@/lib/publicPermissions";
 
 const slugify = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+const plannedAgentForSlug = (slug: string) => comingSoonFunctions.flatMap((item) => item.agents.map((name) => ({ function: item, name }))).find((agent) => slugify(agent.name) === slug);
+const availableAgentForSlug = (functions: Awaited<ReturnType<typeof getPublicCatalog>>, slug: string) => {
+  const direct = functions.flatMap((item) => item.workers.map((agent) => ({ function: item, ...agent }))).find((agent) => agent.slug === slug);
+  if (direct) return direct;
+  const planned = plannedAgentForSlug(slug);
+  const mappedFunction = planned && functions.find((item) => comingSoonFunctionForPackageIds(item.workers.map((agent) => agent.id))?.slug === planned.function.slug);
+  const mappedAgent = mappedFunction && (mappedFunction.workers.find((agent) => slugify(agent.name) === slug) ?? mappedFunction.workers[0]);
+  return mappedFunction && mappedAgent ? { function: mappedFunction, ...mappedAgent } : undefined;
+};
 
 export async function generateMetadata({ params }: { params: Promise<{ agent: string }> }): Promise<Metadata> {
   const slug = (await params).agent;
-  const available = (await getPublicCatalog()).flatMap((item) => item.workers).find((agent) => agent.slug === slug);
-  const planned = comingSoonFunctions.flatMap((item) => item.agents).find((name) => slugify(name) === slug);
-  const title = `${available?.name ?? planned ?? "Agent"} | FAIVR`;
+  const available = availableAgentForSlug(await getPublicCatalog(), slug);
+  const planned = plannedAgentForSlug(slug);
+  const title = `${available?.name ?? planned?.name ?? "Agent"} | FAIVR`;
   const description = available?.role ?? "Planned governed AI agent for your Truchsess.";
   return { title, description, openGraph: { title, description } };
 }
 
 export default async function AgentPage({ params }: { params: Promise<{ agent: string }> }) {
   const slug = (await params).agent;
-  const available = (await getPublicCatalog()).flatMap((item) => item.workers.map((agent) => ({ function: item, ...agent }))).find((agent) => agent.slug === slug);
-  const planned = comingSoonFunctions.flatMap((item) => item.agents.map((name) => ({ function: item, name }))).find((agent) => slugify(agent.name) === slug);
+  const available = availableAgentForSlug(await getPublicCatalog(), slug);
+  const planned = plannedAgentForSlug(slug);
   if (!available && !planned) notFound();
   if (planned && !available) return <SiteShell><div className="mx-auto max-w-[900px] px-4 py-14 sm:px-8"><Link href={`/catalog/${planned.function.slug}`} className="inline-flex min-h-11 min-w-11 items-center rounded-full bg-white px-3 text-sm font-bold text-[var(--accent)]">← {planned.function.name}</Link><p className="mt-8 inline-flex rounded-full bg-white px-3 py-1 text-xs font-bold tracking-[.14em] text-[var(--accent)]">COMING SOON</p><h1 className="mt-3 text-5xl font-extrabold">{planned.name}</h1><p className="mt-5 text-lg text-[var(--body)]">{planned.function.summary}</p><p className="mt-8 rounded-3xl bg-white p-6 text-[var(--body)]">Permissions, example tasks, proof of origin, and package details will be published with the package.</p><a className="mt-6 inline-flex min-h-11 items-center rounded-full bg-[var(--ink)] px-5 text-sm font-bold text-white" href={`mailto:${CONTACT_EMAIL}`}>Tell me when it is ready</a></div></SiteShell>;
   if (!available) notFound();
