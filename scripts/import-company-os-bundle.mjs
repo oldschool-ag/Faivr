@@ -2,7 +2,7 @@
 // Import one signed Truchsess export into the private store (T6a export gate output -> T6b catalog entry).
 //
 //   node scripts/import-company-os-bundle.mjs <manifest.json> <artifact.tar.gz>
-//   node scripts/import-company-os-bundle.mjs <package>.truchsess-bundle.tar          (the pack-bundle file: manifest + payload)
+//   node scripts/import-company-os-bundle.mjs <package>.truchsess-bundle.tar [--release-notes "..."] (the pack-bundle file: manifest + payload)
 //
 // Environment:
 //   DATABASE_URL                      the store database (omit with FAIVR_VALIDATE_ONLY=1)
@@ -11,20 +11,25 @@
 //   FAIVR_STORE_ARTIFACT_INLINE=1     store the signed payload bytes in the database (the private store serves them itself)
 //   FAIVR_STORE_BUNDLE=<bundle id>    attach the package to this function bundle (created with company-os-store-admin.mjs)
 //   FAIVR_VALIDATE_ONLY=1 FAIVR_PUBLISHER_PUBLIC_KEY_PATH=<pem>   offline proof without a database
+//   --release-notes <text>         optional, at most 1,000 characters; overrides signed manifest releaseNotes
 import { createHash, createPublicKey, verify } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { gunzipSync } from "node:zlib";
 import pg from "../web/node_modules/pg/lib/index.js";
 
-const [firstArg,secondArg]=process.argv.slice(2);
+const args=process.argv.slice(2);
+const releaseNotesFlag=args.indexOf("--release-notes");
+const releaseNotesInput=releaseNotesFlag===-1?null:args[releaseNotesFlag+1];
+if(releaseNotesFlag!==-1)args.splice(releaseNotesFlag,2);
+const [firstArg,secondArg]=args;
 const validateOnly=process.env.FAIVR_VALIDATE_ONLY==="1";
 const inlineArtifact=process.env.FAIVR_STORE_ARTIFACT_INLINE==="1";
 const bundleId=process.env.FAIVR_STORE_BUNDLE?.trim()||null;
 const artifactUrlInput=process.env.FAIVR_ARTIFACT_URL?.trim();
 const packageOriginInput=process.env.FAIVR_PACKAGE_ORIGIN?.trim();
 const bundleFileInput=firstArg&&firstArg.endsWith(".truchsess-bundle.tar")&&!secondArg?firstArg:null;
-if(!firstArg||(!bundleFileInput&&!secondArg)||!packageOriginInput||(!artifactUrlInput&&!inlineArtifact)||(!validateOnly&&!process.env.DATABASE_URL)|| (validateOnly&&!process.env.FAIVR_PUBLISHER_PUBLIC_KEY_PATH)){
-  console.error("Usage: [DATABASE_URL=... | FAIVR_VALIDATE_ONLY=1 FAIVR_PUBLISHER_PUBLIC_KEY_PATH=...] FAIVR_PACKAGE_ORIGIN=https://... [FAIVR_ARTIFACT_URL=https://... | FAIVR_STORE_ARTIFACT_INLINE=1] [FAIVR_STORE_BUNDLE=<bundle id>] node scripts/import-company-os-bundle.mjs (manifest.json artifact.tar.gz | package.truchsess-bundle.tar)");
+if(!firstArg||(!bundleFileInput&&!secondArg)||!packageOriginInput||(!artifactUrlInput&&!inlineArtifact)||(!validateOnly&&!process.env.DATABASE_URL)|| (validateOnly&&!process.env.FAIVR_PUBLISHER_PUBLIC_KEY_PATH)|| (releaseNotesFlag!==-1&&(typeof releaseNotesInput!=="string"||!releaseNotesInput))){ 
+  console.error("Usage: [DATABASE_URL=... | FAIVR_VALIDATE_ONLY=1 FAIVR_PUBLISHER_PUBLIC_KEY_PATH=...] FAIVR_PACKAGE_ORIGIN=https://... [FAIVR_ARTIFACT_URL=https://... | FAIVR_STORE_ARTIFACT_INLINE=1] [FAIVR_STORE_BUNDLE=<bundle id>] node scripts/import-company-os-bundle.mjs (manifest.json artifact.tar.gz | package.truchsess-bundle.tar) [--release-notes <text>]");
   process.exit(2);
 }
 
@@ -36,6 +41,7 @@ const digestPattern=/^sha256:[a-f0-9]{64}$/;
 const contentDigestPattern=/^[a-f0-9]{64}$/;
 const base64url=/^[A-Za-z0-9_-]+$/;
 const bundleIdPattern=/^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const compareSemver=(a,b)=>{const parse=value=>value.split("-",1)[0].split(".").map(part=>Number.parseInt(part,10)||0);const [left,right]=[parse(a),parse(b)];for(let i=0;i<3;i+=1)if((left[i]??0)!==(right[i]??0))return (left[i]??0)-(right[i]??0);return 0;};
 const slotIdPattern=/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const secretPatterns=[/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,/(?:sk_live_|rk_live_|AKIA)[A-Za-z0-9_\-]{12,}/,/\b(?:password|secret|api[_-]?key)\s*[:=]\s*["'][^"']{8,}/i];
 const exactKeys=(value,keys,label)=>{if(!value||typeof value!=="object"||Array.isArray(value)||Object.keys(value).sort().join("\n")!==[...keys].sort().join("\n"))throw new Error(`invalid ${label} fields`);};
@@ -130,13 +136,15 @@ function readBundleFile(bytes){
 
 function validateManifest(raw,artifact,files){
   const manifestKeys=["schemaVersion","modelId","version","displayName","summary","publisher","packageDigest","artifactBytes","entrypoint","companyOsCompatibility","permissions","dependencies","managedPaths","tenantDataIncluded","monthlyPrice","contents","signature"];
-  exactKeys(raw,raw.slots===undefined?manifestKeys:[...manifestKeys,"slots"],"manifest");
+  const optionalManifestKeys=[...(raw.slots===undefined?[]:["slots"]),...(raw.releaseNotes===undefined?[]:["releaseNotes"])];
+  exactKeys(raw,[...manifestKeys,...optionalManifestKeys],"manifest");
   exactKeys(raw.publisher,["publisherId","name"],"publisher");
   exactKeys(raw.companyOsCompatibility,["minVersion","maxVersion"],"companyOsCompatibility");
   exactKeys(raw.monthlyPrice,["billingPeriod","amountCents","stripePriceId","activationState"],"monthlyPrice");
   exactKeys(raw.signature,["keyId","algorithm","value"],"signature");
   if(raw.schemaVersion!=="faivr-portable-agent-bundle.v1"||!modelIdPattern.test(raw.modelId)||!semver.test(raw.version)||typeof raw.displayName!=="string"||!raw.displayName||typeof raw.summary!=="string"||!raw.summary)throw new Error("invalid portable manifest identity");
   if(typeof raw.publisher.publisherId!=="string"||!raw.publisher.publisherId||typeof raw.publisher.name!=="string"||!raw.publisher.name)throw new Error("invalid publisher");
+  if(raw.releaseNotes!==undefined&&(typeof raw.releaseNotes!=="string"||raw.releaseNotes.length<1||raw.releaseNotes.length>1000))throw new Error("invalid releaseNotes");
   if(!digestPattern.test(raw.packageDigest)||raw.packageDigest!==sha256(artifact)||!Number.isSafeInteger(raw.artifactBytes)||raw.artifactBytes!==artifact.length)throw new Error("artifact size or digest mismatch");
   if(raw.entrypoint!=="agent-definition.json"||!semver.test(raw.companyOsCompatibility.minVersion)||(raw.companyOsCompatibility.maxVersion!==null&&!semver.test(raw.companyOsCompatibility.maxVersion)))throw new Error("invalid entrypoint or compatibility range");
   uniqueStrings(raw.permissions,"permissions");uniqueStrings(raw.dependencies,"dependencies");validateSlots(raw.slots,raw.permissions);
@@ -156,6 +164,8 @@ let raw,artifact;
 if(bundleFileInput){({manifest:raw,artifact}=readBundleFile(await readFile(bundleFileInput)));}
 else{raw=JSON.parse(await readFile(firstArg,"utf8"));artifact=await readFile(secondArg);}
 const files=inspectTarGz(artifact);validateManifest(raw,artifact,files);
+const releaseNotes=releaseNotesInput??(typeof raw.releaseNotes==="string"?raw.releaseNotes:null);
+if(releaseNotes!==null&&(releaseNotes.length<1||releaseNotes.length>1000))throw new Error("release notes must be 1 to 1000 characters");
 if(bundleId!==null&&!bundleIdPattern.test(bundleId))throw new Error("FAIVR_STORE_BUNDLE must be a lower-case bundle id");
 const allowedOrigin=new URL(packageOriginInput);
 if(allowedOrigin.protocol!=="https:")throw new Error("FAIVR_PACKAGE_ORIGIN must be an HTTPS origin");
@@ -173,22 +183,28 @@ try{
     if(!publisher.rowCount)throw new Error("publisher key is not enrolled");publicKey=publisher.rows[0].public_key;
   }
   if(!verify(null,Buffer.from(canonical(signedManifest)),createPublicKey(publicKey),Buffer.from(signature.value,"base64url")))throw new Error("invalid publisher signature");
-  if(validateOnly){console.log(JSON.stringify({valid:true,modelId:raw.modelId,version:raw.version,digest:raw.packageDigest,artifactBytes:raw.artifactBytes,artifactUrl:artifactUrl.href,permissions:raw.permissions,slots:raw.slots??[],bundle:bundleId,inlineArtifact}));}
+  if(validateOnly){console.log(JSON.stringify({valid:true,modelId:raw.modelId,version:raw.version,digest:raw.packageDigest,artifactBytes:raw.artifactBytes,artifactUrl:artifactUrl.href,permissions:raw.permissions,slots:raw.slots??[],bundle:bundleId,releaseNotes,inlineArtifact}));}
   else{
     const slug=raw.modelId.slice("faivr.agent.".length).replace(/[._]+/g,"-");
+    const priorVersions=await client.query("SELECT version FROM company_os_package_versions WHERE package_id=$1 AND status='published'",[raw.modelId]);
+    const previousLatest=priorVersions.rows.reduce((latest,row)=>latest===null||compareSemver(row.version,latest)>0?row.version:latest,null);
     await client.query("INSERT INTO company_os_packages(id,slug,name,summary,status) VALUES($1,$2,$3,$4,'active') ON CONFLICT(id) DO UPDATE SET slug=EXCLUDED.slug,name=EXCLUDED.name,summary=EXCLUDED.summary",[raw.modelId,slug,raw.displayName,raw.summary]);
-    const imported=await client.query("INSERT INTO company_os_package_versions(package_id,version,status,manifest,publisher_key_id,publisher_signature,artifact_url,artifact_sha256,monthly_price_cents,stripe_price_id,min_company_os_version,published_at) VALUES($1,$2,'published',$3,$4,$5,$6,$7,$8,$9,$10,now()) ON CONFLICT(package_id,version) DO UPDATE SET package_id=EXCLUDED.package_id WHERE company_os_package_versions.artifact_sha256=EXCLUDED.artifact_sha256 AND company_os_package_versions.publisher_signature=EXCLUDED.publisher_signature RETURNING id",[raw.modelId,raw.version,JSON.stringify(raw),signature.keyId,signature.value,artifactUrl.href,raw.packageDigest,raw.monthlyPrice.amountCents,raw.monthlyPrice.stripePriceId,raw.companyOsCompatibility.minVersion]);
+    const imported=await client.query("INSERT INTO company_os_package_versions(package_id,version,status,manifest,publisher_key_id,publisher_signature,artifact_url,artifact_sha256,monthly_price_cents,stripe_price_id,min_company_os_version,release_notes,published_at) VALUES($1,$2,'published',$3,$4,$5,$6,$7,$8,$9,$10,$11,now()) ON CONFLICT(package_id,version) DO UPDATE SET release_notes=COALESCE(company_os_package_versions.release_notes,EXCLUDED.release_notes) WHERE company_os_package_versions.artifact_sha256=EXCLUDED.artifact_sha256 AND company_os_package_versions.publisher_signature=EXCLUDED.publisher_signature RETURNING id",[raw.modelId,raw.version,JSON.stringify(raw),signature.keyId,signature.value,artifactUrl.href,raw.packageDigest,raw.monthlyPrice.amountCents,raw.monthlyPrice.stripePriceId,raw.companyOsCompatibility.minVersion,releaseNotes]);
     if(!imported.rowCount)throw new Error("published version conflicts with different signed material");
     const versionId=imported.rows[0].id;
     if(inlineArtifact){
       // the store serves these exact bytes on GET /installations/{id}/package; the appliance re-hashes them
       await client.query("INSERT INTO company_os_package_artifacts(version_id,artifact,artifact_bytes,artifact_sha256) VALUES($1,$2,$3,$4) ON CONFLICT(version_id) DO UPDATE SET artifact=EXCLUDED.artifact,artifact_bytes=EXCLUDED.artifact_bytes,artifact_sha256=EXCLUDED.artifact_sha256,uploaded_at=now() WHERE company_os_package_artifacts.artifact_sha256=EXCLUDED.artifact_sha256",[versionId,artifact,artifact.length,raw.packageDigest]);
     }
+    let latestVersion=null,latestVersionChanged=false;
     if(bundleId){
       const bundle=await client.query("SELECT id FROM company_os_function_bundles WHERE id=$1",[bundleId]);
       if(!bundle.rowCount)throw new Error(`function bundle ${bundleId} does not exist; create it with scripts/company-os-store-admin.mjs create-bundle first`);
       await client.query("INSERT INTO company_os_bundle_packages(bundle_id,package_id) VALUES($1,$2) ON CONFLICT DO NOTHING",[bundleId,raw.modelId]);
+      latestVersion=previousLatest===null||compareSemver(raw.version,previousLatest)>0?raw.version:previousLatest;
+      latestVersionChanged=latestVersion===raw.version&&raw.version!==previousLatest;
+      if(latestVersionChanged)await client.query("INSERT INTO company_os_audit_events(tenant_id,event_type,payload) VALUES('store','package.latest_version.changed',$1)",[JSON.stringify({bundleId,modelId:raw.modelId,previousLatestVersion:previousLatest,latestVersion:raw.version,versionId})]);
     }
-    await client.query("COMMIT");console.log(JSON.stringify({imported:true,modelId:raw.modelId,version:raw.version,versionId,digest:raw.packageDigest,artifactBytes:raw.artifactBytes,artifactUrl:artifactUrl.href,inlineArtifact,bundle:bundleId,permissions:raw.permissions,slots:raw.slots??[]}));
+    await client.query("COMMIT");console.log(JSON.stringify({imported:true,modelId:raw.modelId,version:raw.version,versionId,digest:raw.packageDigest,artifactBytes:raw.artifactBytes,artifactUrl:artifactUrl.href,inlineArtifact,bundle:bundleId,latestVersion,latestVersionChanged,releaseNotes,permissions:raw.permissions,slots:raw.slots??[]}));
   }
 }catch(e){if(client)await client.query("ROLLBACK");throw e;}finally{if(client)await client.end();}

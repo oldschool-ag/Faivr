@@ -91,10 +91,10 @@ describe("importing a signed Truchsess bundle file into the store", () => {
     const bundleFile = join(dir, `${modelId}-${version}.truchsess-bundle.tar`);
     writeFileSync(bundleFile, tar([["bundle-index.json", Buffer.from(JSON.stringify(index))], ["manifest.json", manifestBytes], ["package.tar.gz", payload]]));
     writeFileSync(join(dir, "publisher.pub"), publicPem);
-    const result = run([bundleFile], { FAIVR_VALIDATE_ONLY: "1", FAIVR_PUBLISHER_PUBLIC_KEY_PATH: join(dir, "publisher.pub"), FAIVR_PACKAGE_ORIGIN: "https://store.faivr.test", FAIVR_STORE_ARTIFACT_INLINE: "1", FAIVR_STORE_BUNDLE: "design-review" });
+    const result = run([bundleFile, "--release-notes", "Fixes the misleading report output."], { FAIVR_VALIDATE_ONLY: "1", FAIVR_PUBLISHER_PUBLIC_KEY_PATH: join(dir, "publisher.pub"), FAIVR_PACKAGE_ORIGIN: "https://store.faivr.test", FAIVR_STORE_ARTIFACT_INLINE: "1", FAIVR_STORE_BUNDLE: "design-review" });
     expect(result.status, result.stderr).toBe(0);
     const report = JSON.parse(result.stdout.trim());
-    expect(report).toMatchObject({ valid: true, modelId, version, digest: manifest.packageDigest, permissions, bundle: "design-review", inlineArtifact: true });
+    expect(report).toMatchObject({ valid: true, modelId, version, digest: manifest.packageDigest, permissions, bundle: "design-review", releaseNotes: "Fixes the misleading report output.", inlineArtifact: true });
     expect(report.artifactUrl).toBe(`https://store.faivr.test/company-os/v1/packages/${modelId}/${version}/${digest(payload)}.tar.gz`);
   });
 
