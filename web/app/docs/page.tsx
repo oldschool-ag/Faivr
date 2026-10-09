@@ -20,7 +20,7 @@ export default function DocsPage() {
           <Link className={linkStyle} href="/trust">Trust</Link>
           <a className={linkStyle} href="https://github.com/oldschool-ag/Faivr">Store code on GitHub</a>
         </nav>
-        <p className="mt-6 text-[var(--body)]">Support: <a className="font-bold underline" href="mailto:support@truchsess.com">support@truchsess.com</a></p>
+        <p className="mt-6 text-[var(--body)]">Support: <a className="inline-flex min-h-11 items-center font-bold underline" href="mailto:support@truchsess.com">support@truchsess.com</a></p>
         <p className="mt-10 text-[var(--body)]">Publishing on FAIVR: coming later</p>
       </div>
     </SiteShell>
