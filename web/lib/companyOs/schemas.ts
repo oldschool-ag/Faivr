@@ -23,6 +23,10 @@ export const installAcknowledgementSchema = z.object({
   ...lifecycleEnvelope, messageType: z.literal("installation.acknowledged"), localAgentDefinitionId: idSchema, packageDigest: sha256Schema,
   activationResult: z.enum(["active", "failed"]), compatibilityVerified: z.boolean(), publisherSignatureVerified: z.boolean(), packageChecksPassed: z.boolean(), activatedAt: z.string().datetime(),
 }).strict();
+export const updateConfirmationSchema = z.object({
+  ...lifecycleEnvelope, messageType: z.literal("installation.updated"), versionId: uuidSchema, localAgentDefinitionId: idSchema, packageDigest: sha256Schema,
+  activationResult: z.literal("active"), compatibilityVerified: z.literal(true), publisherSignatureVerified: z.literal(true), packageChecksPassed: z.literal(true), updatedAt: z.string().datetime(),
+}).strict();
 export const updateCheckSchema = z.object({ tenantId: idSchema, installationId: idSchema, currentPackageVersionId: idSchema, companyOsVersion: semverSchema }).strict();
 export const uninstallRequestSchema = z.object({ ...envelope, installationId: uuidSchema, faivrAgentModelId: modelIdSchema, faivrPackageVersionId: uuidSchema, reason: z.string().trim().max(500).optional() }).strict();
 const effects = z.object({ agentRegistrationAbsent:z.boolean(), schedulesRevoked:z.boolean(), toolGrantsRevoked:z.boolean(), agentSecretsRevoked:z.boolean(), packagePayloadRemoved:z.boolean(), historicalCompanyDataPreserved:z.boolean() }).strict();
