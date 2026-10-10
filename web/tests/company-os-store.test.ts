@@ -7,7 +7,7 @@ const holder = vi.hoisted(() => ({ pool: null as unknown as import("pg").Pool })
 vi.mock("@/lib/postgres", () => ({ getPgPool: () => holder.pool }));
 
 import { canonicalSignedMessage, signCompanyOsRequest, verifyMessageSignature } from "@/lib/companyOs/auth";
-import { enrolPublisher, hashEnrolmentCode, issueEnrolmentCode, upsertBundle, addPackageToBundle } from "@/lib/companyOs/privateStore";
+import { addPackageToBundle, compareSemver, enrolPublisher, hashEnrolmentCode, issueEnrolmentCode, upsertBundle } from "@/lib/companyOs/privateStore";
 import { keyIdFor, loadEd25519PublicKey } from "@/lib/companyOs/publisherKeys";
 import { enrol, storeCatalog, storeCheckoutSessions, storeInstallations, storeSubscriptionCancel, storeSubscriptions } from "@/app/api/company-os/v1/storeHandlers";
 import { activationReceipts, billing, packageDownload, uninstallReceipts, uninstallRequests } from "@/app/api/company-os/v1/handlers";
@@ -31,6 +31,11 @@ function stripeFixture(name: string, values: Record<string, string>) {
   for (const [key, value] of Object.entries(values)) text = text.replaceAll(`{{${key}}}`, value);
   return text;
 }
+
+it("orders prerelease identifiers with embedded hyphens deterministically", () => {
+  expect(compareSemver("1.0.1-alpha-beta.1", "1.0.1-alpha-beta.2")).toBeLessThan(0);
+  expect(compareSemver("1.0.1-rc.1", "1.0.1")).toBeLessThan(0);
+});
 
 async function deliverWebhook(payload: string) {
   return stripeWebhook(new NextRequest("https://store.faivr.test/api/company-os/stripe/webhook", { method: "POST", headers: { "stripe-signature": stripeSignature(payload), "Content-Type": "application/json" }, body: payload }));
@@ -159,6 +164,100 @@ describe("the private Truchsess store on FAIVR", () => {
     expect((await storeCatalog(request)).status).toBe(200);
     const replay = new NextRequest(request.url, { headers: request.headers });
     expect((await storeCatalog(replay)).status).toBe(409);
+  });
+
+  it("offers a signed newer package only to an active subscriber that has the package installed", async () => {
+    await enrolAppliance();
+    const subscriptionId = randomUUID();
+    const installationId = randomUUID();
+    const updatedPayload = Buffer.from("deterministic payload bytes of version 1.2.1");
+    const updatedManifest = signedManifest({
+      modelId: MODEL_ID,
+      version: "1.2.1",
+      payload: updatedPayload,
+      publisherKeyId: publisher.keyId,
+      publisherPrivatePem: publisher.privatePem,
+      permissions: [...PERMISSIONS, "knowledge.read:release-notes"],
+    });
+    const latestVersionId = randomUUID();
+    const updatedDigest = (updatedManifest as Record<string, unknown>).packageDigest as string;
+    await holder.pool.query(
+      "INSERT INTO company_os_package_versions(id,package_id,version,status,manifest,publisher_key_id,publisher_signature,artifact_url,artifact_sha256,monthly_price_cents,stripe_price_id,min_company_os_version,release_notes,published_at) VALUES($1,$2,'1.2.1','published',$3,$4,$5,$6,$7,1,NULL,'1.0.0',$8,now())",
+      [latestVersionId, MODEL_ID, JSON.stringify(updatedManifest), publisher.keyId, (updatedManifest.signature as { value: string }).value, `https://packages.faivr.test/company-os/v1/packages/${MODEL_ID}/1.2.1/x.tar.gz`, updatedDigest, "Fixes the misleading report output."],
+    );
+    await holder.pool.query("INSERT INTO company_os_package_artifacts(version_id,artifact,artifact_bytes,artifact_sha256) VALUES($1,$2,$3,$4)", [latestVersionId, updatedPayload, updatedPayload.length, updatedDigest]);
+    const prerelease = signedManifest({ modelId: MODEL_ID, version: "1.2.1-rc.1", payload: updatedPayload, publisherKeyId: publisher.keyId, publisherPrivatePem: publisher.privatePem, permissions: PERMISSIONS });
+    await holder.pool.query("INSERT INTO company_os_package_versions(id,package_id,version,status,manifest,publisher_key_id,publisher_signature,artifact_url,artifact_sha256,monthly_price_cents,stripe_price_id,min_company_os_version,published_at) VALUES($1,$2,'1.2.1-rc.1','published',$3,$4,$5,$6,$7,1,NULL,'1.0.0',now())", [randomUUID(), MODEL_ID, JSON.stringify(prerelease), publisher.keyId, (prerelease.signature as { value: string }).value, `https://packages.faivr.test/company-os/v1/packages/${MODEL_ID}/1.2.1-rc.1/x.tar.gz`, (prerelease as Record<string, unknown>).packageDigest]);
+    await holder.pool.query("INSERT INTO company_os_bundle_subscriptions(id,tenant_id,instance_id,bundle_id,subscription_state) VALUES($1,$2,$3,$4,'active')", [subscriptionId, tenantId, appliance.instanceId, BUNDLE]);
+    await holder.pool.query("INSERT INTO company_os_installations(id,tenant_id,instance_id,package_id,desired_version_id,installed_version_id,subscription_id,bundle_subscription_id,installation_state,subscription_state) VALUES($1,$2,$3,$4,$5,$5,$6,$6,'active','active')", [installationId, tenantId, appliance.instanceId, MODEL_ID, versionId, subscriptionId]);
+
+    const catalog = await bodyOf(await storeCatalog(signedRequest(appliance, "GET", "/api/company-os/v1/store/catalog")));
+    const pkg = ((catalog.bundles as Array<Record<string, unknown>>)[0].packages as Array<Record<string, unknown>>)[0];
+    expect(pkg).toMatchObject({ installedVersion: VERSION, latestVersion: "1.2.1", updateAvailable: true, releaseNotes: "Fixes the misleading report output.", permissionChanges: { added: ["knowledge.read:release-notes"], removed: [] } });
+    expect(pkg.artifact).toMatchObject({ downloadPath: `/api/company-os/v1/installations/${installationId}/package?versionId=${latestVersionId}`, packageDigest: updatedDigest, publisherKeyId: publisher.keyId, publisherSignature: (updatedManifest.signature as { value: string }).value });
+
+    const oldDownload = await packageDownload(signedRequest(appliance, "GET", `/api/company-os/v1/installations/${installationId}/package`), { params: Promise.resolve({ id: installationId }) });
+    expect(Buffer.from(await oldDownload.arrayBuffer()).equals(PAYLOAD)).toBe(true);
+    const updateDownload = await packageDownload(signedRequest(appliance, "GET", `/api/company-os/v1/installations/${installationId}/package?versionId=${latestVersionId}`), { params: Promise.resolve({ id: installationId }) });
+    expect(updateDownload.status).toBe(200);
+    expect(Buffer.from(await updateDownload.arrayBuffer()).equals(updatedPayload)).toBe(true);
+    const foreignModel = "faivr.agent.foreign-update";
+    const foreignVersionId = randomUUID();
+    await holder.pool.query("INSERT INTO company_os_packages(id,slug,name,summary,status) VALUES($1,'foreign-update','Foreign update','Not this installation.','active')", [foreignModel]);
+    await holder.pool.query("INSERT INTO company_os_package_versions(id,package_id,version,status,manifest,publisher_key_id,publisher_signature,artifact_url,artifact_sha256,monthly_price_cents,stripe_price_id,min_company_os_version,published_at) VALUES($1,$2,'9.0.0','published',$3,$4,$5,$6,$7,1,NULL,'1.0.0',now())", [foreignVersionId, foreignModel, JSON.stringify(updatedManifest), publisher.keyId, (updatedManifest.signature as { value: string }).value, `https://packages.faivr.test/company-os/v1/packages/${foreignModel}/9.0.0/x.tar.gz`, updatedDigest]);
+    const foreignDownload = await packageDownload(signedRequest(appliance, "GET", `/api/company-os/v1/installations/${installationId}/package?versionId=${foreignVersionId}`), { params: Promise.resolve({ id: installationId }) });
+    expect([403, 404]).toContain(foreignDownload.status);
+    const foreignInstalledVersions = Buffer.from(JSON.stringify([{ installationId, versionId: foreignVersionId }])).toString("base64url");
+    const foreignReported = await bodyOf(await storeCatalog(signedRequest(appliance, "GET", `/api/company-os/v1/store/catalog?installedVersions=${foreignInstalledVersions}`)));
+    const foreignReportedPackage = ((foreignReported.bundles as Array<Record<string, unknown>>)[0].packages as Array<Record<string, unknown>>)[0];
+    expect(foreignReportedPackage.installedVersion).toBeUndefined();
+    expect(foreignReportedPackage.permissionChanges).toBeUndefined();
+
+    await holder.pool.query("UPDATE company_os_installations SET installed_version_id=$2 WHERE id=$1", [installationId, latestVersionId]);
+    const current = await bodyOf(await storeCatalog(signedRequest(appliance, "GET", "/api/company-os/v1/store/catalog")));
+    const currentPackage = ((current.bundles as Array<Record<string, unknown>>)[0].packages as Array<Record<string, unknown>>)[0];
+    expect(currentPackage).toMatchObject({ installedVersion: "1.2.1", latestVersion: "1.2.1", updateAvailable: false });
+    expect(currentPackage.artifact).toBeUndefined();
+
+    // T55 supplies its locally installed versions in the signed catalog URL. This wins over
+    // a delayed activation receipt, so an already-updated box is not offered 1.2.1 again.
+    await holder.pool.query("UPDATE company_os_installations SET installed_version_id=$2 WHERE id=$1", [installationId, versionId]);
+    const installedVersions = Buffer.from(JSON.stringify([{ installationId, versionId: latestVersionId }])).toString("base64url");
+    const reportedCurrent = await bodyOf(await storeCatalog(signedRequest(appliance, "GET", `/api/company-os/v1/store/catalog?installedVersions=${installedVersions}`)));
+    const reportedCurrentPackage = ((reportedCurrent.bundles as Array<Record<string, unknown>>)[0].packages as Array<Record<string, unknown>>)[0];
+    expect(reportedCurrentPackage).toMatchObject({ installedVersion: "1.2.1", latestVersion: "1.2.1", updateAvailable: false });
+    expect(reportedCurrentPackage.artifact).toBeUndefined();
+
+    await holder.pool.query("UPDATE company_os_bundle_subscriptions SET subscription_state='cancelled' WHERE id=$1", [subscriptionId]);
+    const unsubscribed = await bodyOf(await storeCatalog(signedRequest(appliance, "GET", "/api/company-os/v1/store/catalog")));
+    const unsubscribedPackage = ((unsubscribed.bundles as Array<Record<string, unknown>>)[0].packages as Array<Record<string, unknown>>)[0];
+    expect(unsubscribedPackage.updateAvailable).toBeUndefined();
+    expect(unsubscribedPackage.artifact).toBeUndefined();
+  });
+
+  it("never leaks an update or artifact to another enrolled box in the same tenant", async () => {
+    await enrolAppliance();
+    const subscriptionId = randomUUID();
+    const installationId = randomUUID();
+    const nextPayload = Buffer.from("isolated update payload");
+    const nextManifest = signedManifest({ modelId: MODEL_ID, version: "1.2.1", payload: nextPayload, publisherKeyId: publisher.keyId, publisherPrivatePem: publisher.privatePem, permissions: PERMISSIONS });
+    const nextVersionId = randomUUID();
+    const nextDigest = (nextManifest as Record<string, unknown>).packageDigest as string;
+    await holder.pool.query("INSERT INTO company_os_package_versions(id,package_id,version,status,manifest,publisher_key_id,publisher_signature,artifact_url,artifact_sha256,monthly_price_cents,stripe_price_id,min_company_os_version,published_at) VALUES($1,$2,'1.2.1','published',$3,$4,$5,$6,$7,1,NULL,'1.0.0',now())", [nextVersionId, MODEL_ID, JSON.stringify(nextManifest), publisher.keyId, (nextManifest.signature as { value: string }).value, `https://packages.faivr.test/company-os/v1/packages/${MODEL_ID}/1.2.1/x.tar.gz`, nextDigest]);
+    await holder.pool.query("INSERT INTO company_os_package_artifacts(version_id,artifact,artifact_bytes,artifact_sha256) VALUES($1,$2,$3,$4)", [nextVersionId, nextPayload, nextPayload.length, nextDigest]);
+    await holder.pool.query("INSERT INTO company_os_bundle_subscriptions(id,tenant_id,instance_id,bundle_id,subscription_state) VALUES($1,$2,$3,$4,'active')", [subscriptionId, tenantId, appliance.instanceId, BUNDLE]);
+    await holder.pool.query("INSERT INTO company_os_installations(id,tenant_id,instance_id,package_id,desired_version_id,installed_version_id,subscription_id,bundle_subscription_id,installation_state,subscription_state) VALUES($1,$2,$3,$4,$5,$5,$6,$6,'active','active')", [installationId, tenantId, appliance.instanceId, MODEL_ID, versionId, subscriptionId]);
+
+    const secondKeys = ed25519Pair();
+    const secondCode = await issueEnrolmentCode({ tenantId, label: "Second box", createdBy: "test" });
+    const secondEnrol = await enrol(new NextRequest("https://store.faivr.test/api/company-os/v1/enrol", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enrolmentCode: secondCode.code, appliancePublicKeyPem: secondKeys.publicPem, label: "Second box" }) }));
+    const secondIdentity = await bodyOf(secondEnrol);
+    const secondBox: Appliance = { tenantId, instanceId: secondIdentity.instanceId as string, keyId: secondIdentity.keyId as string, keys: secondKeys };
+    const secondCatalog = await bodyOf(await storeCatalog(signedRequest(secondBox, "GET", "/api/company-os/v1/store/catalog")));
+    const secondPackage = ((secondCatalog.bundles as Array<Record<string, unknown>>)[0].packages as Array<Record<string, unknown>>)[0];
+    expect(secondPackage.updateAvailable).toBeUndefined();
+    const secondDownload = await packageDownload(signedRequest(secondBox, "GET", `/api/company-os/v1/installations/${installationId}/package?versionId=${nextVersionId}`), { params: Promise.resolve({ id: installationId }) });
+    expect([403, 404]).toContain(secondDownload.status);
   });
 
   it("runs subscribe, webhook, install, signed download, activation, uninstall with receipt, cancellation and billing stop in order", async () => {

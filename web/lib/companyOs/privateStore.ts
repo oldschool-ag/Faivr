@@ -143,10 +143,24 @@ export async function addPackageToBundle(bundleId: string, packageId: string, cl
   await db(client).query("INSERT INTO company_os_bundle_packages(bundle_id,package_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [bundleId, packageId]);
 }
 
-function compareSemver(a: string, b: string): number {
-  const parse = (v: string) => v.split("-", 1)[0].split(".").map((part) => Number.parseInt(part, 10) || 0);
-  const [x, y] = [parse(a), parse(b)];
-  for (let i = 0; i < 3; i += 1) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) - (y[i] ?? 0);
+export function compareSemver(a: string, b: string): number {
+  const parse = (value: string) => {
+    const clean = value.split("+", 1)[0];
+    const dash = clean.indexOf("-");
+    return { core: (dash < 0 ? clean : clean.slice(0, dash)).split(".").map((part) => Number.parseInt(part, 10) || 0), prerelease: dash < 0 ? [] : clean.slice(dash + 1).split(".") };
+  };
+  const [left, right] = [parse(a), parse(b)];
+  for (let i = 0; i < 3; i += 1) if ((left.core[i] ?? 0) !== (right.core[i] ?? 0)) return (left.core[i] ?? 0) - (right.core[i] ?? 0);
+  if (!left.prerelease.length || !right.prerelease.length) return left.prerelease.length === right.prerelease.length ? 0 : left.prerelease.length ? -1 : 1;
+  for (let i = 0; i < Math.max(left.prerelease.length, right.prerelease.length); i += 1) {
+    const [x, y] = [left.prerelease[i], right.prerelease[i]];
+    if (x === undefined || y === undefined) return x === undefined ? -1 : 1;
+    if (x === y) continue;
+    const [xn, yn] = [/^\d+$/.test(x), /^\d+$/.test(y)];
+    if (xn && yn) return Number(x) - Number(y);
+    if (xn !== yn) return xn ? -1 : 1;
+    return x < y ? -1 : 1;
+  }
   return 0;
 }
 
@@ -167,6 +181,13 @@ export type CatalogPackage = {
   minCompanyOsVersion: string;
   maxCompanyOsVersion: string | null;
   installation: { installationId: string; state: string; localAgentDefinitionId: string | null } | null;
+  /** Present only for a package the appliance has installed through an active bundle subscription. */
+  installedVersion?: string;
+  latestVersion?: string;
+  updateAvailable?: boolean;
+  artifact?: { downloadPath: string; packageDigest: string; publisherKeyId: string | null; publisherSignature: string; manifest: Record<string, unknown> };
+  permissionChanges?: { added: string[]; removed: string[] };
+  releaseNotes?: string | null;
 };
 
 export type CatalogBundle = {
@@ -183,7 +204,22 @@ export type CatalogBundle = {
 export type CatalogOptions = {
   /** Whether the active billing provider has a reference for the bundle (T6b.1); Stripe's price by default. */
   priceConfigured?: (bundle: ReturnType<typeof billingBundle>) => boolean;
+  /** T55 sends this signed query value: base64url(JSON([{installationId,versionId}])). */
+  installedVersions?: Map<string, string>;
 };
+
+function manifestPermissions(manifest: unknown): string[] {
+  const permissions = (manifest as Record<string, unknown> | null)?.permissions;
+  return Array.isArray(permissions) ? permissions.filter((permission): permission is string => typeof permission === "string") : [];
+}
+
+function permissionChanges(installedManifest: unknown, latestManifest: unknown) {
+  const installed = manifestPermissions(installedManifest);
+  const latest = manifestPermissions(latestManifest);
+  const installedSet = new Set(installed);
+  const latestSet = new Set(latest);
+  return { added: latest.filter((permission) => !installedSet.has(permission)), removed: installed.filter((permission) => !latestSet.has(permission)) };
+}
 
 /** What one enrolled appliance may see: every active bundle with its packages, and the appliance's own state on each. */
 export async function catalogForAppliance(tenantId: string, instanceId: string, options: CatalogOptions = {}, client?: Queryable): Promise<CatalogBundle[]> {
@@ -193,18 +229,18 @@ export async function catalogForAppliance(tenantId: string, instanceId: string, 
   const members = await q.query("SELECT bundle_id,package_id FROM company_os_bundle_packages ORDER BY bundle_id,package_id");
   const packages = await q.query("SELECT id,name,summary FROM company_os_packages WHERE status='active'");
   const versions = await q.query(
-    "SELECT v.id,v.package_id,v.version,v.manifest,v.publisher_key_id,v.artifact_sha256,v.min_company_os_version,pub.publisher_id,pub.name AS publisher_name FROM company_os_package_versions v LEFT JOIN company_os_publishers pub ON pub.key_id=v.publisher_key_id WHERE v.status='published'",
+    "SELECT v.id,v.package_id,v.version,v.manifest,v.publisher_key_id,v.publisher_signature,v.artifact_sha256,v.min_company_os_version,v.release_notes,pub.publisher_id,pub.name AS publisher_name FROM company_os_package_versions v LEFT JOIN company_os_publishers pub ON pub.key_id=v.publisher_key_id WHERE v.status='published'",
   );
   const subscriptions = await q.query(
-    "SELECT id,bundle_id,subscription_state,checkout_session_id,cancel_effective_at,created_at FROM company_os_bundle_subscriptions WHERE tenant_id=$1 ORDER BY created_at DESC",
-    [tenantId],
+    "SELECT id,bundle_id,subscription_state,checkout_session_id,cancel_effective_at,created_at FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND instance_id=$2 ORDER BY created_at DESC",
+    [tenantId, instanceId],
   );
   const installations = await q.query(
-    "SELECT id,package_id,installation_state,local_agent_definition_id,created_at FROM company_os_installations WHERE tenant_id=$1 AND installation_state NOT IN ('removed','failed') ORDER BY created_at DESC",
-    [tenantId],
+    "SELECT id,package_id,installed_version_id,installation_state,local_agent_definition_id,created_at FROM company_os_installations WHERE tenant_id=$1 AND instance_id=$2 AND installation_state NOT IN ('removed','failed') ORDER BY created_at DESC",
+    [tenantId, instanceId],
   );
-  void instanceId;
   const packageById = new Map(packages.rows.map((row) => [row.id as string, row]));
+  const versionById = new Map(versions.rows.map((row) => [row.id as string, row]));
   const latestVersion = new Map<string, Record<string, unknown>>();
   for (const row of versions.rows) {
     const current = latestVersion.get(row.package_id as string);
@@ -230,7 +266,7 @@ export async function catalogForAppliance(tenantId: string, instanceId: string, 
       const manifest = (version.manifest ?? {}) as Record<string, unknown>;
       const compatibility = (manifest.companyOsCompatibility ?? {}) as Record<string, unknown>;
       const installation = installationByPackage.get(packageId);
-      items.push({
+      const item: CatalogPackage = {
         modelId: packageId,
         name: pkg.name as string,
         summary: pkg.summary as string,
@@ -240,13 +276,33 @@ export async function catalogForAppliance(tenantId: string, instanceId: string, 
         publisherKeyId: (version.publisher_key_id as string | null) ?? null,
         publisherId: (version.publisher_id as string | null) ?? null,
         publisherName: (version.publisher_name as string | null) ?? null,
-        permissions: Array.isArray(manifest.permissions) ? (manifest.permissions as string[]) : [],
+        permissions: manifestPermissions(manifest),
         slots: Array.isArray(manifest.slots) ? manifest.slots.filter((slot): slot is { id: string; question: string; kind: "repository" | "product" | "website"; required: boolean } => Boolean(slot && typeof slot === "object" && typeof (slot as Record<string, unknown>).id === "string" && typeof (slot as Record<string, unknown>).question === "string" && ["repository", "product", "website"].includes(String((slot as Record<string, unknown>).kind)) && typeof (slot as Record<string, unknown>).required === "boolean")) : [],
         description: typeof manifest.summary === "string" ? manifest.summary : (pkg.summary as string),
         minCompanyOsVersion: version.min_company_os_version as string,
         maxCompanyOsVersion: typeof compatibility.maxVersion === "string" ? compatibility.maxVersion : null,
         installation: installation ? { installationId: installation.id as string, state: installation.installation_state as string, localAgentDefinitionId: (installation.local_agent_definition_id as string | null) ?? null } : null,
-      });
+      };
+      const reportedVersionId = installation && options.installedVersions ? options.installedVersions.get(installation.id as string) : undefined;
+      const installedCandidate = installation ? versionById.get(reportedVersionId ?? (options.installedVersions ? "" : installation.installed_version_id as string)) : undefined;
+      const installed = installedCandidate?.package_id === packageId ? installedCandidate : undefined;
+      if (subscription?.subscription_state === "active" && installation && installed) {
+        const installedManifest = (installed.manifest ?? {}) as Record<string, unknown>;
+        const updateAvailable = compareSemver(version.version as string, installed.version as string) > 0;
+        item.installedVersion = installed.version as string;
+        item.latestVersion = version.version as string;
+        item.updateAvailable = updateAvailable;
+        item.permissionChanges = permissionChanges(installedManifest, manifest);
+        item.releaseNotes = typeof version.release_notes === "string" ? version.release_notes : (typeof manifest.releaseNotes === "string" ? manifest.releaseNotes : null);
+        if (updateAvailable) item.artifact = {
+          downloadPath: `/api/company-os/v1/installations/${installation.id as string}/package?versionId=${version.id as string}`,
+          packageDigest: version.artifact_sha256 as string,
+          publisherKeyId: (version.publisher_key_id as string | null) ?? null,
+          publisherSignature: version.publisher_signature as string,
+          manifest,
+        };
+      }
+      items.push(item);
     }
     return {
       bundleId: bundle.id as string,
