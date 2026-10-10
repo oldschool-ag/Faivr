@@ -115,10 +115,11 @@ export async function markEntitled(
 export async function installationForTenant(
   tenantId: string,
   installationId: string,
+  instanceId?: string,
 ) {
   const r = await getPgPool().query(
-    "SELECT i.*,p.id AS faivr_agent_model_id,p.slug,v.id AS faivr_package_version_id,v.version,v.manifest,v.publisher_key_id,v.publisher_signature,v.artifact_url,v.artifact_sha256,v.min_company_os_version FROM company_os_installations i JOIN company_os_packages p ON p.id=i.package_id JOIN company_os_package_versions v ON v.id=COALESCE(i.installed_version_id,i.desired_version_id) WHERE i.id=$1 AND i.tenant_id=$2",
-    [installationId, tenantId],
+    `SELECT i.*,p.id AS faivr_agent_model_id,p.slug,v.id AS faivr_package_version_id,v.version,v.manifest,v.publisher_key_id,v.publisher_signature,v.artifact_url,v.artifact_sha256,v.min_company_os_version FROM company_os_installations i JOIN company_os_packages p ON p.id=i.package_id JOIN company_os_package_versions v ON v.id=COALESCE(i.installed_version_id,i.desired_version_id) WHERE i.id=$1 AND i.tenant_id=$2${instanceId ? " AND i.instance_id=$3" : ""}`,
+    instanceId ? [installationId, tenantId, instanceId] : [installationId, tenantId],
   );
   return r.rows[0] ?? null;
 }
