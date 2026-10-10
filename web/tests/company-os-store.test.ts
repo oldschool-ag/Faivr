@@ -10,7 +10,7 @@ import { canonicalSignedMessage, signCompanyOsRequest, verifyMessageSignature } 
 import { addPackageToBundle, compareSemver, enrolPublisher, hashEnrolmentCode, issueEnrolmentCode, upsertBundle } from "@/lib/companyOs/privateStore";
 import { keyIdFor, loadEd25519PublicKey } from "@/lib/companyOs/publisherKeys";
 import { enrol, storeCatalog, storeCheckoutSessions, storeInstallations, storeSubscriptionCancel, storeSubscriptions } from "@/app/api/company-os/v1/storeHandlers";
-import { activationReceipts, billing, packageDownload, uninstallReceipts, uninstallRequests } from "@/app/api/company-os/v1/handlers";
+import { activationReceipts, billing, packageDownload, uninstallReceipts, uninstallRequests, updateConfirmation } from "@/app/api/company-os/v1/handlers";
 import { POST as stripeWebhook } from "@/app/api/company-os/stripe/webhook/route";
 import { createStoreDb, ed25519Pair, envelope, signedManifest, signedRequest, type Appliance } from "./helpers/companyOsStoreDb";
 
@@ -201,6 +201,22 @@ describe("the private Truchsess store on FAIVR", () => {
     const updateDownload = await packageDownload(signedRequest(appliance, "GET", `/api/company-os/v1/installations/${installationId}/package?versionId=${latestVersionId}`), { params: Promise.resolve({ id: installationId }) });
     expect(updateDownload.status).toBe(200);
     expect(Buffer.from(await updateDownload.arrayBuffer()).equals(updatedPayload)).toBe(true);
+
+    const confirmation = {
+      ...envelope(appliance, { installationId, modelId: MODEL_ID, versionId: latestVersionId, version: "1.2.1", localAgentDefinitionId: "local-updated-reviewer", packageDigest: updatedDigest }),
+      messageType: "installation.updated" as const,
+      activationResult: "active" as const,
+      compatibilityVerified: true as const,
+      publisherSignatureVerified: true as const,
+      packageChecksPassed: true as const,
+      updatedAt: new Date().toISOString(),
+    };
+    const confirmed = await updateConfirmation(signedRequest(appliance, "POST", `/api/company-os/v1/installations/${installationId}/updated`, confirmation, { idempotencyKey: confirmation.idempotencyKey as string }), { params: Promise.resolve({ id: installationId }) });
+    expect(confirmed.status).toBe(200);
+    expect(await bodyOf(confirmed)).toMatchObject({ installationId, versionId: latestVersionId, version: "1.2.1", state: "active" });
+    const storedUpdate = await holder.pool.query("SELECT installed_version_id,subscription_id,bundle_subscription_id FROM company_os_installations WHERE id=$1", [installationId]);
+    expect(storedUpdate.rows[0]).toMatchObject({ installed_version_id: latestVersionId, subscription_id: subscriptionId, bundle_subscription_id: subscriptionId });
+
     const foreignModel = "faivr.agent.foreign-update";
     const foreignVersionId = randomUUID();
     await holder.pool.query("INSERT INTO company_os_packages(id,slug,name,summary,status) VALUES($1,'foreign-update','Foreign update','Not this installation.','active')", [foreignModel]);

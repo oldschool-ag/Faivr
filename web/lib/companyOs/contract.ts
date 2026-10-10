@@ -9,6 +9,7 @@ export const COMPANY_OS_V1_ENDPOINTS = [
   "GET /api/company-os/v1/installations",
   "GET /api/company-os/v1/installations/{id}/package",
   "POST /api/company-os/v1/activation-receipts",
+  "POST /api/company-os/v1/installations/{id}/updated",
   "GET /api/company-os/v1/updates",
   "POST /api/company-os/v1/archive-receipts",
   "POST /api/company-os/v1/uninstall-requests",
