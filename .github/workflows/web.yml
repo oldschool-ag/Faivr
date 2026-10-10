@@ -38,5 +38,9 @@ jobs:
       - name: Test
         run: npm run test
 
+      - name: Test Neon preview lifecycle safeguards
+        working-directory: .
+        run: node --test scripts/neon-preview-branches.test.mjs
+
       - name: Build
         run: npm run build
