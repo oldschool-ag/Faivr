@@ -20,14 +20,15 @@ jobs:
       - name: Check whether the exact Neon preview branch exists
         id: preview-branch
         env:
+          PREVIEW_BRANCH: preview/${{ github.head_ref }}
           NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-        run: node scripts/check-neon-preview-branch.mjs "preview/${{ github.head_ref }}"
+        run: node scripts/check-neon-preview-branch.mjs
 
       - name: Delete matching Neon preview branch
         if: steps.preview-branch.outputs.exists == 'true'
         uses: neondatabase/delete-branch-action@v3
         with:
           project_id: ${{ vars.NEON_PROJECT_ID }}
-          branch: preview/${{ github.head_ref }}
+          branch: ${{ steps.preview-branch.outputs.branch }}
           api_key: ${{ secrets.NEON_API_KEY }}

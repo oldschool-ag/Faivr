@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { gitBranchState, listNeonBranches, previewBranchExists, pruneOrphanedPreviewBranches } from "./neon-preview-branches.mjs";
+import { gitBranchState, listNeonBranches, previewBranchExists, pruneOrphanedPreviewBranches, validatePreviewBranchName } from "./neon-preview-branches.mjs";
 
 const ok = (body) => ({ ok: true, status: 200, json: async () => body });
+const preview = (id, name, extra = {}) => ({ id, name, parent_id: "parent-branch", ...extra });
 
 test("git status 128 is an error, not proof that a branch is absent", () => {
   const error = Object.assign(new Error("remote unavailable"), { status: 128 });
@@ -12,7 +13,7 @@ test("git status 128 is an error, not proof that a branch is absent", () => {
 test("a confirmed missing Git branch deletes its matching preview branch", async () => {
   const deleted = [];
   await pruneOrphanedPreviewBranches({
-    branches: [{ id: "branch-1", name: "preview/review/closed" }],
+    branches: [preview("branch-1", "preview/review/closed")],
     gitState: () => "missing",
     deleteBranch: async (id) => { deleted.push(id); return { ok: true, status: 200 }; },
     log: () => {},
@@ -20,13 +21,30 @@ test("a confirmed missing Git branch deletes its matching preview branch", async
   assert.deepEqual(deleted, ["branch-1"]);
 });
 
-test("main, protected, and default branches are preserved", async () => {
+test("all Git lookups finish before any deletion", async () => {
+  const deleted = [];
+  const transportError = Object.assign(new Error("remote unavailable"), { status: 128 });
+  await assert.rejects(
+    () => pruneOrphanedPreviewBranches({
+      branches: [preview("first", "preview/review/first"), preview("second", "preview/review/second")],
+      gitState: (branch) => { if (branch === "review/second") throw transportError; return "missing"; },
+      deleteBranch: async (id) => { deleted.push(id); return { ok: true, status: 200 }; },
+      log: () => {},
+    }),
+    /remote unavailable/,
+  );
+  assert.deepEqual(deleted, []);
+});
+
+test("main, protected, default, primary, and root branches are preserved", async () => {
   const deleted = [];
   await pruneOrphanedPreviewBranches({
     branches: [
-      { id: "primary", name: "preview/main" },
-      { id: "protected", name: "preview/review/protected", protected: true },
-      { id: "default", name: "preview/review/default", default: true },
+      preview("primary", "preview/main"),
+      preview("protected", "preview/review/protected", { protected: true }),
+      preview("default", "preview/review/default", { default: true }),
+      preview("primary-flag", "preview/review/primary", { primary: true }),
+      { id: "root", name: "preview/review/root" },
       { id: "non-preview", name: "main" },
     ],
     gitState: () => "missing",
@@ -36,7 +54,7 @@ test("main, protected, and default branches are preserved", async () => {
   assert.deepEqual(deleted, []);
 });
 
-test("lists all Neon pages before pruning", async () => {
+test("lists all Neon pages using pagination.next before pruning", async () => {
   const calls = [];
   const branches = await listNeonBranches({
     projectId: "project",
@@ -44,8 +62,8 @@ test("lists all Neon pages before pruning", async () => {
     fetchImpl: async (url) => {
       calls.push(String(url));
       return calls.length === 1
-        ? ok({ branches: [{ id: "one", name: "preview/one" }], pagination: { cursor: "next-page" } })
-        : ok({ branches: [{ id: "two", name: "preview/two" }], pagination: {} });
+        ? ok({ branches: [preview("one", "preview/one")], pagination: { next: "next-page" } })
+        : ok({ branches: [preview("two", "preview/two")], pagination: {} });
     },
   });
   assert.deepEqual(branches.map((branch) => branch.id), ["one", "two"]);
@@ -60,6 +78,14 @@ test("a missing preview branch is a successful preflight result", async () => {
     fetchImpl: async () => ok({ branches: [], pagination: {} }),
   });
   assert.equal(exists, false);
+});
+
+test("preflight rejects unsafe branch names and roots", async () => {
+  assert.throws(() => validatePreviewBranchName("preview/review;rm-rf"), /Invalid/);
+  await assert.rejects(
+    () => previewBranchExists({ projectId: "project", apiKey: "test", branchName: "preview/review/root", fetchImpl: async () => ok({ branches: [{ id: "root", name: "preview/review/root" }], pagination: {} }) }),
+    /Refusing/,
+  );
 });
 
 test("an authentication failure stops cleanup", async () => {
