@@ -157,6 +157,42 @@ export async function acknowledgeInstall(
   );
   return r.rows[0] ?? null;
 }
+
+export async function confirmPackageUpdate(
+  tenantId: string,
+  instanceId: string,
+  confirmation: { installationId: string; modelId: string; versionId: string; version: string; packageDigest: string; localAgentDefinitionId: string },
+) {
+  const pool = getPgPool();
+  const current = await pool.query(
+    "SELECT i.id,i.package_id,i.bundle_subscription_id,i.installed_version_id,v.version AS installed_version FROM company_os_installations i JOIN company_os_package_versions v ON v.id=COALESCE(i.installed_version_id,i.desired_version_id) WHERE i.id=$1 AND i.tenant_id=$2 AND i.instance_id=$3 AND i.package_id=$4 AND i.installation_state IN ('active','update_available')",
+    [confirmation.installationId, tenantId, instanceId, confirmation.modelId],
+  );
+  if (!current.rowCount) return null;
+  const target = await pool.query(
+    "SELECT v.id,v.version FROM company_os_package_versions v WHERE v.id=$1 AND v.package_id=$2 AND v.version=$3 AND v.artifact_sha256=$4 AND v.status='published'",
+    [confirmation.versionId, current.rows[0].package_id, confirmation.version, confirmation.packageDigest],
+  );
+  if (!target.rowCount || comparePackageVersions(target.rows[0].version, current.rows[0].installed_version) <= 0) return null;
+  const subscription = await pool.query(
+    "SELECT 1 FROM company_os_bundle_subscriptions s JOIN company_os_bundle_packages bp ON bp.bundle_id=s.bundle_id WHERE s.id=$1 AND s.tenant_id=$2 AND s.instance_id=$3 AND s.subscription_state='active' AND bp.package_id=$4",
+    [current.rows[0].bundle_subscription_id, tenantId, instanceId, current.rows[0].package_id],
+  );
+  if (!subscription.rowCount) return null;
+  const updated = await pool.query(
+    "UPDATE company_os_installations SET installed_version_id=$4,installation_state='active',local_agent_definition_id=$5,installed_at=now(),updated_at=now() WHERE id=$1 AND tenant_id=$2 AND instance_id=$3 AND COALESCE(installed_version_id,desired_version_id)=$6 RETURNING *",
+    [confirmation.installationId, tenantId, instanceId, target.rows[0].id, confirmation.localAgentDefinitionId, current.rows[0].installed_version_id],
+  );
+  return updated.rows[0] ?? null;
+}
+
+function comparePackageVersions(left: string, right: string) {
+  const parse = (value: string) => { const clean=value.split("+",1)[0],dash=clean.indexOf("-"); return { core:(dash<0?clean:clean.slice(0,dash)).split(".").map(Number), pre:dash<0?[]:clean.slice(dash+1).split(".") }; };
+  const [a,b]=[parse(left),parse(right)];
+  for(let i=0;i<3;i+=1) if((a.core[i]??0)!==(b.core[i]??0)) return (a.core[i]??0)-(b.core[i]??0);
+  if(!a.pre.length||!b.pre.length) return a.pre.length===b.pre.length?0:a.pre.length?-1:1;
+  for(let i=0;i<Math.max(a.pre.length,b.pre.length);i+=1){const[x,y]=[a.pre[i],b.pre[i]];if(x===undefined||y===undefined)return x===undefined?-1:1;if(x===y)continue;const[xn,yn]=[/^\d+$/.test(x),/^\d+$/.test(y)];if(xn&&yn)return Number(x)-Number(y);if(xn!==yn)return xn?-1:1;return x<y?-1:1;}return 0;
+}
 export async function requestUninstall(
   tenantId: string,
   installationId: string,
