@@ -3,5 +3,10 @@
   "outputDirectory": ".next",
   "framework": "nextjs",
   "installCommand": "npm ci --include=dev",
-  "ignoreCommand": "node scripts/skip-preview-branch.mjs"
+  "git": {
+    "deploymentEnabled": {
+      "dependabot/**": false,
+      "review/**": false
+    }
+  }
 }

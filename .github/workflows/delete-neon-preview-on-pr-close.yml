@@ -9,10 +9,23 @@ permissions:
 
 jobs:
   delete-preview-branch:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository metadata
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Check whether the exact Neon preview branch exists
+        id: preview-branch
+        env:
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        run: node scripts/check-neon-preview-branch.mjs "preview/${{ github.head_ref }}"
+
       - name: Delete matching Neon preview branch
-        continue-on-error: true
+        if: steps.preview-branch.outputs.exists == 'true'
         uses: neondatabase/delete-branch-action@v3
         with:
           project_id: ${{ vars.NEON_PROJECT_ID }}
