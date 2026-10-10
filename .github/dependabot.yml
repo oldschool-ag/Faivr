@@ -11,8 +11,12 @@ updates:
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "javascript"
     groups:
-      minor-and-patch:
+      development-minor-and-patch:
+        dependency-type: "development"
         update-types:
           - "minor"
           - "patch"

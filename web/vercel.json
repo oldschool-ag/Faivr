@@ -2,5 +2,11 @@
   "buildCommand": "npm run build",
   "outputDirectory": ".next",
   "framework": "nextjs",
-  "installCommand": "npm ci --include=dev"
+  "installCommand": "npm ci --include=dev",
+  "git": {
+    "deploymentEnabled": {
+      "dependabot/**": false,
+      "review/**": false
+    }
+  }
 }
