@@ -16,15 +16,13 @@ or a build log.
 
 ## Database migration
 
-Apply the ordered migration from the repository root through the protected Store
-database release path:
-
-```sh
-psql "$DATABASE_URL" -f web/sql/migrations/20261011_truchsess_release_channels.sql
-```
-
-`DATABASE_URL` must be supplied by the protected host/CI environment, not pasted
-into chat or command history.
+No manual SQL step is required. Every Vercel production and preview deployment runs
+the Store migration runner before Next.js builds. Neon’s Vercel integration provides
+the matching deployment-scoped direct URL as `DATABASE_URL_UNPOOLED`; it is never
+printed. The runner verifies it targets the same Neon host, port, and database path as
+`DATABASE_URL` after normalizing only Neon’s `-pooler` hostname suffix. `STORE_MIGRATIONS_DATABASE_URL`
+is an optional documented override for a separately scoped direct URL and is held to
+the same deployment-database check.
 
 ## Hold back or resume stable updates
 

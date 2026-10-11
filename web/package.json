@@ -9,7 +9,8 @@
     "dev": "next dev",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run && node --test scripts/run-store-migrations.test.mjs",
+    "migrate:store": "node scripts/run-store-migrations.mjs",
     "build": "next build",
     "start": "next start"
   },
