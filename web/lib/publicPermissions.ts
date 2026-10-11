@@ -8,6 +8,8 @@ const words: Record<string, string> = {
   "workboard.write": "Change the workboard",
   "model.lane:standard": "Use your standard model",
   "model.lane:frontier": "Use your strongest model",
+  "mail.read": "Reads your company mailbox (only yours, only company addresses)",
+  "mail.draft": "Writes reply drafts into your Drafts folder. Never sends e-mail.",
 };
 
 export const NEVER_PERMISSIONS = [
