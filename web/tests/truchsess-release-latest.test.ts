@@ -28,16 +28,17 @@ function githubRelease() {
   ] };
 }
 
-function githubFetch() {
+function githubFetch(options: { closureLifetimeSeconds?: number; omitSignatureChecksum?: boolean; varyingUrls?: boolean } = {}) {
+  let redirectNumber = 0;
   return vi.fn(async (input: string | URL) => {
     const url = String(input);
     if (url.includes("/releases?per_page=100")) return new Response(JSON.stringify([{ ...githubRelease(), tag_name: "truchsess-iso-older", published_at: "2026-10-10T13:22:00Z" }, githubRelease()]), { status: 200 });
     if (url.endsWith(`/releases/tags/${tag}`)) return new Response(JSON.stringify(githubRelease()), { status: 200 });
     if (url.endsWith(`/git/ref/tags/${tag}`)) return new Response(JSON.stringify({ object: { type: "commit", sha: "f".repeat(40) } }), { status: 200 });
-    if (url === assetApi) return new Response(null, { status: 302, headers: { location: signedUrl("closure") } });
-    if (url.endsWith("/assets/44")) return new Response(null, { status: 302, headers: { location: signedUrl("closure.sig") } });
+    if (url === assetApi) return new Response(null, { status: 302, headers: { location: signedUrl(`closure-${options.varyingUrls ? ++redirectNumber : "current"}`, options.closureLifetimeSeconds ?? 300) } });
+    if (url.endsWith("/assets/44")) return new Response(null, { status: 302, headers: { location: signedUrl(`closure.sig-${options.varyingUrls ? ++redirectNumber : "current"}`) } });
     if (url === checksumApi) return new Response(null, { status: 302, headers: { location: signedUrl("checksums") } });
-    if (url.startsWith("https://objects.github.test/checksums?")) return new Response("a".repeat(64) + "  truchsess-closure.nar\n" + "b".repeat(64) + "  truchsess-closure.nar.sig\n", { status: 200 });
+    if (url.startsWith("https://objects.github.test/checksums?")) return new Response("a".repeat(64) + "  truchsess-closure.nar\n" + (options.omitSignatureChecksum ? "" : "b".repeat(64) + "  truchsess-closure.nar.sig\n"), { status: 200 });
     throw new Error(`unexpected fetch ${url}`);
   });
 }
@@ -102,6 +103,35 @@ describe("latest Truchsess release", () => {
 
   it("rejects a real-shaped GitHub redirect with a one-hour JWT expiry", () => {
     expect(() => signedUrlExpiry(signedUrl("closure", 3600))).toThrow("release_asset_url_expiry_invalid");
+  });
+
+  it("returns unavailable at the route when a provider URL exceeds ten minutes", async () => {
+    fetchMock = githubFetch({ closureLifetimeSeconds: 3600 });
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await latestRelease(signedRequest(appliance, "GET", "/api/company-os/v1/releases/latest?channel=stable"));
+    expect(response.status).toBe(502);
+    expect(await body(response)).toEqual({ error: "release_unavailable" });
+  });
+
+  it("returns unavailable at the route when a required signature has no checksum provenance", async () => {
+    fetchMock = githubFetch({ omitSignatureChecksum: true });
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await latestRelease(signedRequest(appliance, "GET", "/api/company-os/v1/releases/latest?channel=stable"));
+    expect(response.status).toBe(502);
+    expect(await body(response)).toEqual({ error: "release_unavailable" });
+  });
+
+  it("caches release metadata but requests fresh signed URLs with no-store responses", async () => {
+    fetchMock = githubFetch({ varyingUrls: true });
+    vi.stubGlobal("fetch", fetchMock);
+    const first = await latestRelease(signedRequest(appliance, "GET", "/api/company-os/v1/releases/latest?channel=stable"));
+    const second = await latestRelease(signedRequest(appliance, "GET", "/api/company-os/v1/releases/latest?channel=stable"));
+    const [firstAsset] = (await body(first)).assets as Array<{ downloadUrl: string }>;
+    const [secondAsset] = (await body(second)).assets as Array<{ downloadUrl: string }>;
+    expect(first.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(second.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(firstAsset.downloadUrl).not.toBe(secondAsset.downloadUrl);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/releases?per_page=100")).length).toBe(1);
   });
 
   it("returns 401 when signed identity headers are absent", async () => {
