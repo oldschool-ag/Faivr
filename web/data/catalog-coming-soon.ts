@@ -66,6 +66,13 @@ export const comingSoonFunctions: ComingSoonFunction[] = [
     becomes: ["faivr.agent.ai-visibility"],
   },
   {
+    slug: "company-mail",
+    name: "Company mail",
+    agents: ["Penn"],
+    summary: "Reads your company mail, shows what needs doing, and writes reply drafts in your style. Never sends.",
+    becomes: [],
+  },
+  {
     slug: "linkedin-posting",
     name: "LinkedIn posting",
     agents: ["Lena"],

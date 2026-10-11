@@ -49,6 +49,7 @@ const exactKeys=(value,keys,label)=>{if(!value||typeof value!=="object"||Array.i
 // The appliance owns the closed vocabulary and re-validates them at install; the store only
 // wants unique, non-empty strings.
 const uniqueStrings=(value,label)=>{if(!Array.isArray(value)||value.some(v=>typeof v!=="string"||!v||v.length>256||/\s/.test(v))||new Set(value).size!==value.length)throw new Error(`${label} must be unique non-empty strings`);};
+const validatePermissions=(permissions)=>{for(const permission of permissions)if(permission.startsWith("mail.")&&permission!=="mail.read"&&permission!=="mail.draft")throw new Error(`unsupported mail permission ${permission}`);};
 const validateSlots=(slots,permissions)=>{
   if(slots===undefined)slots=[];
   if(!Array.isArray(slots))throw new Error("slots must be an array");
@@ -147,7 +148,7 @@ function validateManifest(raw,artifact,files){
   if(raw.releaseNotes!==undefined&&(typeof raw.releaseNotes!=="string"||raw.releaseNotes.length<1||raw.releaseNotes.length>1000))throw new Error("invalid releaseNotes");
   if(!digestPattern.test(raw.packageDigest)||raw.packageDigest!==sha256(artifact)||!Number.isSafeInteger(raw.artifactBytes)||raw.artifactBytes!==artifact.length)throw new Error("artifact size or digest mismatch");
   if(raw.entrypoint!=="agent-definition.json"||!semver.test(raw.companyOsCompatibility.minVersion)||(raw.companyOsCompatibility.maxVersion!==null&&!semver.test(raw.companyOsCompatibility.maxVersion)))throw new Error("invalid entrypoint or compatibility range");
-  uniqueStrings(raw.permissions,"permissions");uniqueStrings(raw.dependencies,"dependencies");validateSlots(raw.slots,raw.permissions);
+  uniqueStrings(raw.permissions,"permissions");uniqueStrings(raw.dependencies,"dependencies");validatePermissions(raw.permissions);validateSlots(raw.slots,raw.permissions);
   const managedRoot=`agents/${raw.modelId}/${raw.version}`;
   if(!Array.isArray(raw.managedPaths)||raw.managedPaths.length!==1||raw.managedPaths[0]!==managedRoot)throw new Error("invalid managedPaths root");
   if(raw.tenantDataIncluded!==false)throw new Error("tenant data must not be included");

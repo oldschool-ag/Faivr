@@ -2,6 +2,7 @@ import "server-only";
 import { createHash, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import type { PoolClient } from "pg";
 import { getPgPool } from "@/lib/postgres";
+import { describePermission } from "@/lib/publicPermissions";
 import { normalizePublicKeyPem } from "./publisherKeys";
 
 /**
@@ -175,6 +176,7 @@ export type CatalogPackage = {
   publisherId: string | null;
   publisherName: string | null;
   permissions: string[];
+  permissionDescriptions: string[];
   /** Empty when the signed manifest has no installation questions. */
   slots: Array<{ id: string; question: string; kind: "repository" | "product" | "website"; required: boolean }>;
   description: string;
@@ -277,6 +279,7 @@ export async function catalogForAppliance(tenantId: string, instanceId: string, 
         publisherId: (version.publisher_id as string | null) ?? null,
         publisherName: (version.publisher_name as string | null) ?? null,
         permissions: manifestPermissions(manifest),
+        permissionDescriptions: manifestPermissions(manifest).map((permission) => describePermission(permission)),
         slots: Array.isArray(manifest.slots) ? manifest.slots.filter((slot): slot is { id: string; question: string; kind: "repository" | "product" | "website"; required: boolean } => Boolean(slot && typeof slot === "object" && typeof (slot as Record<string, unknown>).id === "string" && typeof (slot as Record<string, unknown>).question === "string" && ["repository", "product", "website"].includes(String((slot as Record<string, unknown>).kind)) && typeof (slot as Record<string, unknown>).required === "boolean")) : [],
         description: typeof manifest.summary === "string" ? manifest.summary : (pkg.summary as string),
         minCompanyOsVersion: version.min_company_os_version as string,

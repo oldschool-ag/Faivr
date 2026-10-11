@@ -175,6 +175,21 @@ describe("importing a signed Truchsess bundle file into the store", () => {
     expect(tamperedResult.stderr).toContain("invalid publisher signature");
   });
 
+  it("accepts Penn's mail permissions and rejects mail.send", () => {
+    const dir = mkdtempSync(join(tmpdir(), "faivr-import-mail-"));
+    writeFileSync(join(dir, "publisher.pub"), publicPem);
+    const env = { FAIVR_VALIDATE_ONLY: "1", FAIVR_PUBLISHER_PUBLIC_KEY_PATH: join(dir, "publisher.pub"), FAIVR_PACKAGE_ORIGIN: "https://store.faivr.test", FAIVR_STORE_ARTIFACT_INLINE: "1" };
+    const allowed = join(dir, "mail-allowed.truchsess-bundle.tar");
+    writeFileSync(allowed, signedBundle({ ...unsigned, permissions: [...permissions, "mail.read", "mail.draft"] }));
+    const allowedResult = run([allowed], env);
+    expect(allowedResult.status, allowedResult.stderr).toBe(0);
+    const forbidden = join(dir, "mail-send.truchsess-bundle.tar");
+    writeFileSync(forbidden, signedBundle({ ...unsigned, permissions: [...permissions, "mail.send"] }));
+    const result = run([forbidden], env);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("unsupported mail permission mail.send");
+  });
+
   it("refuses a bundle whose payload was swapped or whose signature does not verify", () => {
     const dir = mkdtempSync(join(tmpdir(), "faivr-import-bad-"));
     writeFileSync(join(dir, "publisher.pub"), publicPem);

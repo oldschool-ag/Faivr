@@ -166,6 +166,19 @@ describe("the private Truchsess store on FAIVR", () => {
     expect((await storeCatalog(replay)).status).toBe(409);
   });
 
+  it("keeps signed raw mail permissions and projects plain descriptions in the signed appliance catalog", async () => {
+    await holder.pool.query("UPDATE company_os_package_versions SET manifest=$1 WHERE id=$2", [JSON.stringify({ ...manifest, permissions: ["mail.read", "mail.draft", "action.message"] }), versionId]);
+    await enrolAppliance();
+    const body = await bodyOf(await storeCatalog(signedRequest(appliance, "GET", "/api/company-os/v1/store/catalog")));
+    const pkg = ((body.bundles as Array<Record<string, unknown>>)[0].packages as Array<Record<string, unknown>>)[0];
+    expect(pkg.permissions).toEqual(["mail.read", "mail.draft", "action.message"]);
+    expect(pkg.permissionDescriptions).toEqual([
+      "Reads your company mailbox (only yours, only company addresses)",
+      "Writes reply drafts into your Drafts folder. Never sends e-mail.",
+      "Sends messages",
+    ]);
+  });
+
   it("offers a signed newer package only to an active subscriber that has the package installed", async () => {
     await enrolAppliance();
     const subscriptionId = randomUUID();
