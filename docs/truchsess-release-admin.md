@@ -39,11 +39,23 @@ Replace the example tag with the reviewed release you want boxes to receive.
 `set-stable` pins enrolled boxes to that exact release tag. `clear` returns stable
 to the newest published `truchsess-iso-*` release.
 
-## Current upstream release blockers
+## GitHub release integrity and download links
 
-The Store intentionally refuses to serve a release unless every required closure,
-signature, and `.release.json` update asset has checksum-file provenance and GitHub
-returns a signed download URL with valid `jwt` and `se` expiry values whose earlier
-expiry is no more than ten minutes away. The currently observed release layout has a long-lived closure redirect
-and lacks checksum entries for required signature/manifest assets. Fix those upstream
-release artifacts before enabling this endpoint for boxes.
+Each update asset must have a valid `sha256:<64 hex digits>` digest in GitHub's
+release-asset metadata. That digest supplies the response's `sha256` value.
+Checksum files are optional. If a checksum file lists an update asset, every entry
+for that asset must match GitHub's digest; a mismatch makes the release unavailable.
+A release with GitHub digests and no checksum files can be served. Missing or
+invalid GitHub digests are refused even if a checksum file lists the asset.
+
+GitHub normally returns download links lasting about 60 minutes for large assets.
+The Store accepts links with valid `jwt` and `se` expiry values whose earlier expiry
+is still in the future and at most 70 minutes away. It reports that actual expiry,
+without extending it or rewriting signed URLs. Expired, unverifiable, or longer-lived
+links make the release unavailable. Metadata stays cached for five minutes; each
+request fetches fresh download links and the response remains `private, no-store`.
+
+The response includes the closure, its signature, the release manifest and its
+signature, without ISO or checksum files. The Store never proxies update payloads
+or passes its GitHub token to a box. The box must still verify each asset's digest
+and the release signature before applying an update.
