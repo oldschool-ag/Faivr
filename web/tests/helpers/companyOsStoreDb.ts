@@ -26,6 +26,7 @@ export function createStoreDb() {
     CREATE TABLE company_os_package_artifacts(version_id uuid PRIMARY KEY,artifact bytea,artifact_bytes integer,artifact_sha256 text,uploaded_at timestamptz DEFAULT now());
     CREATE TABLE company_os_bundle_subscriptions(id uuid PRIMARY KEY,tenant_id uuid,instance_id uuid,bundle_id text,checkout_session_id uuid,stripe_checkout_session_id text,stripe_subscription_id text,billing_provider text,provider_checkout_id text,provider_subscription_id text,provider_customer_id text,subscription_state text,entitled_at timestamptz,cancel_effective_at timestamptz,stopped_at timestamptz,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
     CREATE TABLE company_os_enrolment_codes(code_hash text PRIMARY KEY,tenant_id uuid,label text,created_by text,created_at timestamptz DEFAULT now(),expires_at timestamptz,used_at timestamptz,instance_id uuid,key_id text,owner_email text);
+    CREATE TABLE company_os_release_channels(channel text PRIMARY KEY,pinned_tag text,updated_at timestamptz DEFAULT now());
   `);
   const adapter = db.adapters.createPg();
   return { db, pool: new adapter.Pool() as unknown as import("pg").Pool };
