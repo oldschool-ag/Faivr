@@ -20,7 +20,7 @@ Apply the ordered migration from the repository root through the protected Store
 database release path:
 
 ```sh
-psql "$DATABASE_URL" -f web/sql/migrations/20261010_truchsess_release_channels.sql
+psql "$DATABASE_URL" -f web/sql/migrations/20261011_truchsess_release_channels.sql
 ```
 
 `DATABASE_URL` must be supplied by the protected host/CI environment, not pasted
@@ -31,10 +31,11 @@ into chat or command history.
 From the repository root in the configured Store-admin environment:
 
 ```sh
-node scripts/store-release-admin.mjs set-stable truchsess-iso-<tag>
-node scripts/store-release-admin.mjs clear
+node web/scripts/store-release-admin.mjs set-stable truchsess-iso-20261011-8f10bc7
+node web/scripts/store-release-admin.mjs clear
 ```
 
+Replace the example tag with the reviewed release you want boxes to receive.
 `set-stable` pins enrolled boxes to that exact release tag. `clear` returns stable
 to the newest published `truchsess-iso-*` release.
 
@@ -42,7 +43,7 @@ to the newest published `truchsess-iso-*` release.
 
 The Store intentionally refuses to serve a release unless every required closure,
 signature, and `.release.json` update asset has checksum-file provenance and GitHub
-returns a signed download URL whose `jwt` and `se` expiries are both no more than ten
-minutes away. The currently observed release layout has a long-lived closure redirect
+returns a signed download URL with valid `jwt` and `se` expiry values whose earlier
+expiry is no more than ten minutes away. The currently observed release layout has a long-lived closure redirect
 and lacks checksum entries for required signature/manifest assets. Fix those upstream
 release artifacts before enabling this endpoint for boxes.
