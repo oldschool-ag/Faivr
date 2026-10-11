@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build",
+  "buildCommand": "npm run migrate:store && npm run build",
   "outputDirectory": ".next",
   "framework": "nextjs",
   "installCommand": "npm ci --include=dev",
