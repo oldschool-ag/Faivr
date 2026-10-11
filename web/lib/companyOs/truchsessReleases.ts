@@ -40,6 +40,16 @@ async function githubJson<T>(url: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function newestPublishedRelease() {
+  const releases: GithubRelease[] = [];
+  for (let page = 1; page <= 20; page += 1) {
+    const batch = await githubJson<GithubRelease[]>(`https://api.github.com/repos/${repository}/releases?per_page=100&page=${page}`);
+    releases.push(...batch);
+    if (batch.length < 100) break;
+  }
+  return releases.filter(releaseIsEligible).sort((left, right) => Date.parse(right.published_at ?? "") - Date.parse(left.published_at ?? ""))[0];
+}
+
 export async function stableTag(pool: { query: (sql: string, values?: unknown[]) => Promise<{ rows: Array<{ pinned_tag: string | null }> }> }) {
   const result = await pool.query("SELECT pinned_tag FROM company_os_release_channels WHERE channel='stable'");
   return result.rows[0]?.pinned_tag ?? null;
@@ -51,7 +61,7 @@ async function releaseForTag(tag: string | null): Promise<CachedRelease> {
   if (existing && existing.expiresAt > Date.now()) return existing.release;
   const release = tag
     ? await githubJson<GithubRelease>(`https://api.github.com/repos/${repository}/releases/tags/${encodeURIComponent(tag)}`)
-    : (await githubJson<GithubRelease[]>(`https://api.github.com/repos/${repository}/releases?per_page=100`)).find(releaseIsEligible);
+    : await newestPublishedRelease();
   if (!release || !releaseIsEligible(release)) throw new ReleaseLookupError(404, "release_not_found");
   cache.set(cacheKey, { expiresAt: Date.now() + cacheTtlMs, release });
   return release;

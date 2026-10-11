@@ -31,7 +31,7 @@ function githubRelease() {
 function githubFetch() {
   return vi.fn(async (input: string | URL) => {
     const url = String(input);
-    if (url.includes("/releases?per_page=100")) return new Response(JSON.stringify([githubRelease()]), { status: 200 });
+    if (url.includes("/releases?per_page=100")) return new Response(JSON.stringify([{ ...githubRelease(), tag_name: "truchsess-iso-older", published_at: "2026-10-10T13:22:00Z" }, githubRelease()]), { status: 200 });
     if (url.endsWith(`/releases/tags/${tag}`)) return new Response(JSON.stringify(githubRelease()), { status: 200 });
     if (url.endsWith(`/git/ref/tags/${tag}`)) return new Response(JSON.stringify({ object: { type: "commit", sha: "f".repeat(40) } }), { status: 200 });
     if (url === assetApi) return new Response(null, { status: 302, headers: { location: signedUrl("closure") } });

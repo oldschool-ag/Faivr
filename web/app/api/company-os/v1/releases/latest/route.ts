@@ -13,7 +13,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Invalid Company OS signature" }, { status: 401, headers: { "Cache-Control": "no-store" } });
     return auth;
   }
-  if (req.nextUrl.searchParams.get("channel") !== "stable") return NextResponse.json({ error: "unsupported_release_channel" }, { status: 400, headers: { "Cache-Control": "no-store" } });
+  if (req.nextUrl.searchParams.get("channel") !== "stable") {
+    console.info(`[company-os-release] box=${auth.principal.instanceId} tag=none result=unsupported_channel`);
+    return NextResponse.json({ error: "unsupported_release_channel" }, { status: 400, headers: { "Cache-Control": "no-store" } });
+  }
   try {
     const release = await latestTruchsessRelease(getPgPool());
     console.info(`[company-os-release] box=${auth.principal.instanceId} tag=${release.tag}`);
