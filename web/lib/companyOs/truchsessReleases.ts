@@ -1,11 +1,11 @@
-type GithubAsset = { id: number; name: string; size: number; url: string };
+type GithubAsset = { id: number; name: string; size: number; url: string; digest?: string | null };
 type GithubRelease = { tag_name: string; target_commitish: string; published_at: string | null; body: string | null; draft: boolean; prerelease: boolean; assets: GithubAsset[] };
 type CachedRelease = GithubRelease;
 
 const repository = "oldschool-ag/truchsess";
 const tagPrefix = "truchsess-iso-";
 const cacheTtlMs = 5 * 60 * 1000;
-const downloadLifetimeSeconds = 10 * 60;
+const downloadLifetimeSeconds = 70 * 60;
 const cache = new Map<string, { expiresAt: number; release: CachedRelease }>();
 
 export class ReleaseLookupError extends Error {
@@ -99,12 +99,13 @@ async function redirectUrl(asset: GithubAsset) {
 }
 
 function checksumMap(text: string) {
-  const entries = new Map<string, string>();
+  // Preserve every entry: a conflicting duplicate must not be overwritten.
+  const entries: Array<[string, string]> = [];
   for (const line of text.split(/\r?\n/)) {
     const standard = line.match(/^([a-fA-F0-9]{64})\s+\*?(.+)$/);
     const bsd = line.match(/^SHA256 \((.+)\) = ([a-fA-F0-9]{64})$/);
-    if (standard) entries.set(standard[2], `sha256:${standard[1].toLowerCase()}`);
-    if (bsd) entries.set(bsd[1], `sha256:${bsd[2].toLowerCase()}`);
+    if (standard) entries.push([standard[2], `sha256:${standard[1].toLowerCase()}`]);
+    if (bsd) entries.push([bsd[1], `sha256:${bsd[2].toLowerCase()}`]);
   }
   return entries;
 }
@@ -116,17 +117,19 @@ async function checksums(release: GithubRelease) {
     if (!response.ok) throw new ReleaseLookupError(502, "release_checksums_failed");
     return checksumMap(await response.text());
   }));
-  if (!maps.length) throw new ReleaseLookupError(502, "release_checksums_missing");
-  return new Map(maps.flatMap(map => Array.from(map.entries())));
+  return maps.flat();
 }
 
 export async function latestTruchsessRelease(pool: Parameters<typeof stableTag>[0]) {
   const pinnedTag = await stableTag(pool);
   const release = await releaseForTag(pinnedTag);
-  const digestByName = await checksums(release);
+  const checksumEntries = await checksums(release);
   const assets = await Promise.all(release.assets.filter(isUpdateAsset).map(async (asset) => {
-    const sha256 = digestByName.get(asset.name);
-    if (!sha256) throw new ReleaseLookupError(502, "release_asset_checksum_missing");
+    if (typeof asset.digest !== "string" || !/^sha256:[a-fA-F0-9]{64}$/.test(asset.digest))
+      throw new ReleaseLookupError(502, "release_asset_digest_invalid");
+    const sha256 = asset.digest.toLowerCase();
+    if (checksumEntries.some(([name, checksum]) => name === asset.name && checksum !== sha256))
+      throw new ReleaseLookupError(502, "release_asset_checksum_mismatch");
     const downloadUrl = await redirectUrl(asset);
     return { name: asset.name, size: asset.size, sha256, downloadUrl, downloadUrlExpiresAt: signedUrlExpiry(downloadUrl) };
   }));
