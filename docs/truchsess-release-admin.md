@@ -39,11 +39,14 @@ Replace the example tag with the reviewed release you want boxes to receive.
 `set-stable` pins enrolled boxes to that exact release tag. `clear` returns stable
 to the newest published `truchsess-iso-*` release.
 
-## Current upstream release blockers
+## Release transport rules
 
-The Store intentionally refuses to serve a release unless every required closure,
-signature, and `.release.json` update asset has checksum-file provenance and GitHub
-returns a signed download URL with valid `jwt` and `se` expiry values whose earlier
-expiry is no more than ten minutes away. The currently observed release layout has a long-lived closure redirect
-and lacks checksum entries for required signature/manifest assets. Fix those upstream
-release artifacts before enabling this endpoint for boxes.
+The Store uses GitHub's per-asset `sha256:` digest as the transport checksum. If a
+release checksum file also names an asset, its digest must match GitHub's digest or
+the Store refuses that release. Assets with neither source are refused.
+
+GitHub's private-release redirects normally last about 60 minutes. The Store accepts
+the earlier of the signed URL's `jwt.exp` and `se` expiries through 70 minutes to
+allow clock skew. It returns a fresh URL on every request and never logs or caches
+the URL. The Truchsess box remains responsible for the pinned-key release-signature
+verification before applying anything.

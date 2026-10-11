@@ -1,11 +1,12 @@
-type GithubAsset = { id: number; name: string; size: number; url: string };
+type GithubAsset = { id: number; name: string; size: number; url: string; digest?: string | null };
 type GithubRelease = { tag_name: string; target_commitish: string; published_at: string | null; body: string | null; draft: boolean; prerelease: boolean; assets: GithubAsset[] };
 type CachedRelease = GithubRelease;
 
 const repository = "oldschool-ag/truchsess";
 const tagPrefix = "truchsess-iso-";
 const cacheTtlMs = 5 * 60 * 1000;
-const downloadLifetimeSeconds = 10 * 60;
+/** GitHub private-release redirects normally last about 60 minutes. */
+const downloadLifetimeSeconds = 70 * 60;
 const cache = new Map<string, { expiresAt: number; release: CachedRelease }>();
 
 export class ReleaseLookupError extends Error {
@@ -116,8 +117,13 @@ async function checksums(release: GithubRelease) {
     if (!response.ok) throw new ReleaseLookupError(502, "release_checksums_failed");
     return checksumMap(await response.text());
   }));
-  if (!maps.length) throw new ReleaseLookupError(502, "release_checksums_missing");
   return new Map(maps.flatMap(map => Array.from(map.entries())));
+}
+
+function githubDigest(asset: GithubAsset) {
+  const digest = asset.digest;
+  if (typeof digest !== "string" || !/^sha256:[a-f0-9]{64}$/i.test(digest)) return undefined;
+  return `sha256:${digest.slice("sha256:".length).toLowerCase()}`;
 }
 
 export async function latestTruchsessRelease(pool: Parameters<typeof stableTag>[0]) {
@@ -125,7 +131,10 @@ export async function latestTruchsessRelease(pool: Parameters<typeof stableTag>[
   const release = await releaseForTag(pinnedTag);
   const digestByName = await checksums(release);
   const assets = await Promise.all(release.assets.filter(isUpdateAsset).map(async (asset) => {
-    const sha256 = digestByName.get(asset.name);
+    const assetDigest = githubDigest(asset);
+    const checksumDigest = digestByName.get(asset.name);
+    if (assetDigest && checksumDigest && assetDigest !== checksumDigest) throw new ReleaseLookupError(502, "release_asset_checksum_mismatch");
+    const sha256 = assetDigest ?? checksumDigest;
     if (!sha256) throw new ReleaseLookupError(502, "release_asset_checksum_missing");
     const downloadUrl = await redirectUrl(asset);
     return { name: asset.name, size: asset.size, sha256, downloadUrl, downloadUrlExpiresAt: signedUrlExpiry(downloadUrl) };
