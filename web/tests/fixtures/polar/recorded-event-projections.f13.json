@@ -1,0 +1,8 @@
+{
+  "provenance": "Derived from accepted Polar webhook records in the Store database, inspected read-only on 2026-10-12. Identifiers are fixture placeholders and timestamps shifted. This projection is merged with synthetic full payload fixtures for signature/SDK route tests.",
+  "scenarios": {
+    "paid-checkout": ["subscription.created", "subscription.active", "subscription.updated", "order.paid"],
+    "scheduled-cancellation": ["subscription.created", "subscription.active", "subscription.updated", "order.paid", "subscription.updated", "subscription.canceled"]
+  },
+  "matchingFields": ["faivr_subscription_id", "faivr_tenant_id", "faivr_instance_id", "faivr_bundle_id"]
+}

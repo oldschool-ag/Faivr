@@ -59,6 +59,7 @@ import {
   type BillingProvider,
   type BillingSubscriptionState,
   type CreateCheckoutInput,
+  type ProviderCheckout,
   type ProviderSubscription,
 } from "./provider";
 
@@ -134,7 +135,7 @@ export class StripeBillingProvider implements BillingProvider {
     return { checkoutId: provider.id, url: provider.url };
   }
 
-  async readSubscription(providerSubscriptionId: string): Promise<ProviderSubscription> {
+  async readSubscription(providerSubscriptionId: string, _options?: { signal?: AbortSignal }): Promise<ProviderSubscription> {
     const value = await retrieveSubscription(providerSubscriptionId);
     return {
       providerSubscriptionId,
@@ -144,6 +145,15 @@ export class StripeBillingProvider implements BillingProvider {
       cancelAtPeriodEnd: value.cancel_at_period_end === true,
       endedAt: isoOrNull(value.ended_at),
     };
+  }
+
+  async readCheckout(providerCheckoutId: string, _options?: { signal?: AbortSignal }): Promise<ProviderCheckout> {
+    const value = await retrieveCheckoutSession(providerCheckoutId);
+    const status = stringOrNull(value.status)?.toLowerCase();
+    const subscriptionId = stringOrNull(value.subscription);
+    if (subscriptionId && ["complete", "paid"].includes(status ?? "")) return { state: "active", providerSubscriptionId: subscriptionId, providerCustomerId: stringOrNull(value.customer) };
+    if (["expired", "canceled", "cancelled"].includes(status ?? "")) return { state: "abandoned", providerSubscriptionId: null, providerCustomerId: stringOrNull(value.customer) };
+    return { state: "pending", providerSubscriptionId: subscriptionId, providerCustomerId: stringOrNull(value.customer) };
   }
 
   async cancelAtPeriodEnd(providerSubscriptionId: string, idempotencyKey: string) {

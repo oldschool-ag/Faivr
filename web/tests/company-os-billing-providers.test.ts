@@ -332,3 +332,49 @@ describe("provider selection and configuration", () => {
     expect(billingProvider().name).toBe("polar");
   });
 });
+
+describe("Polar checkout reconciliation states", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    for (const key of ENV_KEYS) delete process.env[key];
+  });
+
+  it("only grants a succeeded checkout whose current subscription remains active", async () => {
+    configure("polar");
+    const answers = [
+      jsonResponse(JSON.stringify({ id: IDS.polarCheckout, status: "succeeded", subscription_id: IDS.polarSubscription, customer_id: IDS.polarCustomer })),
+      jsonResponse(JSON.stringify({ id: IDS.polarSubscription, customer_id: IDS.polarCustomer, status: "active", cancel_at_period_end: false, current_period_end: PERIOD_END, ended_at: null })),
+    ];
+    vi.stubGlobal("fetch", vi.fn(async () => answers.shift()!));
+    await expect(billingProvider().readCheckout(IDS.polarCheckout)).resolves.toMatchObject({ state: "active", providerSubscriptionId: IDS.polarSubscription });
+  });
+
+  it("marks only a provider-open checkout eligible for local abandonment", async () => {
+    configure("polar");
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(JSON.stringify({ id: IDS.polarCheckout, status: "open", subscription_id: null }))));
+    await expect(billingProvider().readCheckout(IDS.polarCheckout)).resolves.toMatchObject({ state: "open" });
+  });
+
+  it("preserves a provider scheduled cancellation when a succeeded checkout is reconciled", async () => {
+    configure("polar");
+    const answers = [
+      jsonResponse(JSON.stringify({ id: IDS.polarCheckout, status: "succeeded", subscription_id: IDS.polarSubscription, customer_id: IDS.polarCustomer })),
+      jsonResponse(JSON.stringify({ id: IDS.polarSubscription, customer_id: IDS.polarCustomer, status: "active", cancel_at_period_end: true, current_period_end: PERIOD_END, ended_at: null })),
+    ];
+    vi.stubGlobal("fetch", vi.fn(async () => answers.shift()!));
+    await expect(billingProvider().readCheckout(IDS.polarCheckout)).resolves.toMatchObject({ state: "active", cancelAtPeriodEnd: true, cancelEffectiveAt: new Date(PERIOD_END).toISOString() });
+  });
+
+  it("keeps confirmed processing and succeeded-but-cancelled subscriptions fail closed", async () => {
+    configure("polar");
+    const answers = [
+      jsonResponse(JSON.stringify({ id: IDS.polarCheckout, status: "confirmed", subscription_id: IDS.polarSubscription })),
+      jsonResponse(JSON.stringify({ id: IDS.polarCheckout, status: "succeeded", subscription_id: IDS.polarSubscription })),
+      jsonResponse(JSON.stringify({ id: IDS.polarSubscription, customer_id: IDS.polarCustomer, status: "canceled", cancel_at_period_end: false, current_period_end: null, ended_at: PERIOD_END })),
+    ];
+    vi.stubGlobal("fetch", vi.fn(async () => answers.shift()!));
+    const provider = billingProvider();
+    await expect(provider.readCheckout(IDS.polarCheckout)).resolves.toMatchObject({ state: "pending" });
+    await expect(provider.readCheckout(IDS.polarCheckout)).resolves.toMatchObject({ state: "pending" });
+  });
+});

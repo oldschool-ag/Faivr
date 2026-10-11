@@ -2,6 +2,9 @@
   "buildCommand": "npm run migrate:store && npm run build",
   "outputDirectory": ".next",
   "framework": "nextjs",
+  "crons": [
+    { "path": "/api/cron/reconcile-checkouts", "schedule": "*/15 * * * *" }
+  ],
   "installCommand": "npm ci --include=dev",
   "git": {
     "deploymentEnabled": {
