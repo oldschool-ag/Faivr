@@ -14,6 +14,7 @@ import {
   type CancellationScheduled,
   type CheckoutCreated,
   type CreateCheckoutInput,
+  type ProviderCheckout,
   type ProviderSubscription,
 } from "./provider";
 
@@ -51,7 +52,7 @@ export function isPolarProductId(value: unknown): value is string {
   return typeof value === "string" && POLAR_UUID.test(value);
 }
 
-type PolarRequestInit = { method?: string; body?: unknown };
+type PolarRequestInit = { method?: string; body?: unknown; signal?: AbortSignal };
 
 export class PolarBillingProvider implements BillingProvider {
   readonly name = "polar" as const;
@@ -72,7 +73,7 @@ export class PolarBillingProvider implements BillingProvider {
       Accept: "application/json",
     };
     if (init.body !== undefined) headers["Content-Type"] = "application/json";
-    const response = await fetch(`${this.config.apiOrigin}${path}`, { method: init.method ?? "GET", headers, body: init.body === undefined ? undefined : JSON.stringify(init.body) });
+    const response = await fetch(`${this.config.apiOrigin}${path}`, { method: init.method ?? "GET", headers, body: init.body === undefined ? undefined : JSON.stringify(init.body), signal: init.signal });
     const text = await response.text();
     let value: unknown = {};
     if (text) {
@@ -110,9 +111,28 @@ export class PolarBillingProvider implements BillingProvider {
     return { checkoutId: value.id, url: value.url };
   }
 
-  async readSubscription(providerSubscriptionId: string): Promise<ProviderSubscription> {
-    const { value } = await this.request(`/v1/subscriptions/${encodeURIComponent(providerSubscriptionId)}`);
+  async readSubscription(providerSubscriptionId: string, options?: { signal?: AbortSignal }): Promise<ProviderSubscription> {
+    const { value } = await this.request(`/v1/subscriptions/${encodeURIComponent(providerSubscriptionId)}`, { signal: options?.signal });
     return polarSubscriptionView(value);
+  }
+
+  async readCheckout(providerCheckoutId: string, options?: { signal?: AbortSignal }): Promise<ProviderCheckout> {
+    const { value } = await this.request(`/v1/checkouts/${encodeURIComponent(providerCheckoutId)}`, { signal: options?.signal });
+    const subscriptionId = stringOrNull(value.subscription_id);
+    const status = stringOrNull(value.status)?.toLowerCase();
+    // Polar's documented checkout states are open, expired, confirmed, succeeded, and failed.
+    // confirmed is still payment processing; only succeeded can proceed to subscription validation.
+    if (status === "succeeded" && subscriptionId) {
+      const subscription = await this.readSubscription(subscriptionId, options);
+      if (subscription.state === "active" || subscription.state === "cancel_at_period_end") {
+        return { state: "active", providerSubscriptionId: subscriptionId, providerCustomerId: subscription.providerCustomerId, cancelAtPeriodEnd: subscription.cancelAtPeriodEnd, cancelEffectiveAt: subscription.currentPeriodEnd };
+      }
+      return { state: "pending", providerSubscriptionId: subscriptionId, providerCustomerId: subscription.providerCustomerId };
+    }
+    if (status === "expired" || status === "failed") return { state: "abandoned", providerSubscriptionId: null, providerCustomerId: stringOrNull(value.customer_id) };
+    // confirmed remains payment-in-flight. An old open checkout is locally abandoned after
+    // 15 minutes by the reconciler; a later success webhook can recover its exact reservation.
+    return { state: status === "open" ? "open" : "pending", providerSubscriptionId: subscriptionId, providerCustomerId: stringOrNull(value.customer_id) };
   }
 
   async cancelAtPeriodEnd(providerSubscriptionId: string, idempotencyKey: string): Promise<CancellationScheduled> {
@@ -186,7 +206,8 @@ export function polarSubscriptionState(status: unknown, cancelAtPeriodEnd: unkno
     case "incomplete":
       return "checkout_pending";
     default:
-      return endedAt ? "cancelled" : "active";
+      // Unknown provider states must never grant access.
+      return endedAt ? "cancelled" : "checkout_pending";
   }
 }
 

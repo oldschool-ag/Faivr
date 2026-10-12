@@ -271,6 +271,33 @@ describe("the private Truchsess store billed through Polar", () => {
     expect(await poll(`subscriptionId=${subscriptionId}&customerPortal=1`)).not.toHaveProperty("customerPortalUrl");
   });
 
+  it("reconciles a lost paid webhook during the next signed catalog request", async () => {
+    await enrolAppliance();
+    const { subscriptionId } = await subscribe();
+    await holder.pool.query("UPDATE company_os_bundle_subscriptions SET created_at=now()-interval '16 minutes',updated_at=now()-interval '16 minutes' WHERE id=$1", [subscriptionId]);
+    answers.push(
+      jsonResponse(JSON.stringify({ id: POLAR.checkout, status: "succeeded", subscription_id: POLAR.subscription, customer_id: POLAR.customer })),
+      jsonResponse(JSON.stringify({ id: POLAR.subscription, customer_id: POLAR.customer, status: "active", cancel_at_period_end: false, current_period_end: PERIOD_END, ended_at: null })),
+    );
+    const catalog = await bodyOf(await storeCatalog(signedRequest(appliance, "GET", "/api/company-os/v1/store/catalog")));
+    expect((catalog.bundles as Array<Record<string, unknown>>)[0].subscription).toMatchObject({ subscriptionId, state: "active", checkoutState: null });
+    expect(await poll(`subscriptionId=${subscriptionId}`)).toMatchObject({ subscriptionState: "active" });
+  });
+
+  it("keeps a scheduled cancellation when derived recorded-event fixtures arrive out of order", async () => {
+    await enrolAppliance();
+    const { subscriptionId } = await subscribe();
+    // Derived from accepted Polar webhook records; complete payloads remain synthetic and signed.
+    await deliver("subscription.active", { FAIVR_SUBSCRIPTION_ID: subscriptionId }, { id: "f13-active" });
+    answers.push(jsonResponse(polarFixture("api/subscription.active", values())), jsonResponse(polarFixture("api/subscription.cancel_at_period_end", values())));
+    const cancel = envelope(appliance, { subscriptionId });
+    await storeSubscriptionCancel(signedRequest(appliance, "POST", "/api/company-os/v1/store/subscriptions/cancel", cancel, { idempotencyKey: cancel.idempotencyKey as string }));
+    await deliver("subscription.created", { FAIVR_SUBSCRIPTION_ID: subscriptionId }, { id: "f13-late-created" });
+    expect(await poll(`subscriptionId=${subscriptionId}`)).toMatchObject({ subscriptionState: "cancel_at_period_end" });
+    const replay = await deliver("subscription.created", { FAIVR_SUBSCRIPTION_ID: subscriptionId }, { id: "f13-late-created" });
+    expect(replay).toEqual({ status: 202, body: { received: true, replayed: true } });
+  });
+
   it("accepts both of Polar's signing keys, refuses bad signatures with 403 and unreadable payloads with 400", async () => {
     await enrolAppliance();
     const { subscriptionId } = await subscribe();

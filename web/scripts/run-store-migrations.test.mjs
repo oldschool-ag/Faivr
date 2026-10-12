@@ -83,17 +83,18 @@ test("backfills legacy F7 only after its compatible schema inspection", async ()
 
 test("backfills all released migrations from their unchanged source bytes", async () => {
   const migrations = await readMigrations(path.resolve("sql/migrations"));
-  assert.deepEqual(migrations.map((item) => item.filename), [
+  const legacyNames = [
     "20261006_public_catalog.sql",
     "20261009_package_version_updates.sql",
     "20261011_truchsess_release_channels.sql",
-  ]);
+  ];
+  assert.deepEqual(migrations.slice(0, 3).map((item) => item.filename), legacyNames);
   assert.equal(migrations[1].sha256, "ed8893b646cc0624e61930297870ca0ad734ee6192979c9ad8efb2b346fe72f3");
   const client = fakeClient({ legacyAll: true });
   const first = await applyStoreMigrations({ client, migrations, log: () => {} });
   const second = await applyStoreMigrations({ client, migrations, log: () => {} });
-  assert.deepEqual(first.backfilled, migrations.map((item) => item.filename));
-  assert.deepEqual(first.applied, []);
+  assert.deepEqual(first.backfilled, legacyNames);
+  assert.deepEqual(first.applied, ["20261012_reconcile_pending_checkouts.sql"]);
   assert.deepEqual(second.skipped, migrations.map((item) => item.filename));
 });
 

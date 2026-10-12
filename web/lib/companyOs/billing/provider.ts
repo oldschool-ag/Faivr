@@ -48,6 +48,15 @@ export type CheckoutCreated = {
   url: string;
 };
 
+/** Provider truth for a pending checkout, used only by the reconciliation job. */
+export type ProviderCheckout = {
+  state: "active" | "pending" | "open" | "abandoned";
+  providerSubscriptionId: string | null;
+  providerCustomerId: string | null;
+  cancelAtPeriodEnd?: boolean;
+  cancelEffectiveAt?: string | null;
+};
+
 export type ProviderSubscription = {
   providerSubscriptionId: string;
   providerCustomerId: string | null;
@@ -130,8 +139,10 @@ export interface BillingProvider {
   productReference(bundle: BillingBundle): { reference: string } | { error: string };
   /** One checkout for one function bundle and one appliance. */
   createCheckout(input: CreateCheckoutInput): Promise<CheckoutCreated>;
+  /** Read a checkout by the opaque id the Store recorded when it created it. */
+  readCheckout(providerCheckoutId: string, options?: { signal?: AbortSignal }): Promise<ProviderCheckout>;
   /** The provider's view of one subscription. */
-  readSubscription(providerSubscriptionId: string): Promise<ProviderSubscription>;
+  readSubscription(providerSubscriptionId: string, options?: { signal?: AbortSignal }): Promise<ProviderSubscription>;
   /** Cancel at the period end; never immediately. */
   cancelAtPeriodEnd(providerSubscriptionId: string, idempotencyKey: string): Promise<CancellationScheduled>;
   /** Verify the signature and parse the payload; throws BillingWebhookSignatureError or BillingWebhookPayloadError. */

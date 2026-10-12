@@ -6,6 +6,7 @@ import { normalizePublicKeyPem, PublicKeyError } from "@/lib/companyOs/publisher
 import { enrolmentRequestSchema, storeCancelSchema, storeCheckoutSchema, storeInstallationSchema } from "@/lib/companyOs/storeSchemas";
 import { idempotent } from "@/lib/companyOs/store";
 import { billingProvider, billingProviderFor, BillingProviderError } from "@/lib/companyOs/billing";
+import { reconcilePendingCheckouts } from "@/lib/companyOs/checkoutReconciliation";
 
 /**
  * The private store routes of the Truchsess lifecycle API (T6b).
@@ -99,6 +100,8 @@ export async function storeCatalog(req: NextRequest) {
   if (auth instanceof NextResponse) return auth;
   try {
     const provider = billingProvider();
+    // A paid checkout with a delayed/lost webhook is repaired for this signed box before projection.
+    await reconcilePendingCheckouts({ tenantId: auth.principal.tenantId, instanceId: auth.principal.instanceId, limit: 10 });
     const bundles = await catalogForAppliance(auth.principal.tenantId, auth.principal.instanceId, { priceConfigured: (bundle) => !("error" in provider.productReference(bundle)), installedVersions: installedVersionsFromCatalog(req) });
     const publishers = await activePublishers();
     return json({
@@ -131,7 +134,7 @@ export async function storeCheckoutSessions(req: NextRequest) {
       await idempotent(auth.principal.tenantId, auth.principal.idempotencyKey, "store.checkout.create", auth.bodyHash, async () => {
         const row = await bundleForCheckout(parsed.data.bundleId);
         const bundle = billingBundle(row);
-        const existing = await liveSubscription(auth.principal.tenantId, bundle.id);
+        const existing = await liveSubscription(auth.principal.tenantId, auth.principal.instanceId, bundle.id);
         if (existing && existing.subscription_state !== "checkout_pending") throw new StoreError(`subscription_exists:${existing.id}`, 409);
         const reference = provider.productReference(bundle);
         if ("error" in reference) throw new Error(reference.error);
@@ -176,7 +179,7 @@ export async function storeSubscriptions(req: NextRequest) {
   const wantsPortal = ["1", "true", "yes"].includes((req.nextUrl.searchParams.get("customerPortal") ?? "").toLowerCase());
   if (!subscriptionId && !bundleId) return json({ error: "subscription_or_bundle_required" }, 400);
   try {
-    const row = await bundleSubscriptionRow(auth.principal.tenantId, { subscriptionId, bundleId });
+    const row = await bundleSubscriptionRow(auth.principal.tenantId, auth.principal.instanceId, { subscriptionId, bundleId });
     if (!row) return json({ error: "subscription_not_found" }, 404);
     const view: Record<string, unknown> = subscriptionViewOf(row);
     if (wantsPortal && row.subscription_state !== "checkout_pending") {

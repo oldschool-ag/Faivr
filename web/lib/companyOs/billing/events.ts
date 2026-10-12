@@ -16,7 +16,7 @@ export async function applyBillingEvent(event: BillingEvent, client: Queryable):
     case "checkout_completed":
     case "subscription_active": {
       if (event.providerCheckoutId && event.providerSubscriptionId) {
-        const activated = await activateBundleSubscription({ provider, providerCheckoutId: event.providerCheckoutId, providerSubscriptionId: event.providerSubscriptionId, providerCustomerId: event.providerCustomerId, subscriptionId: event.subscriptionId, tenantId: event.tenantId }, client);
+        const activated = await activateBundleSubscription({ provider, providerCheckoutId: event.providerCheckoutId, providerSubscriptionId: event.providerSubscriptionId, providerCustomerId: event.providerCustomerId, subscriptionId: event.subscriptionId, tenantId: event.tenantId, instanceId: event.instanceId }, client);
         if (activated) return { applied: true, action: "activated" };
       }
       if (!event.providerSubscriptionId) return { applied: false, action: "no_subscription" };

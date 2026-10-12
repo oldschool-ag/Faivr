@@ -199,7 +199,7 @@ export type CatalogBundle = {
   monthlyPriceCents: number;
   currency: string;
   priceConfigured: boolean;
-  subscription: { subscriptionId: string; state: string; checkoutSessionId: string | null; cancelEffectiveAt: string | null } | null;
+  subscription: { subscriptionId: string; state: string; checkoutState: string | null; checkoutSessionId: string | null; cancelEffectiveAt: string | null; message: string | null } | null;
   packages: CatalogPackage[];
 };
 
@@ -234,7 +234,7 @@ export async function catalogForAppliance(tenantId: string, instanceId: string, 
     "SELECT v.id,v.package_id,v.version,v.manifest,v.publisher_key_id,v.publisher_signature,v.artifact_sha256,v.min_company_os_version,v.release_notes,pub.publisher_id,pub.name AS publisher_name FROM company_os_package_versions v LEFT JOIN company_os_publishers pub ON pub.key_id=v.publisher_key_id WHERE v.status='published'",
   );
   const subscriptions = await q.query(
-    "SELECT id,bundle_id,subscription_state,checkout_session_id,cancel_effective_at,created_at FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND instance_id=$2 ORDER BY created_at DESC",
+    "SELECT id,bundle_id,subscription_state,checkout_session_id,cancel_effective_at,checkout_abandoned_at,created_at FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND instance_id=$2 ORDER BY CASE WHEN subscription_state IN ('active','cancel_at_period_end') THEN 0 WHEN subscription_state IN ('checkout_pending','past_due','suspended','cancellation_pending_uninstall') THEN 1 ELSE 2 END,created_at DESC",
     [tenantId, instanceId],
   );
   const installations = await q.query(
@@ -317,9 +317,12 @@ export async function catalogForAppliance(tenantId: string, instanceId: string, 
       subscription: subscription
         ? {
             subscriptionId: subscription.id as string,
+            // Preserve existing client state values. New clients can use checkoutState/message.
             state: subscription.subscription_state as string,
+            checkoutState: subscription.checkout_abandoned_at ? "abandoned" : null,
             checkoutSessionId: (subscription.checkout_session_id as string | null) ?? null,
             cancelEffectiveAt: subscription.cancel_effective_at ? new Date(subscription.cancel_effective_at as string).toISOString() : null,
+            message: subscription.checkout_abandoned_at ? "Checkout not finished. Subscribe again" : null,
           }
         : null,
       packages: items,
@@ -345,6 +348,7 @@ export type BundleSubscriptionRow = {
   entitled_at: unknown;
   cancel_effective_at: unknown;
   stopped_at: unknown;
+  checkout_abandoned_at: unknown;
   created_at: unknown;
 };
 
@@ -360,10 +364,10 @@ export async function ownerEmail(tenantId: string, client?: Queryable): Promise<
   return (r.rows[0]?.owner_email as string | undefined) ?? null;
 }
 
-export async function liveSubscription(tenantId: string, bundleId: string, client?: Queryable) {
+export async function liveSubscription(tenantId: string, instanceId: string, bundleId: string, client?: Queryable) {
   const r = await db(client).query(
-    "SELECT id,subscription_state,checkout_session_id,billing_provider,provider_checkout_id,provider_subscription_id,provider_customer_id FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND bundle_id=$2 AND subscription_state IN ('checkout_pending','active','past_due','suspended','cancellation_pending_uninstall','cancel_at_period_end') ORDER BY created_at DESC LIMIT 1",
-    [tenantId, bundleId],
+    "SELECT id,subscription_state,checkout_session_id,billing_provider,provider_checkout_id,provider_subscription_id,provider_customer_id FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND instance_id=$2 AND bundle_id=$3 AND subscription_state IN ('checkout_pending','active','past_due','suspended','cancellation_pending_uninstall','cancel_at_period_end') ORDER BY CASE WHEN subscription_state IN ('active','cancel_at_period_end') THEN 0 ELSE 1 END,created_at DESC LIMIT 1",
+    [tenantId, instanceId, bundleId],
   );
   return (r.rows[0] as Pick<BundleSubscriptionRow, "id" | "subscription_state" | "checkout_session_id" | "billing_provider" | "provider_checkout_id" | "provider_subscription_id" | "provider_customer_id"> | undefined) ?? null;
 }
@@ -386,24 +390,56 @@ export async function abandonBundleCheckout(subscriptionId: string, client?: Que
   await db(client).query("UPDATE company_os_bundle_subscriptions SET subscription_state='cancelled',stopped_at=now(),updated_at=now() WHERE id=$1 AND subscription_state='checkout_pending' AND provider_subscription_id IS NULL", [subscriptionId]);
 }
 
+export type PendingBundleCheckout = {
+  id: string;
+  tenantId: string;
+  instanceId: string;
+  provider: string;
+  providerCheckoutId: string;
+};
+
+/** Pending checkouts older than 15 minutes. Customer data is intentionally not selected. */
+export async function pendingBundleCheckouts(filter: { tenantId?: string; instanceId?: string; limit?: number } = {}, client?: Queryable): Promise<PendingBundleCheckout[]> {
+  const limit = Math.max(1, Math.min(filter.limit ?? 50, 100));
+  const r = await db(client).query("SELECT id,tenant_id,instance_id,billing_provider,provider_checkout_id FROM company_os_bundle_subscriptions WHERE subscription_state='checkout_pending' AND provider_checkout_id IS NOT NULL AND created_at <= now()-interval '15 minutes' AND ($1::uuid IS NULL OR tenant_id=$1::uuid) AND ($2::uuid IS NULL OR instance_id=$2::uuid) ORDER BY updated_at ASC,id ASC LIMIT $3", [filter.tenantId ?? null, filter.instanceId ?? null, limit]);
+  return r.rows.map((row) => ({ id: row.id as string, tenantId: row.tenant_id as string, instanceId: row.instance_id as string, provider: row.billing_provider as string, providerCheckoutId: row.provider_checkout_id as string }));
+}
+
+/** Moves an attempted provider lookup behind other pending rows on a later bounded cron run. */
+export async function markBundleCheckoutChecked(checkout: PendingBundleCheckout, client?: Queryable) {
+  await db(client).query("UPDATE company_os_bundle_subscriptions SET updated_at=now() WHERE id=$1 AND tenant_id=$2 AND instance_id=$3 AND billing_provider=$4 AND provider_checkout_id=$5 AND subscription_state='checkout_pending'", [checkout.id, checkout.tenantId, checkout.instanceId, checkout.provider, checkout.providerCheckoutId]);
+}
+
+/** Applies provider truth only to the exact box-bound pending checkout. */
+export async function reconcileBundleCheckout(input: PendingBundleCheckout & { state: "active" | "abandoned"; providerSubscriptionId?: string | null; providerCustomerId?: string | null; cancelAtPeriodEnd?: boolean; cancelEffectiveAt?: string | null }, client?: Queryable) {
+  const q = db(client);
+  if (input.state === "active") {
+    if (!input.providerSubscriptionId) return false;
+    const r = await q.query("UPDATE company_os_bundle_subscriptions SET subscription_state=CASE WHEN $8::boolean THEN 'cancel_at_period_end' ELSE 'active' END,provider_subscription_id=$6,provider_customer_id=COALESCE($7,provider_customer_id),cancel_effective_at=CASE WHEN $8::boolean THEN $9::timestamptz ELSE NULL END,entitled_at=COALESCE(entitled_at,now()),checkout_abandoned_at=NULL,stopped_at=NULL,updated_at=now() WHERE id=$1 AND tenant_id=$2 AND instance_id=$3 AND billing_provider=$4 AND provider_checkout_id=$5 AND subscription_state='checkout_pending' RETURNING id", [input.id, input.tenantId, input.instanceId, input.provider, input.providerCheckoutId, input.providerSubscriptionId, input.providerCustomerId ?? null, input.cancelAtPeriodEnd === true, input.cancelEffectiveAt ?? null]);
+    return Boolean(r.rowCount);
+  }
+  const r = await q.query("UPDATE company_os_bundle_subscriptions SET subscription_state='cancelled',checkout_abandoned_at=now(),stopped_at=now(),updated_at=now() WHERE id=$1 AND tenant_id=$2 AND instance_id=$3 AND billing_provider=$4 AND provider_checkout_id=$5 AND subscription_state='checkout_pending' RETURNING id", [input.id, input.tenantId, input.instanceId, input.provider, input.providerCheckoutId]);
+  return Boolean(r.rowCount);
+}
+
 /**
  * The provider reports the checkout paid and its subscription created: the appliance may now
  * install the bundle's packages. The row is found by the provider's checkout id (the one the
  * store recorded when it created the checkout); the metadata the provider echoes back must
  * agree with it when present.
  */
-export async function activateBundleSubscription(input: { provider: string; providerCheckoutId: string; providerSubscriptionId: string; providerCustomerId?: string | null; subscriptionId?: string | null; tenantId?: string | null }, client?: Queryable) {
+export async function activateBundleSubscription(input: { provider: string; providerCheckoutId: string; providerSubscriptionId: string; providerCustomerId?: string | null; subscriptionId?: string | null; tenantId?: string | null; instanceId?: string | null }, client?: Queryable) {
   const r = await db(client).query(
-    "UPDATE company_os_bundle_subscriptions SET subscription_state='active',provider_subscription_id=$3,provider_customer_id=COALESCE($4,provider_customer_id),entitled_at=COALESCE(entitled_at,now()),updated_at=now() WHERE billing_provider=$1 AND provider_checkout_id=$2 AND ($5::uuid IS NULL OR id=$5::uuid) AND ($6::uuid IS NULL OR tenant_id=$6::uuid) AND subscription_state IN ('checkout_pending','active','past_due') RETURNING id",
-    [input.provider, input.providerCheckoutId, input.providerSubscriptionId, input.providerCustomerId ?? null, input.subscriptionId ?? null, input.tenantId ?? null],
+    "UPDATE company_os_bundle_subscriptions SET subscription_state='active',provider_subscription_id=$3,provider_customer_id=COALESCE($4,provider_customer_id),checkout_abandoned_at=NULL,stopped_at=CASE WHEN checkout_abandoned_at IS NOT NULL THEN NULL ELSE stopped_at END,entitled_at=COALESCE(entitled_at,now()),updated_at=now() WHERE billing_provider=$1 AND provider_checkout_id=$2 AND ($5::uuid IS NULL OR id=$5::uuid) AND ($6::uuid IS NULL OR tenant_id=$6::uuid) AND ($7::uuid IS NULL OR instance_id=$7::uuid) AND (subscription_state IN ('checkout_pending','active','past_due') OR checkout_abandoned_at IS NOT NULL) RETURNING id",
+    [input.provider, input.providerCheckoutId, input.providerSubscriptionId, input.providerCustomerId ?? null, input.subscriptionId ?? null, input.tenantId ?? null, input.instanceId ?? null],
   );
   return Boolean(r.rowCount);
 }
 
-export async function bundleSubscriptionRow(tenantId: string, filter: { subscriptionId?: string; bundleId?: string }, client?: Queryable): Promise<BundleSubscriptionRow | null> {
+export async function bundleSubscriptionRow(tenantId: string, instanceId: string, filter: { subscriptionId?: string; bundleId?: string }, client?: Queryable): Promise<BundleSubscriptionRow | null> {
   const r = filter.subscriptionId
-    ? await db(client).query("SELECT * FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND id=$2", [tenantId, filter.subscriptionId])
-    : await db(client).query("SELECT * FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND bundle_id=$2 ORDER BY created_at DESC LIMIT 1", [tenantId, filter.bundleId]);
+    ? await db(client).query("SELECT * FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND instance_id=$2 AND id=$3", [tenantId, instanceId, filter.subscriptionId])
+    : await db(client).query("SELECT * FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND instance_id=$2 AND bundle_id=$3 ORDER BY CASE WHEN subscription_state IN ('active','cancel_at_period_end') THEN 0 WHEN subscription_state IN ('checkout_pending','past_due','suspended','cancellation_pending_uninstall') THEN 1 ELSE 2 END,created_at DESC LIMIT 1", [tenantId, instanceId, filter.bundleId]);
   return (r.rows[0] as BundleSubscriptionRow | undefined) ?? null;
 }
 
@@ -415,6 +451,8 @@ export function subscriptionViewOf(row: BundleSubscriptionRow) {
     subscriptionId: row.id,
     bundleId: row.bundle_id,
     subscriptionState: row.subscription_state,
+    checkoutState: row.checkout_abandoned_at ? "abandoned" : null,
+    message: row.checkout_abandoned_at ? "Checkout not finished. Subscribe again" : null,
     checkoutSessionId: row.checkout_session_id ?? null,
     entitledAt: iso(row.entitled_at),
     cancelEffectiveAt: iso(row.cancel_effective_at),
@@ -422,8 +460,8 @@ export function subscriptionViewOf(row: BundleSubscriptionRow) {
   };
 }
 
-export async function subscriptionView(tenantId: string, filter: { subscriptionId?: string; bundleId?: string }, client?: Queryable) {
-  const row = await bundleSubscriptionRow(tenantId, filter, client);
+export async function subscriptionView(tenantId: string, instanceId: string, filter: { subscriptionId?: string; bundleId?: string }, client?: Queryable) {
+  const row = await bundleSubscriptionRow(tenantId, instanceId, filter, client);
   return row ? subscriptionViewOf(row) : null;
 }
 
@@ -496,7 +534,7 @@ export async function createStoreInstallation(input: { tenantId: string; instanc
   const q = db(client);
   const member = await q.query("SELECT 1 FROM company_os_bundle_packages WHERE bundle_id=$1 AND package_id=$2", [input.bundleId, input.modelId]);
   if (!member.rowCount) throw new StoreError("package_not_in_bundle", 404);
-  const subscription = await liveSubscription(input.tenantId, input.bundleId, q);
+  const subscription = await liveSubscription(input.tenantId, input.instanceId, input.bundleId, q);
   if (!subscription || subscription.subscription_state !== "active") throw new StoreError("subscription_not_active", 409);
   const existing = await q.query(
     "SELECT id,installation_state FROM company_os_installations WHERE tenant_id=$1 AND package_id=$2 AND installation_state NOT IN ('removed','failed') ORDER BY created_at DESC LIMIT 1",
