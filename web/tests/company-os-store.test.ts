@@ -179,6 +179,15 @@ describe("the private Truchsess store on FAIVR", () => {
     ]);
   });
 
+  it("includes immutable bundle image metadata in the signed appliance catalog", async () => {
+    await enrolAppliance();
+    const bytes = Buffer.from("stored webp bytes");
+    const digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+    await holder.pool.query("INSERT INTO company_os_bundle_images(bundle_id,content_sha256,media_type,width,height,byte_length,bytes,source) VALUES($1,$2,'image/webp',64,64,$3,$4,'upload')", [BUNDLE, digest, bytes.length, bytes]);
+    const body = await bodyOf(await storeCatalog(signedRequest(appliance, "GET", "/api/company-os/v1/store/catalog")));
+    expect((body.bundles as Array<Record<string, unknown>>)[0].image).toEqual({ url: `/api/company-os/v1/catalog-images/${encodeURIComponent(digest)}.webp`, sha256: digest, width: 64, height: 64, mediaType: "image/webp" });
+  });
+
   it("offers a signed newer package only to an active subscriber that has the package installed", async () => {
     await enrolAppliance();
     const subscriptionId = randomUUID();

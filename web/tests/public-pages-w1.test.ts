@@ -120,6 +120,19 @@ describe("W2 public catalog presentation",()=>{
     catalog.functions=[];
   });
 
+  it("shows a published function image on catalog and function pages", async () => {
+    const image={url:"/api/company-os/v1/catalog-images/sha256%3Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.webp",sha256:`sha256:${"a".repeat(64)}`,width:64,height:64,mediaType:"image/webp" as const};
+    catalog.functions=[{slug:"published-ai-search",name:"Visibility in AI search",description:"",monthlyPriceCents:7900,currency:"chf",image,workers:[{id:"faivr.agent.ai-visibility",slug:"ai-visibility",name:"Gideon",role:"",version:"1.0.0",publisherName:"Old School GmbH",publisherKeyId:"key",digest:"sha256:test",permissions:[],slots:[]}]}];
+    const catalogHtml=renderToStaticMarkup(await CatalogPage());
+    const functionHtml=renderToStaticMarkup(await FunctionPage({params:Promise.resolve({function:"visibility-in-ai-search"})}));
+    for (const html of [catalogHtml,functionHtml]) {
+      expect(html).toContain("Visibility in AI search agent face");
+      expect(html).toContain("catalog-images");
+      expect(html).toContain("sha256%253A");
+    }
+    catalog.functions=[];
+  });
+
   it("does not map a missing planned agent to another package in a multi-agent function",async()=>{
     catalog.functions=[{slug:"software-bundle",name:"Software delivery: Bob",description:"",monthlyPriceCents:34900,currency:"chf",workers:[{id:"faivr.agent.build-merge-gate",slug:"build-merge-gate",name:"Bob - Merge Gate",role:"",version:"1.2.0",publisherName:"Old School GmbH",publisherKeyId:"key",digest:"sha256:test",permissions:[],slots:[]},{id:"faivr.agent.build-qa-reviewer",slug:"build-qa-reviewer",name:"Bob - QA Reviewer",role:"",version:"1.2.0",publisherName:"Old School GmbH",publisherKeyId:"key",digest:"sha256:test",permissions:[],slots:[]}]}];
     const html=renderToStaticMarkup(await AgentPage({params:Promise.resolve({agent:"bob-issue-writer"})}));

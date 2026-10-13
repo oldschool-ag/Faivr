@@ -4,6 +4,7 @@ import type { PoolClient } from "pg";
 import { getPgPool } from "@/lib/postgres";
 import { describePermission } from "@/lib/publicPermissions";
 import { normalizePublicKeyPem } from "./publisherKeys";
+import { imageMetadata, type BundleImage } from "./bundleImages";
 
 /**
  * The private store (T6b): Old School's catalog of governed AI workers, installable on
@@ -199,6 +200,7 @@ export type CatalogBundle = {
   monthlyPriceCents: number;
   currency: string;
   priceConfigured: boolean;
+  image: BundleImage | null;
   subscription: { subscriptionId: string; state: string; checkoutState: string | null; checkoutSessionId: string | null; cancelEffectiveAt: string | null; message: string | null } | null;
   packages: CatalogPackage[];
 };
@@ -227,7 +229,7 @@ function permissionChanges(installedManifest: unknown, latestManifest: unknown) 
 export async function catalogForAppliance(tenantId: string, instanceId: string, options: CatalogOptions = {}, client?: Queryable): Promise<CatalogBundle[]> {
   const q = db(client);
   const priced = options.priceConfigured ?? ((bundle) => Boolean(bundle.stripePriceId));
-  const bundles = await q.query("SELECT id,name,description,stripe_price_id,polar_product_id,monthly_price_cents,currency FROM company_os_function_bundles WHERE status='active' ORDER BY name");
+  const bundles = await q.query("SELECT b.id,b.name,b.description,b.stripe_price_id,b.polar_product_id,b.monthly_price_cents,b.currency,i.content_sha256,i.width,i.height,i.media_type FROM company_os_function_bundles b LEFT JOIN company_os_bundle_images i ON i.bundle_id=b.id WHERE b.status='active' ORDER BY b.name");
   const members = await q.query("SELECT bundle_id,package_id FROM company_os_bundle_packages ORDER BY bundle_id,package_id");
   const packages = await q.query("SELECT id,name,summary FROM company_os_packages WHERE status='active'");
   const versions = await q.query(
@@ -314,6 +316,7 @@ export async function catalogForAppliance(tenantId: string, instanceId: string, 
       monthlyPriceCents: bundle.monthly_price_cents as number,
       currency: bundle.currency as string,
       priceConfigured: priced(billingBundle(bundle as BundleRow)),
+      image: bundle.content_sha256 ? imageMetadata(bundle) : null,
       subscription: subscription
         ? {
             subscriptionId: subscription.id as string,

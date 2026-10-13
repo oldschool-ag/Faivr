@@ -26,7 +26,8 @@ describe("W1 public catalog boundary", () => {
     const data=await queryPublicCatalog(pool);
     expect(data).toHaveLength(1);
     expect(data[0]).toMatchObject({slug:"fixture-function",monthlyPriceCents:1234,currency:"chf"});
-    expect(Object.keys(data[0]).sort()).toEqual(["currency","description","monthlyPriceCents","name","slug","workers"]);
+    expect(Object.keys(data[0]).sort()).toEqual(["currency","description","image","monthlyPriceCents","name","slug","workers"]);
+    expect(data[0].image).toBeNull();
     expect(Object.keys(data[0].workers[0]).sort()).toEqual(["digest","id","name","permissions","publisherKeyId","publisherName","role","slots","slug","version"]);
     expect(data[0].workers[0].slots).toEqual([]);
     expect(JSON.stringify(data)).not.toMatch(/privateField|subscription|tenant|polar|artifact_url|signature/i);
