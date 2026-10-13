@@ -1,4 +1,5 @@
 import type { PoolClient } from "pg";
+import { storePublicOrigin } from "@/lib/companyOs/bundleImageUrl";
 
 export type PublicSlot = { id: string; question: string; kind: "repository" | "product" | "website"; required: boolean };
 export type PublicWorker = {
@@ -7,7 +8,7 @@ export type PublicWorker = {
 };
 export type PublicFunction = {
   slug: string; name: string; description: string;
-  monthlyPriceCents: number; currency: string; workers: PublicWorker[];
+  monthlyPriceCents: number; currency: string; image: { url: string; sha256: string; width: number; height: number; mediaType: "image/webp" } | null; workers: PublicWorker[];
 };
 export type PublicCatalogState = { functions: PublicFunction[]; unavailable: boolean };
 export type CatalogDb = Pick<PoolClient, "query">;
@@ -16,11 +17,13 @@ export type CatalogDb = Pick<PoolClient, "query">;
 // appliance, billing, subscription or receipt tables and never select their IDs.
 export const PUBLIC_CATALOG_SQL = `
   SELECT b.id AS bundle_id,b.name AS bundle_name,b.description,
-         b.monthly_price_cents,b.currency,
+         b.monthly_price_cents,b.currency,blob.content_sha256,blob.width,blob.height,blob.media_type,
          p.id AS package_id,p.slug AS worker_slug,p.name AS worker_name,p.summary,
          v.version,v.publisher_key_id,v.artifact_sha256,
          pub.name AS publisher_name,v.manifest->'permissions' AS permissions,v.manifest->'slots' AS slots
   FROM company_os_function_bundles b
+  LEFT JOIN company_os_bundle_images i ON i.bundle_id=b.id
+  LEFT JOIN company_os_bundle_image_blobs blob ON blob.content_sha256=i.content_sha256
   JOIN company_os_bundle_packages bp ON bp.bundle_id=b.id
   JOIN company_os_packages p ON p.id=bp.package_id
   JOIN company_os_package_versions v ON v.package_id=p.id
@@ -43,7 +46,8 @@ export async function queryPublicCatalog(client: CatalogDb): Promise<PublicFunct
     seen.add(key);
     const item: PublicFunction = functions.get(row.bundle_id) ?? {
       slug: row.bundle_id, name: row.bundle_name, description: row.description,
-      monthlyPriceCents: row.monthly_price_cents, currency: row.currency, workers: [],
+      monthlyPriceCents: row.monthly_price_cents, currency: row.currency,
+      image: row.content_sha256 ? { url: `${storePublicOrigin()}/api/company-os/v1/catalog-images/${encodeURIComponent(String(row.content_sha256))}.webp`, sha256: String(row.content_sha256), width: Number(row.width), height: Number(row.height), mediaType: "image/webp" } : null, workers: [],
     };
     item.workers.push({
       id: row.package_id, slug: row.worker_slug, name: row.worker_name,
