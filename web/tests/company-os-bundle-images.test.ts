@@ -98,12 +98,14 @@ describe("bundle image normalization", () => {
     await pool.query("CREATE TABLE company_os_function_bundles(id text PRIMARY KEY)");
     await pool.query("INSERT INTO company_os_function_bundles(id) VALUES('one'),('two'),('three')");
     const original = await readFile(path.resolve(process.cwd(), "sql/migrations/20261013_bundle_images.sql"), "utf8");
-    const corrective = await readFile(path.resolve(process.cwd(), "sql/migrations/20261014_bundle_image_blobs.sql"), "utf8");
+    const blobMigration = await readFile(path.resolve(process.cwd(), "sql/migrations/20261014_bundle_image_blobs.sql"), "utf8");
+    const associationMigration = await readFile(path.resolve(process.cwd(), "sql/migrations/20261015_bundle_image_association_columns.sql"), "utf8");
     await pool.query(original);
     const red = await sharp({ create: { width: 30, height: 30, channels: 3, background: "#ff0000" } }).png().toBuffer();
     const redNormalized = await normalizeBundleImage(red);
     await pool.query("INSERT INTO company_os_bundle_images(bundle_id,content_sha256,media_type,width,height,byte_length,bytes,source) VALUES($1,$2,$3,$4,$5,$6,$7,'upload')", ["one", redNormalized.contentSha256, redNormalized.mediaType, redNormalized.width, redNormalized.height, redNormalized.bytes.length, redNormalized.bytes]);
-    await pool.query(corrective);
+    await pool.query(blobMigration);
+    await pool.query(associationMigration);
     const blue = await sharp({ create: { width: 30, height: 30, channels: 3, background: "#0000ff" } }).png().toBuffer();
     const replacement = await setBundleImage(pool, "one", blue, "upload");
     const shared = await setBundleImage(pool, "two", blue, "upload");

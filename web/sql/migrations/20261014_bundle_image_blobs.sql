@@ -16,15 +16,3 @@ FROM company_os_bundle_images
 ON CONFLICT (content_sha256) DO NOTHING;
 
 DROP INDEX IF EXISTS company_os_bundle_images_content_sha256_idx;
-
-ALTER TABLE company_os_bundle_images
-  ALTER COLUMN media_type DROP NOT NULL,
-  ALTER COLUMN width DROP NOT NULL,
-  ALTER COLUMN height DROP NOT NULL,
-  ALTER COLUMN byte_length DROP NOT NULL,
-  ALTER COLUMN bytes DROP NOT NULL;
-
-ALTER TABLE company_os_bundle_images
-  ADD CONSTRAINT company_os_bundle_images_content_sha256_fkey
-  FOREIGN KEY (content_sha256)
-  REFERENCES company_os_bundle_image_blobs(content_sha256);
