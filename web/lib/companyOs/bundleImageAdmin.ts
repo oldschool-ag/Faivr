@@ -71,7 +71,9 @@ function isSafeHttpsUrl(value: string, allowedPolarMediaHost = false) {
     const url = new URL(value);
     const host = url.hostname.toLowerCase();
     if (url.protocol !== "https:" || url.username || url.password || !host || host === "localhost" || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host) || host.includes(":")) return false;
-    return !allowedPolarMediaHost || host === "polar.sh" || host.endsWith(".polar.sh");
+    // Polar's public media service also returns unsigned S3 GetObject URLs.
+    const publicS3Host = /^(?:[a-z0-9][a-z0-9.-]*\.)?s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/.test(host);
+    return !allowedPolarMediaHost || host === "polar.sh" || host.endsWith(".polar.sh") || publicS3Host;
   } catch { return false; }
 }
 

@@ -34,6 +34,24 @@ describe("bundle image normalization", () => {
     expect(polarProductImageUrl({ name: "No media" })).toBeNull();
   });
 
+  it.each([
+    "https://polar-public.s3.amazonaws.com/face.png",
+    "https://polar-public.s3.us-east-2.amazonaws.com/face.png",
+    "https://s3.us-east-2.amazonaws.com/polar-public/face.png",
+  ])("accepts Polar's unsigned S3 media URL %s", (url) => {
+    expect(polarProductImageUrl({ medias: [{ mime_type: "image/png", public_url: url }] })).toBe(url);
+  });
+
+  it.each([
+    "https://127.0.0.1/face.png",
+    "https://169.254.169.254/face.png",
+    "https://untrusted.test/face.png",
+    "https://bucket.s3.amazonaws.com.untrusted.test/face.png",
+    "http://bucket.s3.amazonaws.com/face.png",
+  ])("refuses unsafe media URL %s", (url) => {
+    expect(polarProductImageUrl({ medias: [{ mime_type: "image/png", public_url: url }] })).toBeNull();
+  });
+
   it("fetches a Polar product image once for explicit admin fallback without forwarding credentials to media", async () => {
     const png = await sharp({ create: { width: 40, height: 40, channels: 3, background: "#112233" } }).png().toBuffer();
     const requests: Array<{ url: string; headers: Headers }> = [];
@@ -44,11 +62,11 @@ describe("bundle image normalization", () => {
       fetcher: async (input, init) => {
         requests.push({ url: String(input), headers: new Headers(init?.headers) });
         return requests.length === 1
-          ? new Response(JSON.stringify({ medias: [{ mime_type: "image/png", public_url: "https://media.polar.sh/face.png" }] }), { status: 200, headers: { "Content-Type": "application/json" } })
+          ? new Response(JSON.stringify({ medias: [{ mime_type: "image/png", public_url: "https://polar-public.s3.us-east-2.amazonaws.com/face.png" }] }), { status: 200, headers: { "Content-Type": "application/json" } })
           : new Response(png, { status: 200, headers: { "Content-Type": "image/png" } });
       },
     });
-    expect(requests.map((request) => request.url)).toEqual(["https://api.polar.test/v1/products/product-id", "https://media.polar.sh/face.png"]);
+    expect(requests.map((request) => request.url)).toEqual(["https://api.polar.test/v1/products/product-id", "https://polar-public.s3.us-east-2.amazonaws.com/face.png"]);
     expect(requests[0].headers.get("authorization")).toBe("Bearer test-token");
     expect(requests[1].headers.get("authorization")).toBeNull();
     expect((await normalizeBundleImage(bytes)).mediaType).toBe("image/webp");
