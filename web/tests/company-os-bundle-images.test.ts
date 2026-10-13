@@ -1,5 +1,8 @@
 import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { promisify } from "node:util";
+import { DataType, newDb } from "pg-mem";
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { fetchPolarProductImage, normalizeBundleImage, polarProductImageUrl, setBundleImage } from "@/lib/companyOs/bundleImages";
@@ -85,6 +88,31 @@ describe("bundle image normalization", () => {
     expect(associations.get("one")?.sha).toBe(replacement.sha256);
     expect(associations.get("two")?.sha).toBe(uploaded.sha256);
     expect(uploaded.url).toBe(`https://faivr.ai/api/company-os/v1/catalog-images/${encodeURIComponent(uploaded.sha256)}.webp`);
+  });
+
+  it("upgrades the original image table and supports new, replacement, and shared blobs", async () => {
+    const db = newDb();
+    db.public.registerOperator({ operator: "~", left: DataType.text, right: DataType.text, returns: DataType.bool, implementation: (value: string, pattern: string) => new RegExp(pattern).test(value) });
+    const { Pool } = db.adapters.createPg();
+    const pool = new Pool();
+    await pool.query("CREATE TABLE company_os_function_bundles(id text PRIMARY KEY)");
+    await pool.query("INSERT INTO company_os_function_bundles(id) VALUES('one'),('two'),('three')");
+    const original = await readFile(path.resolve(process.cwd(), "sql/migrations/20261013_bundle_images.sql"), "utf8");
+    const corrective = await readFile(path.resolve(process.cwd(), "sql/migrations/20261014_bundle_image_blobs.sql"), "utf8");
+    await pool.query(original);
+    const red = await sharp({ create: { width: 30, height: 30, channels: 3, background: "#ff0000" } }).png().toBuffer();
+    const redNormalized = await normalizeBundleImage(red);
+    await pool.query("INSERT INTO company_os_bundle_images(bundle_id,content_sha256,media_type,width,height,byte_length,bytes,source) VALUES($1,$2,$3,$4,$5,$6,$7,'upload')", ["one", redNormalized.contentSha256, redNormalized.mediaType, redNormalized.width, redNormalized.height, redNormalized.bytes.length, redNormalized.bytes]);
+    await pool.query(corrective);
+    const blue = await sharp({ create: { width: 30, height: 30, channels: 3, background: "#0000ff" } }).png().toBuffer();
+    const replacement = await setBundleImage(pool, "one", blue, "upload");
+    const shared = await setBundleImage(pool, "two", blue, "upload");
+    const fresh = await setBundleImage(pool, "three", red, "upload");
+    expect(replacement.sha256).toBe(shared.sha256);
+    expect(fresh.sha256).toBe(redNormalized.contentSha256);
+    const old = await pool.query("SELECT bytes FROM company_os_bundle_image_blobs WHERE content_sha256=$1", [redNormalized.contentSha256]);
+    expect(old.rowCount).toBe(1);
+    await pool.end();
   });
 
   it("runs the documented CLI help outside Vitest's module loader", async () => {
