@@ -19,7 +19,8 @@ export class BundleImageError extends Error {
 }
 
 function storePublicOrigin(env: NodeJS.ProcessEnv = process.env) {
-  const configured = env.FAIVR_STORE_ORIGIN?.trim() || (env.VERCEL_URL?.trim() ? `https://${env.VERCEL_URL.trim()}` : "https://faivr.ai");
+  const configured = env.FAIVR_STORE_ORIGIN?.trim()
+    || (env.VERCEL_ENV === "production" ? "https://faivr.ai" : (env.VERCEL_URL?.trim() ? `https://${env.VERCEL_URL.trim()}` : "https://faivr.ai"));
   let url: URL;
   try { url = new URL(configured); } catch { throw new BundleImageError("store_public_origin_invalid", 500); }
   if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/" || url.search || url.hash) throw new BundleImageError("store_public_origin_invalid", 500);
@@ -65,8 +66,13 @@ export async function setBundleImage(db: ImageDb, bundleId: string, input: Buffe
   return retained;
 }
 
-function isSafeHttpsUrl(value: string) {
-  try { const url = new URL(value); return url.protocol === "https:" && !url.username && !url.password; } catch { return false; }
+function isSafeHttpsUrl(value: string, allowedPolarMediaHost = false) {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    if (url.protocol !== "https:" || url.username || url.password || !host || host === "localhost" || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host) || host.includes(":")) return false;
+    return !allowedPolarMediaHost || host === "polar.sh" || host.endsWith(".polar.sh");
+  } catch { return false; }
 }
 
 export function polarProductImageUrl(product: unknown): string | null {
@@ -77,7 +83,7 @@ export function polarProductImageUrl(product: unknown): string | null {
     if (!media || typeof media !== "object") continue;
     const entry = media as Record<string, unknown>;
     const url = entry.public_url;
-    if (typeof url === "string" && isSafeHttpsUrl(url) && (typeof entry.mime_type !== "string" || entry.mime_type.startsWith("image/"))) return url;
+    if (typeof url === "string" && isSafeHttpsUrl(url, true) && (typeof entry.mime_type !== "string" || entry.mime_type.startsWith("image/"))) return url;
   }
   return null;
 }
@@ -85,12 +91,16 @@ export function polarProductImageUrl(product: unknown): string | null {
 async function fetchWithTimeout(fetcher: FetchLike, url: string, init: RequestInit, failure: string) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), IMAGE_TIMEOUT_MS);
-  try { return await fetcher(url, { ...init, signal: controller.signal, redirect: "error" }); }
-  catch { throw new BundleImageError(failure, 502); }
-  finally { clearTimeout(timer); }
+  try {
+    const response = await fetcher(url, { ...init, signal: controller.signal, redirect: "error" });
+    return { response, finish: () => clearTimeout(timer), controller };
+  } catch {
+    clearTimeout(timer);
+    throw new BundleImageError(failure, 502);
+  }
 }
 
-async function boundedBytes(response: Response) {
+async function boundedBytes(response: Response, controller?: AbortController) {
   const declared = Number(response.headers.get("content-length") ?? "0");
   if (Number.isFinite(declared) && declared > MAX_INPUT_BYTES) throw new BundleImageError("polar_product_image_too_large", 502);
   const reader = response.body?.getReader();
@@ -102,7 +112,11 @@ async function boundedBytes(response: Response) {
       const { done, value } = await reader.read();
       if (done) break;
       total += value.byteLength;
-      if (total > MAX_INPUT_BYTES) throw new BundleImageError("polar_product_image_too_large", 502);
+      if (total > MAX_INPUT_BYTES) {
+        controller?.abort();
+        await reader.cancel();
+        throw new BundleImageError("polar_product_image_too_large", 502);
+      }
       chunks.push(value);
     }
   } finally { reader.releaseLock(); }
@@ -113,11 +127,20 @@ async function boundedBytes(response: Response) {
 export async function fetchPolarProductImage(input: { apiOrigin: string; accessToken: string; productId: string; fetcher?: FetchLike }) {
   if (!isSafeHttpsUrl(input.apiOrigin)) throw new BundleImageError("polar_api_origin_invalid", 500);
   const fetcher = input.fetcher ?? fetch;
-  const productResponse = await fetchWithTimeout(fetcher, `${input.apiOrigin}/v1/products/${encodeURIComponent(input.productId)}`, { headers: { Authorization: `Bearer ${input.accessToken}`, "Polar-Version": "2026-10", Accept: "application/json" } }, "polar_product_lookup_failed");
-  if (!productResponse.ok) throw new BundleImageError("polar_product_lookup_failed", 502);
-  const imageUrl = polarProductImageUrl(await productResponse.json());
+  const productRequest = await fetchWithTimeout(fetcher, `${input.apiOrigin}/v1/products/${encodeURIComponent(input.productId)}`, { headers: { Authorization: `Bearer ${input.accessToken}`, "Polar-Version": "2026-10", Accept: "application/json" } }, "polar_product_lookup_failed");
+  let product: unknown;
+  try {
+    if (!productRequest.response.ok) throw new BundleImageError("polar_product_lookup_failed", 502);
+    product = JSON.parse((await boundedBytes(productRequest.response, productRequest.controller)).toString("utf8"));
+  } catch (error) {
+    if (error instanceof BundleImageError) throw error;
+    throw new BundleImageError("polar_product_lookup_failed", 502);
+  } finally { productRequest.finish(); }
+  const imageUrl = polarProductImageUrl(product);
   if (!imageUrl) throw new BundleImageError("polar_product_image_missing", 404);
-  const imageResponse = await fetchWithTimeout(fetcher, imageUrl, { headers: { Accept: "image/avif,image/webp,image/png,image/jpeg" } }, "polar_product_image_download_failed");
-  if (!imageResponse.ok) throw new BundleImageError("polar_product_image_download_failed", 502);
-  return boundedBytes(imageResponse);
+  const imageRequest = await fetchWithTimeout(fetcher, imageUrl, { headers: { Accept: "image/avif,image/webp,image/png,image/jpeg" } }, "polar_product_image_download_failed");
+  try {
+    if (!imageRequest.response.ok) throw new BundleImageError("polar_product_image_download_failed", 502);
+    return await boundedBytes(imageRequest.response, imageRequest.controller);
+  } finally { imageRequest.finish(); }
 }

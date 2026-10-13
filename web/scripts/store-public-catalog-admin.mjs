@@ -2,8 +2,6 @@
 import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import pg from "pg";
-import { renamePublicPublisher, setBundlePublic } from "../lib/publicCatalogAdmin.ts";
-import { currentBundleImage, fetchPolarProductImage, setBundleImage } from "../lib/companyOs/bundleImageAdmin.ts";
 
 function polarConfigForAdmin(env=process.env){
   const accessToken=env.POLAR_ACCESS_TOKEN?.trim();
@@ -34,11 +32,14 @@ const client=await pool.connect();
 try{
   let result;
   if(command==="publisher-name"){
+    const { renamePublicPublisher }=await import("../lib/publicCatalogAdmin.ts");
     result=await renamePublicPublisher(client,values["key-id"]??"",values.name??"");
   }else if(command==="bundle-public"){
+    const { setBundlePublic }=await import("../lib/publicCatalogAdmin.ts");
     if(!values.bundle||!["true","false"].includes(values.public))throw new Error("--bundle and --public true|false are required");
     result=await setBundlePublic(client,values.bundle,values.public==="true");
   }else{
+    const { currentBundleImage, fetchPolarProductImage, setBundleImage }=await import("../lib/companyOs/bundleImageAdmin.ts");
     if(!values.bundle||Boolean(values.file)===Boolean(values["from-polar"]))throw new Error("set-image requires --bundle and exactly one of --file or --from-polar");
     let bytes;
     let source;

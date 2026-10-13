@@ -27,7 +27,7 @@ describe("bundle image normalization", () => {
   });
 
   it("uses the documented Polar media URL only when present", () => {
-    expect(polarProductImageUrl({ medias: [{ mime_type: "image/png", public_url: "https://media.polar.test/face.png" }] })).toBe("https://media.polar.test/face.png");
+    expect(polarProductImageUrl({ medias: [{ mime_type: "image/png", public_url: "https://media.polar.sh/face.png" }] })).toBe("https://media.polar.sh/face.png");
     expect(polarProductImageUrl({ name: "No media" })).toBeNull();
   });
 
@@ -41,11 +41,11 @@ describe("bundle image normalization", () => {
       fetcher: async (input, init) => {
         requests.push({ url: String(input), headers: new Headers(init?.headers) });
         return requests.length === 1
-          ? new Response(JSON.stringify({ medias: [{ mime_type: "image/png", public_url: "https://media.polar.test/face.png" }] }), { status: 200, headers: { "Content-Type": "application/json" } })
+          ? new Response(JSON.stringify({ medias: [{ mime_type: "image/png", public_url: "https://media.polar.sh/face.png" }] }), { status: 200, headers: { "Content-Type": "application/json" } })
           : new Response(png, { status: 200, headers: { "Content-Type": "image/png" } });
       },
     });
-    expect(requests.map((request) => request.url)).toEqual(["https://api.polar.test/v1/products/product-id", "https://media.polar.test/face.png"]);
+    expect(requests.map((request) => request.url)).toEqual(["https://api.polar.test/v1/products/product-id", "https://media.polar.sh/face.png"]);
     expect(requests[0].headers.get("authorization")).toBe("Bearer test-token");
     expect(requests[1].headers.get("authorization")).toBeNull();
     expect((await normalizeBundleImage(bytes)).mediaType).toBe("image/webp");
