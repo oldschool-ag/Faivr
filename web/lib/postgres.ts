@@ -18,10 +18,15 @@ export function hasDatabaseUrl(): boolean {
   return Boolean(process.env.DATABASE_URL?.trim());
 }
 
+export function verifiedSslOptions() {
+  return { rejectUnauthorized: true };
+}
+
 export function getPgPool(): Pool {
   if (!globalThis.__faivrPgPool) {
     globalThis.__faivrPgPool = new Pool({
       connectionString: getDatabaseUrl(),
+      ssl: verifiedSslOptions(),
       max: 5,
     });
   }

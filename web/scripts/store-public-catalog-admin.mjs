@@ -27,7 +27,7 @@ Deployments apply database migrations automatically. Use --public false to hide 
 }
 if(!["publisher-name","bundle-public","set-image"].includes(command)||positionals.length!==1)throw new Error("Unknown command");
 if(!process.env.DATABASE_URL)throw new Error("DATABASE_URL must be provided by the store-admin environment");
-const pool=new pg.Pool({connectionString:process.env.DATABASE_URL,max:1});
+const pool=new pg.Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:true},max:1});
 const client=await pool.connect();
 try{
   let result;
