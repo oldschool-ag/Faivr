@@ -41,6 +41,18 @@ updates:
           - "minor"
           - "patch"
     ignore:
+      # eslint-config-next 16.3.8 predates Next's ESLint 10 compatibility
+      # patches. Revisit with Next/config >=16.4 after lint, install and CI are
+      # clean against the then-current TypeScript toolchain.
+      - dependency-name: "eslint"
+        versions:
+          - ">=10.0.0 <11.0.0"
+      # Next 16.4 can build with TypeScript 7, but its bundled
+      # typescript-eslint 8.71.x declares TypeScript <6.1. Revisit when that
+      # peer range officially includes 7 and npm ci is warning-free.
+      - dependency-name: "typescript"
+        versions:
+          - ">=7.0.0 <8.0.0"
       # Tailwind 4 changes the PostCSS plugin and CSS/config model. Revisit when
       # FAIVR schedules that migration and its visual regression review.
       - dependency-name: "tailwindcss"
