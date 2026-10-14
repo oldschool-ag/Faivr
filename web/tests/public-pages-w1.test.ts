@@ -97,8 +97,8 @@ describe("F2 slot permission presentation",()=>{
 describe("W2 public catalog presentation",()=>{
   it("maps every verified published package to its planned function",()=>{
     const ids=comingSoonFunctions.flatMap((item)=>item.becomes);
-    expect(ids).toEqual(expect.arrayContaining(["faivr.agent.ai-visibility","faivr.agent.build-ci-fixer","faivr.agent.build-instructions-keeper","faivr.agent.build-issue-writer","faivr.agent.build-merge-gate","faivr.agent.build-qa-reviewer","faivr.agent.build-security-reviewer","faivr.agent.challenger","faivr.agent.ivo-design","faivr.agent.ivo-design-v2","faivr.agent.marketing-planner","faivr.agent.pricing-models","faivr.agent.product-owner","faivr.agent.website-owner"]));
-    expect(ids).toHaveLength(14);
+    expect(ids).toEqual(expect.arrayContaining(["faivr.agent.ai-visibility","faivr.agent.build-ci-fixer","faivr.agent.build-instructions-keeper","faivr.agent.build-issue-writer","faivr.agent.build-merge-gate","faivr.agent.build-qa-reviewer","faivr.agent.build-security-reviewer","faivr.agent.challenger","faivr.agent.ivo-design","faivr.agent.ivo-design-v2","faivr.agent.mail-assistant","faivr.agent.marketing-planner","faivr.agent.pricing-models","faivr.agent.product-owner","faivr.agent.website-owner"]));
+    expect(ids).toHaveLength(15);
   });
 
   it("shows the published Gideon function as available and removes its coming-soon card",async()=>{
