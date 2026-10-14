@@ -27,7 +27,9 @@ function isChecksumAsset(asset: GithubAsset) {
 }
 
 function isUpdateAsset(asset: GithubAsset) {
-  return !/\.iso$/i.test(asset.name) && !isChecksumAsset(asset) && (/(?:closure|nar)/i.test(asset.name) || /\.release\.json$/i.test(asset.name) || /\.(?:sig|asc|minisig)$/i.test(asset.name));
+  if (isChecksumAsset(asset)) return false;
+  if (["truchsess-closure.nar", "truchsess-closure.nar.sig", "truchsess-system.release.json", "truchsess-system.release.json.sig"].includes(asset.name)) return true;
+  return /^truchsess-embedding-[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(asset.name);
 }
 
 function releaseIsEligible(release: GithubRelease) {
