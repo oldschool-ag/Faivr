@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run && node --test scripts/run-store-migrations.test.mjs",
+    "test:store-contracts": "vitest run tests/company-os-store.test.ts tests/company-os-polar-store.test.ts tests/company-os-bundle-images.test.ts tests/company-os-catalog-image-route.test.ts",
     "migrate:store": "node scripts/run-store-migrations.mjs",
     "build": "next build",
     "start": "next start"
@@ -36,7 +37,7 @@
     "tailwind-merge": "^3.7.0",
     "viem": "2.57.2",
     "wagmi": "3.7.7",
-    "zod": "^3.25.76"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",
