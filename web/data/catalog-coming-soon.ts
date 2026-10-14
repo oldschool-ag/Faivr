@@ -70,7 +70,7 @@ export const comingSoonFunctions: ComingSoonFunction[] = [
     name: "Company mail",
     agents: ["Penn"],
     summary: "Reads your company mail, shows what needs doing, and writes reply drafts in your style. Never sends.",
-    becomes: [],
+    becomes: ["faivr.agent.mail-assistant"],
   },
   {
     slug: "linkedin-posting",

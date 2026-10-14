@@ -97,6 +97,8 @@ What FAIVR never receives from an appliance: run content, chats, files, knowledg
 | `POST /api/company-os/v1/activation-receipts`, `uninstall-requests`, `uninstall-receipts`, `GET /billing` | yes | unchanged from V1; an accepted uninstall receipt for the last package of a bundle schedules the cancellation at the provider at period end |
 | `POST /api/company-os/v1/store/subscriptions/cancel` | yes | cancels a subscribed bundle nothing is installed from |
 
+For a signed Store catalog bundle face, `image.sha256` is exactly 64 lowercase hexadecimal characters (no `sha256:` prefix). `image.url` is the same-origin path `/api/company-os/v1/catalog-images/<sha256>.webp`; the appliance verifies the downloaded WebP bytes against that digest. Public FAIVR pages keep their separate absolute image URLs and `sha256:`-prefixed metadata.
+
 The provider's webhook events are mapped to the same seven states by `web/lib/companyOs/billing/events.ts`; the Polar and Stripe mappings are listed in the next section. A past-due bundle refuses new installations.
 
 Environment in addition to the V1 variables: `FAIVR_BILLING_SIGNING_PUBLIC_KEY` (the PEM the appliance receives at enrolment to verify billing acknowledgements) and the billing provider's variables of the next section. The pages the provider returns the owner to are `/store/checkout/success` ("Payment received, go back to your appliance", nothing else) and `/store/checkout/cancel`.

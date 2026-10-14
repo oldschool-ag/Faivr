@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { comingSoonFunctions } from "@/data/catalog-coming-soon";
+import { comingSoonFunctionForPackageIds } from "@/data/catalog-coming-soon";
 import { describePermission } from "@/lib/publicPermissions";
 
 describe("Company mail public copy", () => {
@@ -9,7 +9,7 @@ describe("Company mail public copy", () => {
     expect(describePermission("action.message")).toBe("Sends messages");
   });
 
-  it("lists Company mail as Penn's coming-soon function without a price", () => {
-    expect(comingSoonFunctions).toContainEqual(expect.objectContaining({ slug: "company-mail", name: "Company mail", agents: ["Penn"], summary: "Reads your company mail, shows what needs doing, and writes reply drafts in your style. Never sends.", becomes: [] }));
+  it("maps Penn's published mail package to Company mail", () => {
+    expect(comingSoonFunctionForPackageIds(["faivr.agent.mail-assistant"])).toEqual(expect.objectContaining({ slug: "company-mail", name: "Company mail", agents: ["Penn"], summary: "Reads your company mail, shows what needs doing, and writes reply drafts in your style. Never sends." }));
   });
 });
