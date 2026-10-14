@@ -1,6 +1,7 @@
 import { createHash, createHmac, createPrivateKey, createPublicKey, randomUUID, sign as edSign, verify as edVerify } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { NextRequest } from "next/server";
+import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const holder = vi.hoisted(() => ({ pool: null as unknown as import("pg").Pool }));
@@ -181,12 +182,16 @@ describe("the private Truchsess store on FAIVR", () => {
 
   it("includes immutable bundle image metadata in the signed appliance catalog", async () => {
     await enrolAppliance();
-    const bytes = Buffer.from("stored webp bytes");
+    const bytes = await sharp({ create: { width: 64, height: 48, channels: 3, background: "#336699" } }).webp().toBuffer();
     const digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
-    await holder.pool.query("INSERT INTO company_os_bundle_image_blobs(content_sha256,media_type,width,height,byte_length,bytes) VALUES($1,'image/webp',64,64,$2,$3)", [digest, bytes.length, bytes]);
+    await holder.pool.query("INSERT INTO company_os_bundle_image_blobs(content_sha256,media_type,width,height,byte_length,bytes) VALUES($1,'image/webp',64,48,$2,$3)", [digest, bytes.length, bytes]);
     await holder.pool.query("INSERT INTO company_os_bundle_images(bundle_id,content_sha256,source) VALUES($1,$2,'upload')", [BUNDLE, digest]);
     const body = await bodyOf(await storeCatalog(signedRequest(appliance, "GET", "/api/company-os/v1/store/catalog")));
-    expect((body.bundles as Array<Record<string, unknown>>)[0].image).toEqual({ url: `https://faivr.ai/api/company-os/v1/catalog-images/${encodeURIComponent(digest)}.webp`, sha256: digest, width: 64, height: 64, mediaType: "image/webp" });
+    const image = (body.bundles as Array<Record<string, unknown>>)[0].image as Record<string, unknown>;
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    expect(image).toEqual({ url: `/api/company-os/v1/catalog-images/${sha256}.webp`, sha256, width: 64, height: 48, mediaType: "image/webp" });
+    const header = await sharp(bytes).metadata();
+    expect([header.width, header.height]).toEqual([image.width, image.height]);
   });
 
   it("offers a signed newer package only to an active subscriber that has the package installed", async () => {

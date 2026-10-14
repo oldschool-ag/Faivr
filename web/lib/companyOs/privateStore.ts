@@ -4,7 +4,7 @@ import type { PoolClient } from "pg";
 import { getPgPool } from "@/lib/postgres";
 import { describePermission } from "@/lib/publicPermissions";
 import { normalizePublicKeyPem } from "./publisherKeys";
-import { imageMetadata, type BundleImage } from "./bundleImages";
+import type { BundleImage } from "./bundleImages";
 
 /**
  * The private store (T6b): Old School's catalog of governed AI workers, installable on
@@ -212,6 +212,14 @@ export type CatalogOptions = {
   installedVersions?: Map<string, string>;
 };
 
+/** The signed appliance contract uses a bare SHA-256 hex digest and a same-origin path. */
+function applianceImageMetadata(row: { contentSha256: string; width: number; height: number }): BundleImage {
+  const match = /^sha256:([0-9a-f]{64})$/.exec(row.contentSha256);
+  if (!match) throw new StoreError("bundle_image_digest_invalid", 500);
+  const sha256 = match[1];
+  return { url: `/api/company-os/v1/catalog-images/${sha256}.webp`, sha256, width: row.width, height: row.height, mediaType: "image/webp" };
+}
+
 function manifestPermissions(manifest: unknown): string[] {
   const permissions = (manifest as Record<string, unknown> | null)?.permissions;
   return Array.isArray(permissions) ? permissions.filter((permission): permission is string => typeof permission === "string") : [];
@@ -316,7 +324,7 @@ export async function catalogForAppliance(tenantId: string, instanceId: string, 
       monthlyPriceCents: bundle.monthly_price_cents as number,
       currency: bundle.currency as string,
       priceConfigured: priced(billingBundle(bundle as BundleRow)),
-      image: bundle.content_sha256 ? imageMetadata({ contentSha256: bundle.content_sha256 as string, width: Number(bundle.width), height: Number(bundle.height) }) : null,
+      image: bundle.content_sha256 ? applianceImageMetadata({ contentSha256: bundle.content_sha256 as string, width: Number(bundle.width), height: Number(bundle.height) }) : null,
       subscription: subscription
         ? {
             subscriptionId: subscription.id as string,
