@@ -4,6 +4,8 @@ import { SiteShell } from "@/components/layout/SiteShell";
 import { comingSoonFunctionForPackageIds, comingSoonFunctions } from "@/data/catalog-coming-soon";
 import { getPublicCatalogState } from "@/lib/publicCatalog";
 import { agentTerminology } from "@/lib/publicCopy";
+import { orderPublicFunctions } from "@/data/public-function-order";
+import { FunctionFace } from "@/components/catalog/FunctionFace";
 
 export const metadata: Metadata = {
   title: "FAIVR — The store for Truchsess",
@@ -29,7 +31,8 @@ const label = "inline-flex rounded-full bg-white px-3 py-1 text-[13px] font-bold
 const price = (cents: number, currency: string) => new Intl.NumberFormat("en", { style: "currency", currency: currency.toUpperCase() }).format(cents / 100);
 
 export default async function Home() {
-  const { functions, unavailable } = await getPublicCatalogState();
+  const { functions: catalogFunctions, unavailable } = await getPublicCatalogState();
+  const functions = orderPublicFunctions(catalogFunctions);
   const featured = functions[0];
   const featuredPlan = featured && comingSoonFunctionForPackageIds(featured.workers.map((agent) => agent.id));
   const planned = comingSoonFunctions[0];
@@ -52,9 +55,12 @@ export default async function Home() {
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#A9ACC6]">Featured function</p>
               <span className="rounded-full bg-[#2A2C3D] px-3 py-1.5 text-xs font-bold">{featured ? "Available on Truchsess" : "Coming soon"}</span>
             </div>
-            <div>
+            <div className="flex items-center gap-4">
+              {featured && <FunctionFace image={featured.image} name={featured.name} className="h-16 w-16 shrink-0" />}
+              <div>
               <h2 className="text-[34px] font-extrabold leading-tight tracking-[-0.02em] text-white">{featured?.name ?? planned.name}</h2>
               <p className="mt-2 text-[#C3C5DA]">with {featured ? featured.workers.map(item => item.name).join(", ") : planned.agents.join(", ")}</p>
+              </div>
             </div>
             <p className="leading-7 text-[#C3C5DA]">{featured ? agentTerminology(featured.description) : planned.summary}</p>
             <dl className="grid grid-cols-2 gap-3">
@@ -73,18 +79,18 @@ export default async function Home() {
         <p className={label}>Catalog</p>
         <h2 id="catalog-title" className="mt-3 text-4xl font-extrabold tracking-[-0.025em] sm:text-[44px]">Hire by function, not by hour.</h2>
         {unavailable && <p role="status" className="mt-4 max-w-2xl text-[var(--muted)]">The available catalog is temporarily unavailable. You can still explore the functions in preparation.</p>}
-        <div className="mt-7 grid gap-6 lg:grid-cols-2">
+        <div className="mt-7 grid gap-6 sm:grid-cols-2">
           {functions.map(item => { const itemPlan = comingSoonFunctionForPackageIds(item.workers.map((agent) => agent.id)); const functionSlug = itemPlan?.slug ?? item.slug; return <article key={item.slug} className="rounded-[28px] border border-[var(--line)] bg-white p-7 sm:p-9">
-            <h3 className="text-[28px] font-extrabold">{item.name}</h3>
+            <div className="flex items-center gap-4"><FunctionFace image={item.image} name={item.name} /><div><h3 className="text-[28px] font-extrabold">{item.name}</h3><p className="mt-1 text-sm font-semibold text-[var(--muted)]">{item.workers.map((agent) => agent.name).join(", ")}</p></div></div>
             <p className="mt-3 leading-7 text-[var(--body)]">{agentTerminology(item.description)}</p>
             <p className="mt-4 text-2xl font-extrabold">{price(item.monthlyPriceCents, item.currency)} <span className="text-base font-medium text-[var(--muted)]">/ month</span></p>
             <p className="mt-2 text-sm text-[var(--muted)]">Plus VAT where applicable. Early access: talk to us to get a Truchsess.</p>
             <Link className={primary + " mt-6"} href={`/catalog/${functionSlug}`}>View details</Link>
           </article>; })}
           <article className="flex min-h-[230px] flex-col justify-center rounded-[28px] border-2 border-dashed border-[#C9CCE4] p-7 sm:p-9">
-            <h3 className="text-[26px] font-extrabold">More functions in preparation</h3>
+            <h3 className="text-[26px] font-extrabold">{comingSoonFunctions.filter((item) => !functions.some((available) => available.slug === item.slug || comingSoonFunctionForPackageIds(available.workers.map((agent) => agent.id))?.slug === item.slug)).length} more functions in preparation</h3>
             <p className="mt-3 max-w-xl leading-7 text-[var(--muted)]">Explore the planned functions and tell us which work you want to hand to a governed AI agent.</p>
-            <Link href="/catalog" className="mt-4 inline-flex min-h-11 items-center self-start rounded-full bg-white px-4 font-bold text-[var(--accent)]">Explore the catalog →</Link>
+            <Link href="/catalog#coming-soon" className="mt-4 inline-flex min-h-11 items-center self-start rounded-full bg-white px-4 font-bold text-[var(--accent)]">Explore the catalog →</Link>
           </article>
         </div>
       </section>
