@@ -2,6 +2,18 @@
 
 Checked on 2026-10-14 against FAIVR's locked Next.js 16.3.8 toolchain.
 
+The version ignores also exclude security updates into those ranges. Review
+Dependabot alerts separately: if a fix is available only in an ignored range,
+prioritize the compatibility migration or another mitigation rather than waiting
+for an automatic update PR. Supported-version security fixes remain eligible.
+
+The audit on this date reports seven high-severity development dependency
+findings stemming from `braces` [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm),
+which has no patched release listed. These are inherited from `main` through the
+lint/Tailwind dependency tree; `npm audit --omit=dev` reports zero vulnerabilities.
+Track remediation independently of these major-version deferrals; the full
+development dependency audit is not clean.
+
 ## ESLint 10
 
 **Status: deferred.** Next.js added explicit ESLint 10 compatibility in
