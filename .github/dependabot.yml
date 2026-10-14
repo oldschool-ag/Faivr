@@ -3,20 +3,46 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "monthly"
+      interval: "weekly"
     open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github_actions"
+    # Security updates stay immediate and ungrouped. Version majors are also
+    # ungrouped (one dependency per PR) and labelled by the companion workflow.
+    groups:
+      minor-and-patch:
+        applies-to: "version-updates"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "npm"
     directory: "/web"
     schedule:
-      interval: "monthly"
+      interval: "weekly"
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
       - "javascript"
+    # Security updates stay immediate and ungrouped. Version majors are also
+    # ungrouped (one dependency per PR) and labelled by the companion workflow.
     groups:
+      production-minor-and-patch:
+        applies-to: "version-updates"
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
       development-minor-and-patch:
+        applies-to: "version-updates"
         dependency-type: "development"
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # Tailwind 4 changes the PostCSS plugin and CSS/config model. Revisit when
+      # FAIVR schedules that migration and its visual regression review.
+      - dependency-name: "tailwindcss"
+        versions:
+          - ">=4.0.0"
