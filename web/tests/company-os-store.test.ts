@@ -176,6 +176,7 @@ describe("the private Truchsess store on FAIVR", () => {
       [leadVersionId, MODEL_ID, JSON.stringify(leadManifest), publisher.keyId, (leadManifest.signature as { value: string }).value, `https://packages.faivr.test/company-os/v1/packages/${MODEL_ID}/1.2.1/x.tar.gz`, leadManifest.packageDigest],
     );
     await expect(addPackageToBundle(BUNDLE, MODEL_ID)).resolves.toBeUndefined();
+    await enrolAppliance();
     const catalog = await bodyOf(await storeCatalog(signedRequest(appliance, "GET", "/api/company-os/v1/store/catalog")));
     const lead = ((catalog.bundles as Array<Record<string, unknown>>)[0].packages as Array<Record<string, unknown>>)[0];
     expect(lead).toMatchObject({ modelId: MODEL_ID, version: "1.2.1", functionLead: true });
