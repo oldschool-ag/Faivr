@@ -194,8 +194,21 @@ describe("the private Truchsess store on FAIVR", () => {
     expect([header.width, header.height]).toEqual([image.width, image.height]);
   });
 
+  it("returns null release notes to a subscribed enrolled box when the latest version has no notes", async () => {
+    await enrolAppliance();
+    const subscriptionId = randomUUID();
+    const installationId = randomUUID();
+    await holder.pool.query("INSERT INTO company_os_bundle_subscriptions(id,tenant_id,instance_id,bundle_id,subscription_state) VALUES($1,$2,$3,$4,'active')", [subscriptionId, tenantId, appliance.instanceId, BUNDLE]);
+    await holder.pool.query("INSERT INTO company_os_installations(id,tenant_id,instance_id,package_id,desired_version_id,installed_version_id,subscription_id,bundle_subscription_id,installation_state,subscription_state) VALUES($1,$2,$3,$4,$5,$5,$6,$6,'active','active')", [installationId, tenantId, appliance.instanceId, MODEL_ID, versionId, subscriptionId]);
+
+    const catalog = await bodyOf(await storeCatalog(signedRequest(appliance, "GET", "/api/company-os/v1/store/catalog")));
+    const pkg = ((catalog.bundles as Array<Record<string, unknown>>)[0].packages as Array<Record<string, unknown>>)[0];
+    expect(pkg).toMatchObject({ installedVersion: VERSION, latestVersion: VERSION, releaseNotes: null });
+  });
+
   it("offers a signed newer package only to an active subscriber that has the package installed", async () => {
     await enrolAppliance();
+    await holder.pool.query("UPDATE company_os_package_versions SET release_notes='Older version notes.' WHERE id=$1", [versionId]);
     const subscriptionId = randomUUID();
     const installationId = randomUUID();
     const updatedPayload = Buffer.from("deterministic payload bytes of version 1.2.1");
