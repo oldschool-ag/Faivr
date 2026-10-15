@@ -77,9 +77,13 @@ describe("importing a signed Truchsess bundle file into the store", () => {
   const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2) + "\n");
   const index = { schemaVersion: "truchsess-signed-bundle-file.v1", modelId, version, packageDigest: manifest.packageDigest, artifactBytes: payload.length, manifestSha256: digest(manifestBytes), publisherKeyId: keyId, publicationState: "local_install" };
 
-  function signedBundle(input: typeof unsigned & { functionLead?: unknown; slots?: unknown; releaseNotes?: string }, packagePayload = payload) {
+  function signedManifestBytes(input: typeof unsigned & Record<string, unknown>) {
     const signed = { ...input, signature: { keyId, algorithm: "Ed25519", value: edSign(null, Buffer.from(canonicalJson(input)), privateKey).toString("base64url") } };
-    const bytes = Buffer.from(JSON.stringify(signed));
+    return Buffer.from(JSON.stringify(signed));
+  }
+
+  function signedBundle(input: typeof unsigned & Record<string, unknown>, packagePayload = payload) {
+    const bytes = signedManifestBytes(input);
     const bundleIndex = { ...index, modelId: input.modelId, version: input.version, packageDigest: input.packageDigest, artifactBytes: packagePayload.length, manifestSha256: digest(bytes) };
     return tar([["bundle-index.json", Buffer.from(JSON.stringify(bundleIndex))], ["manifest.json", bytes], ["package.tar.gz", packagePayload]]);
   }
@@ -107,6 +111,69 @@ describe("importing a signed Truchsess bundle file into the store", () => {
     const report = JSON.parse(result.stdout.trim());
     expect(report).toMatchObject({ valid: true, modelId, version, digest: manifest.packageDigest, permissions, bundle: "design-review", releaseNotes: "Fixes the misleading report output.", inlineArtifact: true });
     expect(report.artifactUrl).toBe(`https://store.faivr.test/company-os/v1/packages/${modelId}/${version}/${digest(payload)}.tar.gz`);
+  });
+
+  it("accepts signed extension fields with portable names, including routines and fooBar", () => {
+    const dir = mkdtempSync(join(tmpdir(), "faivr-import-extensions-"));
+    writeFileSync(join(dir, "publisher.pub"), publicPem);
+    const bundleFile = join(dir, "extensions.truchsess-bundle.tar");
+    const routines = [{ name: "weeklyReview", schedule: "0 9 * * 1", workflow: "workflows/example.md" }];
+    writeFileSync(bundleFile, signedBundle({ ...unsigned, routines, fooBar: { enabled: true } }));
+    const result = run([bundleFile], { FAIVR_VALIDATE_ONLY: "1", FAIVR_PUBLISHER_PUBLIC_KEY_PATH: join(dir, "publisher.pub"), FAIVR_PACKAGE_ORIGIN: "https://store.faivr.test", FAIVR_STORE_ARTIFACT_INLINE: "1" });
+    expect(result.status, result.stderr).toBe(0);
+    const report = JSON.parse(result.stdout.trim());
+    expect(report).not.toHaveProperty("routines");
+    expect(report).not.toHaveProperty("fooBar");
+  });
+
+  it("rejects invalid extension names and manifests over 256 KiB", () => {
+    const dir = mkdtempSync(join(tmpdir(), "faivr-import-extension-limits-"));
+    writeFileSync(join(dir, "publisher.pub"), publicPem);
+    const env = { FAIVR_VALIDATE_ONLY: "1", FAIVR_PUBLISHER_PUBLIC_KEY_PATH: join(dir, "publisher.pub"), FAIVR_PACKAGE_ORIGIN: "https://store.faivr.test", FAIVR_STORE_ARTIFACT_INLINE: "1" };
+
+    const badNameFile = join(dir, "bad-name.truchsess-bundle.tar");
+    writeFileSync(badNameFile, signedBundle({ ...unsigned, "bad-name": true }));
+    const badName = run([badNameFile], env);
+    expect(badName.status).not.toBe(0);
+    expect(badName.stderr).toContain("invalid manifest fields");
+
+    const emptyExtensionBytes = signedManifestBytes({ ...unsigned, fooBar: "" });
+    const exactPadding = 256 * 1024 - emptyExtensionBytes.length;
+    const atLimitBytes = signedManifestBytes({ ...unsigned, fooBar: "x".repeat(exactPadding) });
+    expect(atLimitBytes).toHaveLength(256 * 1024);
+    const atLimitFile = join(dir, "at-limit.truchsess-bundle.tar");
+    writeFileSync(atLimitFile, tar([["bundle-index.json", Buffer.from(JSON.stringify({ ...index, manifestSha256: digest(atLimitBytes) }))], ["manifest.json", atLimitBytes], ["package.tar.gz", payload]]));
+    const atLimit = run([atLimitFile], env);
+    expect(atLimit.status, atLimit.stderr).toBe(0);
+
+    const oversizedBytes = signedManifestBytes({ ...unsigned, fooBar: "x".repeat(exactPadding + 1) });
+    expect(oversizedBytes).toHaveLength(256 * 1024 + 1);
+    const oversizedFile = join(dir, "oversized.truchsess-bundle.tar");
+    writeFileSync(oversizedFile, tar([["bundle-index.json", Buffer.from(JSON.stringify({ ...index, manifestSha256: digest(oversizedBytes) }))], ["manifest.json", oversizedBytes], ["package.tar.gz", payload]]));
+    const oversized = run([oversizedFile], env);
+    expect(oversized.status).not.toBe(0);
+    expect(oversized.stderr).toContain("portable manifest exceeds 262144 byte limit");
+  });
+
+  it("keeps extension fields and schemaVersion inside the publisher signature", () => {
+    const dir = mkdtempSync(join(tmpdir(), "faivr-import-extension-signature-"));
+    writeFileSync(join(dir, "publisher.pub"), publicPem);
+    const env = { FAIVR_VALIDATE_ONLY: "1", FAIVR_PUBLISHER_PUBLIC_KEY_PATH: join(dir, "publisher.pub"), FAIVR_PACKAGE_ORIGIN: "https://store.faivr.test", FAIVR_STORE_ARTIFACT_INLINE: "1" };
+
+    const signed = { ...unsigned, fooBar: "signed value" };
+    const signature = { keyId, algorithm: "Ed25519", value: edSign(null, Buffer.from(canonicalJson(signed)), privateKey).toString("base64url") };
+    const tamperedBytes = Buffer.from(JSON.stringify({ ...signed, fooBar: "tampered value", signature }));
+    const tamperedFile = join(dir, "extension-tampered.truchsess-bundle.tar");
+    writeFileSync(tamperedFile, tar([["bundle-index.json", Buffer.from(JSON.stringify({ ...index, manifestSha256: digest(tamperedBytes) }))], ["manifest.json", tamperedBytes], ["package.tar.gz", payload]]));
+    const tampered = run([tamperedFile], env);
+    expect(tampered.status).not.toBe(0);
+    expect(tampered.stderr).toContain("invalid publisher signature");
+
+    const v2File = join(dir, "v2.truchsess-bundle.tar");
+    writeFileSync(v2File, signedBundle({ ...unsigned, schemaVersion: "faivr-portable-agent-bundle.v2" }));
+    const v2 = run([v2File], env);
+    expect(v2.status).not.toBe(0);
+    expect(v2.stderr).toContain("invalid portable manifest identity");
   });
 
   it("accepts only boolean functionLead values while preserving legacy manifests", () => {
@@ -290,19 +357,27 @@ describe("importing a signed Truchsess bundle file into the store", () => {
     expect(tamperedResult.stderr).toContain("invalid publisher signature");
   });
 
-  it("accepts Penn's mail permissions and rejects mail.send", () => {
-    const dir = mkdtempSync(join(tmpdir(), "faivr-import-mail-"));
+  it("accepts extensible permission names and rejects malformed or duplicate values", () => {
+    const dir = mkdtempSync(join(tmpdir(), "faivr-import-permissions-"));
     writeFileSync(join(dir, "publisher.pub"), publicPem);
     const env = { FAIVR_VALIDATE_ONLY: "1", FAIVR_PUBLISHER_PUBLIC_KEY_PATH: join(dir, "publisher.pub"), FAIVR_PACKAGE_ORIGIN: "https://store.faivr.test", FAIVR_STORE_ARTIFACT_INLINE: "1" };
-    const allowed = join(dir, "mail-allowed.truchsess-bundle.tar");
-    writeFileSync(allowed, signedBundle({ ...unsigned, permissions: [...permissions, "mail.read", "mail.draft"] }));
+    const allowed = join(dir, "permissions-allowed.truchsess-bundle.tar");
+    writeFileSync(allowed, signedBundle({ ...unsigned, permissions: [...permissions, "mail.read", "mail.draft", "mail.send", "delegate:Fixture"] }));
     const allowedResult = run([allowed], env);
     expect(allowedResult.status, allowedResult.stderr).toBe(0);
-    const forbidden = join(dir, "mail-send.truchsess-bundle.tar");
-    writeFileSync(forbidden, signedBundle({ ...unsigned, permissions: [...permissions, "mail.send"] }));
-    const result = run([forbidden], env);
-    expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain("unsupported mail permission mail.send");
+    const invalidPermissions = ["Workspace.read", "workspace read", "1workspace.read", "workspace.read:", "workspace.read:has space", `workspace.read:${"x".repeat(201)}`];
+    for (let position = 0; position < invalidPermissions.length; position += 1) {
+      const invalidFile = join(dir, `permissions-invalid-${position}.truchsess-bundle.tar`);
+      writeFileSync(invalidFile, signedBundle({ ...unsigned, permissions: [...permissions, invalidPermissions[position]] }));
+      const invalid = run([invalidFile], env);
+      expect(invalid.status).not.toBe(0);
+      expect(invalid.stderr).toContain("permissions must be unique strings in portable permission format");
+    }
+    const duplicateFile = join(dir, "permissions-duplicate.truchsess-bundle.tar");
+    writeFileSync(duplicateFile, signedBundle({ ...unsigned, permissions: [...permissions, permissions[0]] }));
+    const duplicate = run([duplicateFile], env);
+    expect(duplicate.status).not.toBe(0);
+    expect(duplicate.stderr).toContain("permissions must be unique strings in portable permission format");
   });
 
   it("refuses a bundle whose payload was swapped or whose signature does not verify", () => {
