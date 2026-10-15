@@ -23,13 +23,11 @@ function githubHeaders() {
 }
 
 function isChecksumAsset(asset: GithubAsset) {
-  return /(?:^|[-_.])(?:sha256sums?|checksums?)(?:\.txt)?$/i.test(asset.name) || /\.sha256$/i.test(asset.name);
+  return /(?:^|[-_.])(?:sha256(?:sums?)?|checksums?)(?:\.txt)?$/i.test(asset.name) || /\.sha256$/i.test(asset.name);
 }
 
 function isUpdateAsset(asset: GithubAsset) {
-  if (isChecksumAsset(asset)) return false;
-  if (["truchsess-closure.nar", "truchsess-closure.nar.sig", "truchsess-system.release.json", "truchsess-system.release.json.sig"].includes(asset.name)) return true;
-  return /^truchsess-embedding-[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(asset.name);
+  return !isChecksumAsset(asset) && !/\.iso(?:\.|$)/i.test(asset.name);
 }
 
 function releaseIsEligible(release: GithubRelease) {
@@ -125,8 +123,11 @@ async function checksums(release: GithubRelease) {
 export async function latestTruchsessRelease(pool: Parameters<typeof stableTag>[0]) {
   const pinnedTag = await stableTag(pool);
   const release = await releaseForTag(pinnedTag);
+  const updateAssets = release.assets.filter(isUpdateAsset);
+  if (!pinnedTag && !updateAssets.some(asset => asset.name.endsWith(".release.json")))
+    console.error(`Truchsess release ${release.tag_name} has no .release.json update asset after filtering`);
   const checksumEntries = await checksums(release);
-  const assets = await Promise.all(release.assets.filter(isUpdateAsset).map(async (asset) => {
+  const assets = await Promise.all(updateAssets.map(async (asset) => {
     if (typeof asset.digest !== "string" || !/^sha256:[a-fA-F0-9]{64}$/.test(asset.digest))
       throw new ReleaseLookupError(502, "release_asset_digest_invalid");
     const sha256 = asset.digest.toLowerCase();
