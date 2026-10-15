@@ -82,7 +82,7 @@ export function envelope(appliance: Appliance, extra: Record<string, unknown> = 
 }
 
 /** A signed portable manifest for one payload, the way the Truchsess exporter signs it (RFC 8785 minus `signature`). */
-export function signedManifest(input: { modelId: string; version: string; payload: Buffer; publisherKeyId: string; publisherPrivatePem: string; permissions: string[]; slots?: Array<{ id: string; question: string; kind: "repository" | "product" | "website"; required: boolean }>; summary?: string; releaseNotes?: string }) {
+export function signedManifest(input: { modelId: string; version: string; payload: Buffer; publisherKeyId: string; publisherPrivatePem: string; permissions: string[]; slots?: Array<{ id: string; question: string; kind: "repository" | "product" | "website"; required: boolean }>; summary?: string; releaseNotes?: string; functionLead?: boolean }) {
   const sha256 = (value: Buffer) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
   const manifest: Record<string, unknown> = {
     schemaVersion: "faivr-portable-agent-bundle.v1",
@@ -104,6 +104,7 @@ export function signedManifest(input: { modelId: string; version: string; payloa
   };
   if (input.slots) manifest.slots=input.slots;
   if (input.releaseNotes) manifest.releaseNotes=input.releaseNotes;
+  if (input.functionLead !== undefined) manifest.functionLead=input.functionLead;
   const value = edSign(null, Buffer.from(canonicalJson(manifest)), createPrivateKey(input.publisherPrivatePem)).toString("base64url");
   return { ...manifest, signature: { keyId: input.publisherKeyId, algorithm: "Ed25519", value } };
 }

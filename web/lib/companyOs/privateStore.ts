@@ -138,11 +138,28 @@ export async function upsertBundle(input: { id: string; name: string; descriptio
 }
 
 export async function addPackageToBundle(bundleId: string, packageId: string, client?: Queryable) {
-  const bundle = await db(client).query("SELECT id FROM company_os_function_bundles WHERE id=$1", [bundleId]);
+  const q = db(client);
+  const bundle = await q.query("SELECT id FROM company_os_function_bundles WHERE id=$1", [bundleId]);
   if (!bundle.rowCount) throw new StoreError("bundle_not_found", 404);
-  const pkg = await db(client).query("SELECT id FROM company_os_packages WHERE id=$1", [packageId]);
+  const pkg = await q.query("SELECT id FROM company_os_packages WHERE id=$1", [packageId]);
   if (!pkg.rowCount) throw new StoreError("package_not_found", 404);
-  await db(client).query("INSERT INTO company_os_bundle_packages(bundle_id,package_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [bundleId, packageId]);
+  const candidateVersions = await q.query("SELECT version,manifest FROM company_os_package_versions WHERE package_id=$1 AND status='published'", [packageId]);
+  const candidate = candidateVersions.rows.reduce<Record<string, unknown> | null>((latest, row) => !latest || compareSemver(row.version as string, latest.version as string) > 0 ? row : latest, null);
+  if ((candidate?.manifest as Record<string, unknown> | undefined)?.functionLead === true) {
+    const otherVersions = await q.query("SELECT bp.package_id,v.version,v.manifest FROM company_os_bundle_packages bp JOIN company_os_package_versions v ON v.package_id=bp.package_id AND v.status='published' WHERE bp.bundle_id=$1 AND bp.package_id<>$2", [bundleId, packageId]);
+    const latestByPackage = new Map<string, Record<string, unknown>>();
+    for (const row of otherVersions.rows) {
+      const current = latestByPackage.get(row.package_id as string);
+      if (!current || compareSemver(row.version as string, current.version as string) > 0) latestByPackage.set(row.package_id as string, row);
+    }
+    const leadPackageIds: string[] = [];
+    latestByPackage.forEach((row, modelId) => {
+      if ((row.manifest as Record<string, unknown> | undefined)?.functionLead === true) leadPackageIds.push(modelId);
+    });
+    const existing = leadPackageIds.sort()[0];
+    if (existing) throw new StoreError(`function_bundle_lead_conflict:${existing}`);
+  }
+  await q.query("INSERT INTO company_os_bundle_packages(bundle_id,package_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [bundleId, packageId]);
 }
 
 export function compareSemver(a: string, b: string): number {
@@ -191,6 +208,8 @@ export type CatalogPackage = {
   artifact?: { downloadPath: string; packageDigest: string; publisherKeyId: string | null; publisherSignature: string; manifest: Record<string, unknown> };
   permissionChanges?: { added: string[]; removed: string[] };
   releaseNotes?: string | null;
+  /** Present only when this signed package version is the bundle's function lead. */
+  functionLead?: true;
 };
 
 export type CatalogBundle = {
@@ -296,6 +315,7 @@ export async function catalogForAppliance(tenantId: string, instanceId: string, 
         maxCompanyOsVersion: typeof compatibility.maxVersion === "string" ? compatibility.maxVersion : null,
         installation: installation ? { installationId: installation.id as string, state: installation.installation_state as string, localAgentDefinitionId: (installation.local_agent_definition_id as string | null) ?? null } : null,
       };
+      if (manifest.functionLead === true) item.functionLead = true;
       const reportedVersionId = installation && options.installedVersions ? options.installedVersions.get(installation.id as string) : undefined;
       const installedCandidate = installation ? versionById.get(reportedVersionId ?? (options.installedVersions ? "" : installation.installed_version_id as string)) : undefined;
       const installed = installedCandidate?.package_id === packageId ? installedCandidate : undefined;

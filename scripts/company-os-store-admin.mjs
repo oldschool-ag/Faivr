@@ -21,6 +21,7 @@
 import { createHash, createPublicKey, randomInt, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import pg from "../web/node_modules/pg/lib/index.js";
+import { assertFunctionLeadAvailable, latestVersionIsFunctionLead } from "./company-os-function-leads.mjs";
 
 const [command, ...rest] = process.argv.slice(2);
 const options = {};
@@ -111,6 +112,8 @@ try {
     if (!exists.rowCount) throw new Error(`package ${modelId} is not imported yet; run scripts/import-company-os-bundle.mjs first`);
     const bundleRow = await client.query("SELECT 1 FROM company_os_function_bundles WHERE id=$1", [bundle]);
     if (!bundleRow.rowCount) throw new Error(`bundle ${bundle} does not exist`);
+    const versions = await client.query("SELECT version,manifest FROM company_os_package_versions WHERE package_id=$1 AND status='published'", [modelId]);
+    if (latestVersionIsFunctionLead(versions.rows)) await assertFunctionLeadAvailable(client, bundle, modelId);
     await client.query("INSERT INTO company_os_bundle_packages(bundle_id,package_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [bundle, modelId]);
     console.log(JSON.stringify({ bundle, modelId, added: true }));
   } else if (command === "remove-package") {

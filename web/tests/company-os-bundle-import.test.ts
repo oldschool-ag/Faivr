@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { canonicalJson } from "@/lib/companyOs/auth";
+import { assertFunctionLeadAvailable, existingFunctionLead, latestVersionIsFunctionLead } from "../../scripts/company-os-function-leads.mjs";
 
 /**
  * The importer accepts the appliance exporter's pack-bundle file (bundle-index.json,
@@ -76,7 +77,7 @@ describe("importing a signed Truchsess bundle file into the store", () => {
   const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2) + "\n");
   const index = { schemaVersion: "truchsess-signed-bundle-file.v1", modelId, version, packageDigest: manifest.packageDigest, artifactBytes: payload.length, manifestSha256: digest(manifestBytes), publisherKeyId: keyId, publicationState: "local_install" };
 
-  function signedBundle(input: typeof unsigned, packagePayload = payload) {
+  function signedBundle(input: typeof unsigned & { functionLead?: unknown; slots?: unknown; releaseNotes?: string }, packagePayload = payload) {
     const signed = { ...input, signature: { keyId, algorithm: "Ed25519", value: edSign(null, Buffer.from(canonicalJson(input)), privateKey).toString("base64url") } };
     const bytes = Buffer.from(JSON.stringify(signed));
     const bundleIndex = { ...index, modelId: input.modelId, version: input.version, packageDigest: input.packageDigest, artifactBytes: packagePayload.length, manifestSha256: digest(bytes) };
@@ -106,6 +107,69 @@ describe("importing a signed Truchsess bundle file into the store", () => {
     const report = JSON.parse(result.stdout.trim());
     expect(report).toMatchObject({ valid: true, modelId, version, digest: manifest.packageDigest, permissions, bundle: "design-review", releaseNotes: "Fixes the misleading report output.", inlineArtifact: true });
     expect(report.artifactUrl).toBe(`https://store.faivr.test/company-os/v1/packages/${modelId}/${version}/${digest(payload)}.tar.gz`);
+  });
+
+  it("accepts only boolean functionLead values while preserving legacy manifests", () => {
+    const dir = mkdtempSync(join(tmpdir(), "faivr-import-function-lead-"));
+    writeFileSync(join(dir, "publisher.pub"), publicPem);
+    const env = { FAIVR_VALIDATE_ONLY: "1", FAIVR_PUBLISHER_PUBLIC_KEY_PATH: join(dir, "publisher.pub"), FAIVR_PACKAGE_ORIGIN: "https://store.faivr.test", FAIVR_STORE_ARTIFACT_INLINE: "1" };
+
+    const legacyFile = join(dir, "legacy.truchsess-bundle.tar");
+    writeFileSync(legacyFile, signedBundle(unsigned));
+    const legacy = run([legacyFile], env);
+    expect(legacy.status, legacy.stderr).toBe(0);
+    expect(JSON.parse(legacy.stdout.trim())).not.toHaveProperty("functionLead");
+
+    const leadFile = join(dir, "lead.truchsess-bundle.tar");
+    writeFileSync(leadFile, signedBundle({ ...unsigned, functionLead: true }));
+    const lead = run([leadFile], env);
+    expect(lead.status, lead.stderr).toBe(0);
+    expect(JSON.parse(lead.stdout.trim())).toMatchObject({ valid: true, functionLead: true });
+
+    const nonLeadFile = join(dir, "non-lead.truchsess-bundle.tar");
+    writeFileSync(nonLeadFile, signedBundle({ ...unsigned, functionLead: false }));
+    const nonLead = run([nonLeadFile], env);
+    expect(nonLead.status, nonLead.stderr).toBe(0);
+    expect(JSON.parse(nonLead.stdout.trim())).not.toHaveProperty("functionLead");
+
+    const invalidFunctionLeads = ["true", 1, null, {}, []];
+    for (let position = 0; position < invalidFunctionLeads.length; position += 1) {
+      const functionLead = invalidFunctionLeads[position];
+      const invalidFile = join(dir, `invalid-${position}.truchsess-bundle.tar`);
+      writeFileSync(invalidFile, signedBundle({ ...unsigned, functionLead }));
+      const invalid = run([invalidFile], env);
+      expect(invalid.status).not.toBe(0);
+      expect(invalid.stderr).toContain("functionLead must be a boolean when present");
+    }
+  });
+
+  it("keeps functionLead inside the publisher signature", () => {
+    const dir = mkdtempSync(join(tmpdir(), "faivr-import-function-lead-signature-"));
+    writeFileSync(join(dir, "publisher.pub"), publicPem);
+    const signed = { ...unsigned, functionLead: true };
+    const signature = { keyId, algorithm: "Ed25519", value: edSign(null, Buffer.from(canonicalJson(signed)), privateKey).toString("base64url") };
+    const tampered = Buffer.from(JSON.stringify({ ...signed, functionLead: false, signature }));
+    const bundleFile = join(dir, "tampered.truchsess-bundle.tar");
+    writeFileSync(bundleFile, tar([["bundle-index.json", Buffer.from(JSON.stringify({ ...index, manifestSha256: digest(tampered) }))], ["manifest.json", tampered], ["package.tar.gz", payload]]));
+    const result = run([bundleFile], { FAIVR_VALIDATE_ONLY: "1", FAIVR_PUBLISHER_PUBLIC_KEY_PATH: join(dir, "publisher.pub"), FAIVR_PACKAGE_ORIGIN: "https://store.faivr.test", FAIVR_STORE_ARTIFACT_INLINE: "1" });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("invalid publisher signature");
+  });
+
+  it("allows a newer version of the same lead package but names a different existing lead", async () => {
+    const rows = [
+      { package_id: modelId, version: "1.0.0", manifest: { functionLead: true } },
+      { package_id: modelId, version: "1.0.1", manifest: { functionLead: true } },
+      { package_id: "faivr.agent.support", version: "1.0.0", manifest: {} },
+    ];
+    expect(existingFunctionLead(rows)).toBe(modelId);
+    expect(latestVersionIsFunctionLead(rows.filter((row) => row.package_id === modelId))).toBe(true);
+
+    const samePackageClient = { query: async (sql: string) => ({ rows: sql.includes("company_os_bundle_packages") ? rows.filter((row) => row.package_id !== modelId) : [{ id: "build" }], rowCount: 1 }) };
+    await expect(assertFunctionLeadAvailable(samePackageClient, "build", modelId)).resolves.toBeUndefined();
+
+    const differentPackageClient = { query: async (sql: string) => ({ rows: sql.includes("company_os_bundle_packages") ? rows.filter((row) => row.package_id === modelId) : [{ id: "build" }], rowCount: 1 }) };
+    await expect(assertFunctionLeadAvailable(differentPackageClient, "build", "faivr.agent.writer")).rejects.toThrow(`function bundle build already has function lead ${modelId}; cannot add faivr.agent.writer`);
   });
 
   it("reads release notes from the signed payload and reports null only when the file is absent", () => {

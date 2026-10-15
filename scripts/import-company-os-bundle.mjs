@@ -16,6 +16,7 @@ import { createHash, createPublicKey, verify } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { gunzipSync } from "node:zlib";
 import pg from "../web/node_modules/pg/lib/index.js";
+import { assertFunctionLeadAvailable } from "./company-os-function-leads.mjs";
 
 const args=process.argv.slice(2);
 const releaseNotesFlag=args.indexOf("--release-notes");
@@ -148,7 +149,7 @@ function readBundleFile(bytes){
 
 function validateManifest(raw,artifact,files){
   const manifestKeys=["schemaVersion","modelId","version","displayName","summary","publisher","packageDigest","artifactBytes","entrypoint","companyOsCompatibility","permissions","dependencies","managedPaths","tenantDataIncluded","monthlyPrice","contents","signature"];
-  const optionalManifestKeys=[...(raw.slots===undefined?[]:["slots"]),...(raw.releaseNotes===undefined?[]:["releaseNotes"])];
+  const optionalManifestKeys=[...(raw.slots===undefined?[]:["slots"]),...(raw.releaseNotes===undefined?[]:["releaseNotes"]),...(raw.functionLead===undefined?[]:["functionLead"])];
   exactKeys(raw,[...manifestKeys,...optionalManifestKeys],"manifest");
   exactKeys(raw.publisher,["publisherId","name"],"publisher");
   exactKeys(raw.companyOsCompatibility,["minVersion","maxVersion"],"companyOsCompatibility");
@@ -157,6 +158,7 @@ function validateManifest(raw,artifact,files){
   if(raw.schemaVersion!=="faivr-portable-agent-bundle.v1"||!modelIdPattern.test(raw.modelId)||!semver.test(raw.version)||typeof raw.displayName!=="string"||!raw.displayName||typeof raw.summary!=="string"||!raw.summary)throw new Error("invalid portable manifest identity");
   if(typeof raw.publisher.publisherId!=="string"||!raw.publisher.publisherId||typeof raw.publisher.name!=="string"||!raw.publisher.name)throw new Error("invalid publisher");
   if(raw.releaseNotes!==undefined&&(typeof raw.releaseNotes!=="string"||characterLength(raw.releaseNotes)<1||characterLength(raw.releaseNotes)>maxReleaseNotesCharacters))throw new Error("invalid releaseNotes");
+  if(raw.functionLead!==undefined&&typeof raw.functionLead!=="boolean")throw new Error("functionLead must be a boolean when present");
   if(!digestPattern.test(raw.packageDigest)||raw.packageDigest!==sha256(artifact)||!Number.isSafeInteger(raw.artifactBytes)||raw.artifactBytes!==artifact.length)throw new Error("artifact size or digest mismatch");
   if(raw.entrypoint!=="agent-definition.json"||!semver.test(raw.companyOsCompatibility.minVersion)||(raw.companyOsCompatibility.maxVersion!==null&&!semver.test(raw.companyOsCompatibility.maxVersion)))throw new Error("invalid entrypoint or compatibility range");
   uniqueStrings(raw.permissions,"permissions");uniqueStrings(raw.dependencies,"dependencies");validatePermissions(raw.permissions);validateSlots(raw.slots,raw.permissions);
@@ -197,7 +199,7 @@ try{
     if(!publisher.rowCount)throw new Error("publisher key is not enrolled");publicKey=publisher.rows[0].public_key;
   }
   if(!verify(null,Buffer.from(canonical(signedManifest)),createPublicKey(publicKey),Buffer.from(signature.value,"base64url")))throw new Error("invalid publisher signature");
-  if(validateOnly){console.log(JSON.stringify({valid:true,modelId:raw.modelId,version:raw.version,digest:raw.packageDigest,artifactBytes:raw.artifactBytes,artifactUrl:artifactUrl.href,permissions:raw.permissions,slots:raw.slots??[],bundle:bundleId,releaseNotes,inlineArtifact}));}
+  if(validateOnly){console.log(JSON.stringify({valid:true,modelId:raw.modelId,version:raw.version,digest:raw.packageDigest,artifactBytes:raw.artifactBytes,artifactUrl:artifactUrl.href,permissions:raw.permissions,slots:raw.slots??[],bundle:bundleId,releaseNotes,inlineArtifact,...(raw.functionLead===true?{functionLead:true}:{})}));}
   else{
     const slug=raw.modelId.slice("faivr.agent.".length).replace(/[._]+/g,"-");
     const priorVersions=await client.query("SELECT version FROM company_os_package_versions WHERE package_id=$1 AND status='published'",[raw.modelId]);
@@ -209,6 +211,13 @@ try{
     if(inlineArtifact){
       // the store serves these exact bytes on GET /installations/{id}/package; the appliance re-hashes them
       await client.query("INSERT INTO company_os_package_artifacts(version_id,artifact,artifact_bytes,artifact_sha256) VALUES($1,$2,$3,$4) ON CONFLICT(version_id) DO UPDATE SET artifact=EXCLUDED.artifact,artifact_bytes=EXCLUDED.artifact_bytes,artifact_sha256=EXCLUDED.artifact_sha256,uploaded_at=now() WHERE company_os_package_artifacts.artifact_sha256=EXCLUDED.artifact_sha256",[versionId,artifact,artifact.length,raw.packageDigest]);
+    }
+    const importedVersionIsLatest=previousLatest===null||compareSemver(raw.version,previousLatest)>=0;
+    if(raw.functionLead===true&&importedVersionIsLatest){
+      const memberships=await client.query("SELECT bundle_id FROM company_os_bundle_packages WHERE package_id=$1 ORDER BY bundle_id",[raw.modelId]);
+      const affectedBundles=new Set(memberships.rows.map(row=>row.bundle_id));
+      if(bundleId)affectedBundles.add(bundleId);
+      for(const affectedBundle of [...affectedBundles].sort())await assertFunctionLeadAvailable(client,affectedBundle,raw.modelId);
     }
     let latestVersion=null,latestVersionChanged=false;
     if(bundleId){
