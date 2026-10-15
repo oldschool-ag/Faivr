@@ -152,7 +152,11 @@ export async function addPackageToBundle(bundleId: string, packageId: string, cl
       const current = latestByPackage.get(row.package_id as string);
       if (!current || compareSemver(row.version as string, current.version as string) > 0) latestByPackage.set(row.package_id as string, row);
     }
-    const existing = [...latestByPackage.entries()].filter(([, row]) => (row.manifest as Record<string, unknown> | undefined)?.functionLead === true).map(([modelId]) => modelId).sort()[0];
+    const leadPackageIds: string[] = [];
+    latestByPackage.forEach((row, modelId) => {
+      if ((row.manifest as Record<string, unknown> | undefined)?.functionLead === true) leadPackageIds.push(modelId);
+    });
+    const existing = leadPackageIds.sort()[0];
     if (existing) throw new StoreError(`function_bundle_lead_conflict:${existing}`);
   }
   await q.query("INSERT INTO company_os_bundle_packages(bundle_id,package_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [bundleId, packageId]);

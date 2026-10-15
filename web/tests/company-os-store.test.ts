@@ -169,7 +169,7 @@ describe("the private Truchsess store on FAIVR", () => {
   });
 
   it("exposes only a signed true functionLead marker and refuses a different second lead", async () => {
-    const leadManifest = signedManifest({ modelId: MODEL_ID, version: "1.2.1", payload: PAYLOAD, publisherKeyId: publisher.keyId, publisherPrivatePem: publisher.privatePem, permissions: PERMISSIONS, functionLead: true });
+    const leadManifest: Record<string, unknown> = signedManifest({ modelId: MODEL_ID, version: "1.2.1", payload: PAYLOAD, publisherKeyId: publisher.keyId, publisherPrivatePem: publisher.privatePem, permissions: PERMISSIONS, functionLead: true });
     const leadVersionId = randomUUID();
     await holder.pool.query(
       "INSERT INTO company_os_package_versions(id,package_id,version,status,manifest,publisher_key_id,publisher_signature,artifact_url,artifact_sha256,monthly_price_cents,stripe_price_id,min_company_os_version,published_at) VALUES($1,$2,'1.2.1','published',$3,$4,$5,$6,$7,1,NULL,'1.0.0',now())",
@@ -181,7 +181,7 @@ describe("the private Truchsess store on FAIVR", () => {
     expect(lead).toMatchObject({ modelId: MODEL_ID, version: "1.2.1", functionLead: true });
 
     const secondModel = "faivr.agent.second-lead";
-    const secondManifest = signedManifest({ modelId: secondModel, version: "1.0.0", payload: PAYLOAD, publisherKeyId: publisher.keyId, publisherPrivatePem: publisher.privatePem, permissions: PERMISSIONS, functionLead: true });
+    const secondManifest: Record<string, unknown> = signedManifest({ modelId: secondModel, version: "1.0.0", payload: PAYLOAD, publisherKeyId: publisher.keyId, publisherPrivatePem: publisher.privatePem, permissions: PERMISSIONS, functionLead: true });
     await holder.pool.query("INSERT INTO company_os_packages(id,slug,name,summary,status) VALUES($1,'second-lead','Second lead','A second lead.','active')", [secondModel]);
     await holder.pool.query(
       "INSERT INTO company_os_package_versions(id,package_id,version,status,manifest,publisher_key_id,publisher_signature,artifact_url,artifact_sha256,monthly_price_cents,stripe_price_id,min_company_os_version,published_at) VALUES($1,$2,'1.0.0','published',$3,$4,$5,$6,$7,1,NULL,'1.0.0',now())",

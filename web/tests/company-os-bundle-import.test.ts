@@ -132,7 +132,9 @@ describe("importing a signed Truchsess bundle file into the store", () => {
     expect(nonLead.status, nonLead.stderr).toBe(0);
     expect(JSON.parse(nonLead.stdout.trim())).not.toHaveProperty("functionLead");
 
-    for (const [position, functionLead] of ["true", 1, null, {}, []].entries()) {
+    const invalidFunctionLeads = ["true", 1, null, {}, []];
+    for (let position = 0; position < invalidFunctionLeads.length; position += 1) {
+      const functionLead = invalidFunctionLeads[position];
       const invalidFile = join(dir, `invalid-${position}.truchsess-bundle.tar`);
       writeFileSync(invalidFile, signedBundle({ ...unsigned, functionLead }));
       const invalid = run([invalidFile], env);
