@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run && node --test scripts/run-store-migrations.test.mjs",
+    "test:store-contracts": "vitest run tests/company-os-store.test.ts tests/company-os-polar-store.test.ts tests/company-os-bundle-images.test.ts tests/company-os-catalog-image-route.test.ts",
     "migrate:store": "node scripts/run-store-migrations.mjs",
     "build": "next build",
     "start": "next start"
@@ -23,7 +24,6 @@
     "@radix-ui/react-tabs": "^1.1.21",
     "@radix-ui/react-tooltip": "^1.2.16",
     "@tanstack/react-query": "^5.104.1",
-    "@vercel/analytics": "^2.0.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^13.1.1",
@@ -36,7 +36,7 @@
     "tailwind-merge": "^3.7.0",
     "viem": "2.57.2",
     "wagmi": "3.7.7",
-    "zod": "^3.25.76"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",
