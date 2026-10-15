@@ -15,13 +15,25 @@ const tag = "truchsess-iso-2026.10.11";
 const assetApi = "https://api.github.com/repos/oldschool-ag/truchsess/releases/assets/42";
 const checksumApi = "https://api.github.com/repos/oldschool-ag/truchsess/releases/assets/43";
 const embeddingApi = "https://api.github.com/repos/oldschool-ag/truchsess/releases/assets/47";
+const realTag = "truchsess-iso-20261015-2306ef4";
+const realReleaseAssetNames = [
+  "iso-sha256.txt",
+  "nixos-company-os-appliance-v2-installer-26.05.20260809.fcb8fcd-x86_64-linux.iso",
+  "truchsess-embedding-bge-m3-int8-1.tar",
+  "truchsess-system-20261015-2306ef4.closure.zst",
+  "truchsess-system-20261015-2306ef4.closure.zst.sha256",
+  "truchsess-system-20261015-2306ef4.closure.zst.sig",
+  "truchsess-system-20261015-2306ef4.release.json",
+  "truchsess-system-20261015-2306ef4.release.json.sig",
+  "truchsess-system-20261015-2306ef4.SHA256SUMS",
+] as const;
 function signedUrl(path: string, seconds = 300) {
   const jwt = `x.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + seconds })).toString("base64url")}.x`;
   return `https://objects.github.test/${path}?jwt=${jwt}&se=${encodeURIComponent(new Date(Date.now() + seconds * 1000).toISOString())}`;
 }
 
-function githubRelease(options: { noChecksumFiles?: boolean; closureDigest?: string | null } = {}) {
-  return { tag_name: tag, target_commitish: "main", published_at: "2026-10-11T10:00:00Z", body: "Release notes", draft: false, prerelease: true, assets: [
+function githubRelease(options: { noChecksumFiles?: boolean; noReleaseManifest?: boolean; closureDigest?: string | null } = {}) {
+  const assets = [
     { id: 1, name: "truchsess.iso", size: 99, url: "https://api.github.com/repos/oldschool-ag/truchsess/releases/assets/1" },
     { id: 42, name: "truchsess-closure.nar", size: 12, url: assetApi, digest: options.closureDigest === undefined ? `sha256:${"a".repeat(64)}` : options.closureDigest },
     ...options.noChecksumFiles ? [] : [{ id: 43, name: "SHA256SUMS", size: 240, url: checksumApi }],
@@ -30,10 +42,11 @@ function githubRelease(options: { noChecksumFiles?: boolean; closureDigest?: str
     { id: 46, name: "truchsess-system.release.json.sig", size: 8, url: "https://api.github.com/repos/oldschool-ag/truchsess/releases/assets/46", digest: `sha256:${"d".repeat(64)}` },
     { id: 47, name: "truchsess-embedding-model.part-001", size: 587_000_000, url: embeddingApi, digest: `sha256:${"e".repeat(64)}` },
     { id: 48, name: "unrelated-update.sig", size: 8, url: "https://api.github.com/repos/oldschool-ag/truchsess/releases/assets/48", digest: `sha256:${"f".repeat(64)}` },
-  ] };
+  ];
+  return { tag_name: tag, target_commitish: "main", published_at: "2026-10-11T10:00:00Z", body: "Release notes", draft: false, prerelease: true, assets: options.noReleaseManifest ? assets.filter(asset => !asset.name.includes(".release.json")) : assets };
 }
 
-function githubFetch(options: { closureLifetimeSeconds?: number; omitSignatureChecksum?: boolean; varyingUrls?: boolean; noChecksumFiles?: boolean; closureDigest?: string | null; checksumText?: string } = {}) {
+function githubFetch(options: { closureLifetimeSeconds?: number; omitSignatureChecksum?: boolean; varyingUrls?: boolean; noChecksumFiles?: boolean; noReleaseManifest?: boolean; closureDigest?: string | null; checksumText?: string } = {}) {
   let redirectNumber = 0;
   return vi.fn(async (input: string | URL) => {
     const url = String(input);
@@ -44,8 +57,29 @@ function githubFetch(options: { closureLifetimeSeconds?: number; omitSignatureCh
     if (url.endsWith("/assets/44")) return new Response(null, { status: 302, headers: { location: signedUrl(`closure.sig-${options.varyingUrls ? ++redirectNumber : "current"}`) } });
     if (url.endsWith("/assets/45") || url.endsWith("/assets/46")) return new Response(null, { status: 302, headers: { location: signedUrl("manifest") } });
     if (url === embeddingApi) return new Response(null, { status: 302, headers: { location: signedUrl(`embedding-${options.varyingUrls ? ++redirectNumber : "current"}`) } });
+    if (url.endsWith("/assets/48")) return new Response(null, { status: 302, headers: { location: signedUrl("additional-signature") } });
     if (url === checksumApi) return new Response(null, { status: 302, headers: { location: signedUrl("checksums") } });
     if (url.startsWith("https://objects.github.test/checksums?")) return new Response(options.checksumText ?? ("a".repeat(64) + "  truchsess-closure.nar\n" + (options.omitSignatureChecksum ? "" : "b".repeat(64) + "  truchsess-closure.nar.sig\n") + "e".repeat(64) + "  truchsess-embedding-model.part-001\n"), { status: 200 });
+    throw new Error(`unexpected fetch ${url}`);
+  });
+}
+
+function releaseFetch(assetNames: readonly string[], releaseTag = realTag) {
+  const assets = assetNames.map((name, index) => ({
+    id: 100 + index,
+    name,
+    size: 1_000 + index,
+    url: `https://api.github.com/repos/oldschool-ag/truchsess/releases/assets/${100 + index}`,
+    digest: `sha256:${String((index % 9) + 1).repeat(64)}`,
+  }));
+  const release = { tag_name: releaseTag, target_commitish: "main", published_at: "2026-10-15T20:00:00Z", body: "Real release fixture", draft: false, prerelease: false, assets };
+  return vi.fn(async (input: string | URL) => {
+    const url = String(input);
+    if (url.includes("/releases?per_page=100")) return new Response(JSON.stringify([release]), { status: 200 });
+    if (url.endsWith(`/git/ref/tags/${releaseTag}`)) return new Response(JSON.stringify({ object: { type: "commit", sha: "2".repeat(40) } }), { status: 200 });
+    const asset = assets.find(candidate => candidate.url === url);
+    if (asset) return new Response(null, { status: 302, headers: { location: signedUrl(`release-${asset.id}`) } });
+    if (url.startsWith("https://objects.github.test/release-")) return new Response("", { status: 200 });
     throw new Error(`unexpected fetch ${url}`);
   });
 }
@@ -75,6 +109,7 @@ describe("latest Truchsess release", () => {
 
   afterEach(async () => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     delete process.env.TRUCHSESS_RELEASES_TOKEN;
     resetTruchsessReleaseCacheForTests();
     await holder.pool.end();
@@ -89,6 +124,7 @@ describe("latest Truchsess release", () => {
     expect(payload.releaseNotes).toBe("Release notes");
     expect(payload.assets).toEqual(expect.arrayContaining([expect.objectContaining({ name: "truchsess-closure.nar", sha256: `sha256:${"a".repeat(64)}` })]));
     expect(JSON.stringify(payload)).not.toContain("truchsess.iso");
+    expect(JSON.stringify(payload)).not.toContain("SHA256SUMS");
     const expiration = new Date(((payload.assets as Array<{ downloadUrlExpiresAt: string }>)[0]).downloadUrlExpiresAt).getTime();
     expect(expiration - Date.now()).toBeLessThanOrEqual(10 * 60 * 1000);
     expect(expiration - Date.now()).toBeGreaterThan(4 * 60 * 1000);
@@ -106,12 +142,67 @@ describe("latest Truchsess release", () => {
     })]));
   });
 
-  it("denies unknown asset names", async () => {
+  it("passes additional non-installer release assets", async () => {
     const response = await latestRelease(signedRequest(appliance, "GET", "/api/company-os/v1/releases/latest?channel=stable"));
     expect(response.status).toBe(200);
     const assets = (await body(response)).assets as Array<{ name: string }>;
-    expect(assets.some(asset => asset.name === "unrelated-update.sig")).toBe(false);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/assets/48"))).toBe(false);
+    expect(assets.some(asset => asset.name === "unrelated-update.sig")).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/assets/48"))).toBe(true);
+  });
+
+  it("passes every required asset from the real 2306ef4 release fixture", async () => {
+    fetchMock = releaseFetch(realReleaseAssetNames);
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await latestRelease(signedRequest(appliance, "GET", "/api/company-os/v1/releases/latest?channel=stable"));
+    expect(response.status).toBe(200);
+    const payload = await body(response);
+    expect(payload.tag).toBe(realTag);
+    expect((payload.assets as Array<{ name: string }>).map(asset => asset.name)).toEqual([
+      "truchsess-embedding-bge-m3-int8-1.tar",
+      "truchsess-system-20261015-2306ef4.closure.zst",
+      "truchsess-system-20261015-2306ef4.closure.zst.sig",
+      "truchsess-system-20261015-2306ef4.release.json",
+      "truchsess-system-20261015-2306ef4.release.json.sig",
+    ]);
+  });
+
+  it("passes every split closure part and its signature", async () => {
+    const splitAssets = [
+      "iso-sha256.txt",
+      "truchsess-installer.iso.zst",
+      "truchsess-embedding-bge-m3-int8-1.tar",
+      "truchsess-system-20261015-split.closure.zst.part00",
+      "truchsess-system-20261015-split.closure.zst.part00.sig",
+      "truchsess-system-20261015-split.closure.zst.part01",
+      "truchsess-system-20261015-split.closure.zst.part01.sig",
+      "truchsess-system-20261015-split.release.json",
+      "truchsess-system-20261015-split.release.json.sig",
+      "truchsess-system-20261015-split.SHA256SUMS",
+    ];
+    fetchMock = releaseFetch(splitAssets, "truchsess-iso-20261015-split");
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await latestRelease(signedRequest(appliance, "GET", "/api/company-os/v1/releases/latest?channel=stable"));
+    expect(response.status).toBe(200);
+    const names = ((await body(response)).assets as Array<{ name: string }>).map(asset => asset.name);
+    expect(names.filter(name => name.includes(".closure.zst.part"))).toEqual([
+      "truchsess-system-20261015-split.closure.zst.part00",
+      "truchsess-system-20261015-split.closure.zst.part00.sig",
+      "truchsess-system-20261015-split.closure.zst.part01",
+      "truchsess-system-20261015-split.closure.zst.part01.sig",
+    ]);
+    for (const excluded of ["iso-sha256.txt", "truchsess-installer.iso.zst", "truchsess-system-20261015-split.SHA256SUMS"])
+      expect(names).not.toContain(excluded);
+  });
+
+  it("logs the newest release tag once when no release manifest remains without changing the response", async () => {
+    fetchMock = githubFetch({ noReleaseManifest: true });
+    vi.stubGlobal("fetch", fetchMock);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const response = await latestRelease(signedRequest(appliance, "GET", "/api/company-os/v1/releases/latest?channel=stable"));
+    expect(response.status).toBe(200);
+    expect(((await body(response)).assets as Array<{ name: string }>).some(asset => asset.name.endsWith(".release.json"))).toBe(false);
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining(tag));
   });
 
   it("denies a box without a release entitlement", async () => {
@@ -157,8 +248,8 @@ describe("latest Truchsess release", () => {
     const response = await latestRelease(signedRequest(appliance, "GET", "/api/company-os/v1/releases/latest?channel=stable"));
     expect(response.status).toBe(200);
     const assets = (await body(response)).assets as Array<{ name: string; sha256: string }>;
-    expect(assets.map(asset => asset.sha256)).toEqual(["a", "b", "c", "d", "e"].map(char => `sha256:${char.repeat(64)}`));
-    expect(assets).toHaveLength(5);
+    expect(assets.map(asset => asset.sha256)).toEqual(["a", "b", "c", "d", "e", "f"].map(char => `sha256:${char.repeat(64)}`));
+    expect(assets).toHaveLength(6);
     expect(assets.some(asset => /\.iso$|\.sha256$/.test(asset.name))).toBe(false);
     if (noChecksumFiles) expect(fetchMock.mock.calls.some(([url]) => url === checksumApi)).toBe(false);
   });
