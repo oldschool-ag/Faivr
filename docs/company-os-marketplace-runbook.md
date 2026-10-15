@@ -65,9 +65,9 @@ Decision of 2026-09-29: for the next twelve months FAIVR is the Truchsess store,
 | Table | Content |
 | --- | --- |
 | `company_os_publishers` | Old School's publisher key: key id derived from the key (`ed25519-` plus 16 hex of SHA-256 over the raw key), PEM, publisher id and name |
-| `company_os_packages`, `company_os_package_versions` | one catalog entry per signed Truchsess export: package id, version, package digest, publisher key id, the signed manifest with the permission strings verbatim and the plain-language summary |
+| `company_os_packages`, `company_os_package_versions` | one catalog entry per signed Truchsess export: package id, version, package digest, publisher key id, the signed manifest with the permission strings verbatim, the plain-language summary, and optional `functionLead` boolean |
 | `company_os_package_artifacts` | the signed payload bytes when imported with `FAIVR_STORE_ARTIFACT_INLINE=1`; the download route serves them itself, no object store |
-| `company_os_function_bundles`, `company_os_bundle_packages` | function bundles (name, description, Polar product id and/or Stripe price id, monthly amount) and their packages |
+| `company_os_function_bundles`, `company_os_bundle_packages` | function bundles (name, description, Polar product id and/or Stripe price id, monthly amount) and their packages; at most one package whose latest signed version declares `functionLead: true` |
 | `company_os_enrolment_codes` | the SHA-256 of every enrolment code, its tenant, label, expiry, the owner's email if given and, once used, the appliance it enrolled |
 | `company_os_instance_keys` | enrolled appliances: tenant, instance, derived key id, public key, label, enrolled at, last contact |
 | `company_os_bundle_subscriptions` | one row per bundle checkout: the provider name and its opaque checkout, subscription and customer ids, state, entitled at, cancel effective at, stopped at |
@@ -89,7 +89,7 @@ What FAIVR never receives from an appliance: run content, chats, files, knowledg
 | Route | Signed by the appliance key | Effect |
 | --- | --- | --- |
 | `POST /api/company-os/v1/enrol` | no (the one-time code and the appliance public key) | registers the appliance under its derived key id; returns tenant, instance, key id, FAIVR's billing signing key and the publisher keys |
-| `GET /api/company-os/v1/store/catalog` | yes | bundles, packages, prices, the appliance's own subscriptions and installations |
+| `GET /api/company-os/v1/store/catalog` | yes | bundles, packages, prices, the appliance's own subscriptions and installations; a lead package version carries `functionLead: true`, while false or absent is omitted |
 | `POST /api/company-os/v1/store/checkout-sessions` | yes | creates the bundle subscription (`checkout_pending`) and the checkout at the billing provider; returns the hosted URL the CEO opens in the browser |
 | `GET /api/company-os/v1/store/subscriptions?subscriptionId=\|bundleId=[&customerPortal=1]` | yes | the state the provider's webhook mirrored (`checkout_pending`, `active`, `past_due`, `cancel_at_period_end`, `cancelled`); with `customerPortal=1` also a fresh, short-lived `customerPortalUrl` to the provider's customer portal (T6b.1; absent before a purchase) |
 | `POST /api/company-os/v1/store/installations` | yes | an `entitled` installation of one package of a subscribed bundle |

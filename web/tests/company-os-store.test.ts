@@ -157,6 +157,7 @@ describe("the private Truchsess store on FAIVR", () => {
     expect(bundles[0]).toMatchObject({ bundleId: BUNDLE, monthlyPriceCents: 4900, currency: "chf", priceConfigured: true, subscription: null });
     const pkg = (bundles[0].packages as Array<Record<string, unknown>>)[0];
     expect(pkg).toMatchObject({ modelId: MODEL_ID, version: VERSION, versionId, packageDigest: manifest.packageDigest, publisherKeyId: publisher.keyId, publisherId: "old-school", publisherName: "Old School AG", permissions: PERMISSIONS, slots: [{ id: "product", question: "Which product does this worker support?", kind: "product", required: true }], installation: null });
+    expect(pkg).not.toHaveProperty("functionLead");
     // last contact is recorded for the Store tab
     const key = await holder.pool.query("SELECT last_contact_at FROM company_os_instance_keys WHERE key_id=$1", [appliance.keyId]);
     expect(key.rows[0].last_contact_at).toBeTruthy();
@@ -165,6 +166,28 @@ describe("the private Truchsess store on FAIVR", () => {
     expect((await storeCatalog(request)).status).toBe(200);
     const replay = new NextRequest(request.url, { headers: request.headers });
     expect((await storeCatalog(replay)).status).toBe(409);
+  });
+
+  it("exposes only a signed true functionLead marker and refuses a different second lead", async () => {
+    const leadManifest = signedManifest({ modelId: MODEL_ID, version: "1.2.1", payload: PAYLOAD, publisherKeyId: publisher.keyId, publisherPrivatePem: publisher.privatePem, permissions: PERMISSIONS, functionLead: true });
+    const leadVersionId = randomUUID();
+    await holder.pool.query(
+      "INSERT INTO company_os_package_versions(id,package_id,version,status,manifest,publisher_key_id,publisher_signature,artifact_url,artifact_sha256,monthly_price_cents,stripe_price_id,min_company_os_version,published_at) VALUES($1,$2,'1.2.1','published',$3,$4,$5,$6,$7,1,NULL,'1.0.0',now())",
+      [leadVersionId, MODEL_ID, JSON.stringify(leadManifest), publisher.keyId, (leadManifest.signature as { value: string }).value, `https://packages.faivr.test/company-os/v1/packages/${MODEL_ID}/1.2.1/x.tar.gz`, leadManifest.packageDigest],
+    );
+    await expect(addPackageToBundle(BUNDLE, MODEL_ID)).resolves.toBeUndefined();
+    const catalog = await bodyOf(await storeCatalog(signedRequest(appliance, "GET", "/api/company-os/v1/store/catalog")));
+    const lead = ((catalog.bundles as Array<Record<string, unknown>>)[0].packages as Array<Record<string, unknown>>)[0];
+    expect(lead).toMatchObject({ modelId: MODEL_ID, version: "1.2.1", functionLead: true });
+
+    const secondModel = "faivr.agent.second-lead";
+    const secondManifest = signedManifest({ modelId: secondModel, version: "1.0.0", payload: PAYLOAD, publisherKeyId: publisher.keyId, publisherPrivatePem: publisher.privatePem, permissions: PERMISSIONS, functionLead: true });
+    await holder.pool.query("INSERT INTO company_os_packages(id,slug,name,summary,status) VALUES($1,'second-lead','Second lead','A second lead.','active')", [secondModel]);
+    await holder.pool.query(
+      "INSERT INTO company_os_package_versions(id,package_id,version,status,manifest,publisher_key_id,publisher_signature,artifact_url,artifact_sha256,monthly_price_cents,stripe_price_id,min_company_os_version,published_at) VALUES($1,$2,'1.0.0','published',$3,$4,$5,$6,$7,1,NULL,'1.0.0',now())",
+      [randomUUID(), secondModel, JSON.stringify(secondManifest), publisher.keyId, (secondManifest.signature as { value: string }).value, `https://packages.faivr.test/company-os/v1/packages/${secondModel}/1.0.0/x.tar.gz`, secondManifest.packageDigest],
+    );
+    await expect(addPackageToBundle(BUNDLE, secondModel)).rejects.toThrow(`function_bundle_lead_conflict:${MODEL_ID}`);
   });
 
   it("keeps signed raw mail permissions and projects plain descriptions in the signed appliance catalog", async () => {
