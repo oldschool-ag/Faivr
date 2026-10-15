@@ -42,16 +42,17 @@ const digestPattern=/^sha256:[a-f0-9]{64}$/;
 const contentDigestPattern=/^[a-f0-9]{64}$/;
 const base64url=/^[A-Za-z0-9_-]+$/;
 const bundleIdPattern=/^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const manifestFieldNamePattern=/^[a-zA-Z][a-zA-Z0-9]{0,63}$/;
+const permissionPattern=/^[a-z][a-z0-9._-]*(:[^\s]{1,200})?$/;
+const maxManifestBytes=256*1024;
 const maxReleaseNotesCharacters=1000;
 const compareSemver=(a,b)=>{const parse=value=>{const clean=value.split("+",1)[0],dash=clean.indexOf("-");return {core:(dash<0?clean:clean.slice(0,dash)).split(".").map(part=>Number.parseInt(part,10)||0),pre:dash<0?[]:clean.slice(dash+1).split(".")};};const [left,right]=[parse(a),parse(b)];for(let i=0;i<3;i+=1)if((left.core[i]??0)!==(right.core[i]??0))return (left.core[i]??0)-(right.core[i]??0);if(!left.pre.length||!right.pre.length)return left.pre.length===right.pre.length?0:left.pre.length?-1:1;for(let i=0;i<Math.max(left.pre.length,right.pre.length);i+=1){const[x,y]=[left.pre[i],right.pre[i]];if(x===undefined||y===undefined)return x===undefined?-1:1;if(x===y)continue;const[xn,yn]=[/^\d+$/.test(x),/^\d+$/.test(y)];if(xn&&yn)return Number(x)-Number(y);if(xn!==yn)return xn?-1:1;return x<y?-1:1;}return 0;};
 const slotIdPattern=/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const secretPatterns=[/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,/(?:sk_live_|rk_live_|AKIA)[A-Za-z0-9_\-]{12,}/,/\b(?:password|secret|api[_-]?key)\s*[:=]\s*["'][^"']{8,}/i];
 const exactKeys=(value,keys,label)=>{if(!value||typeof value!=="object"||Array.isArray(value)||Object.keys(value).sort().join("\n")!==[...keys].sort().join("\n"))throw new Error(`invalid ${label} fields`);};
 // T6b: permission strings are carried verbatim, in the order the signed manifest declares them.
-// The appliance owns the closed vocabulary and re-validates them at install; the store only
-// wants unique, non-empty strings.
 const uniqueStrings=(value,label)=>{if(!Array.isArray(value)||value.some(v=>typeof v!=="string"||!v||v.length>256||/\s/.test(v))||new Set(value).size!==value.length)throw new Error(`${label} must be unique non-empty strings`);};
-const validatePermissions=(permissions)=>{for(const permission of permissions)if(permission.startsWith("mail.")&&permission!=="mail.read"&&permission!=="mail.draft")throw new Error(`unsupported mail permission ${permission}`);};
+const validatePermissions=(permissions)=>{if(!Array.isArray(permissions)||permissions.some(permission=>typeof permission!=="string"||!permissionPattern.test(permission))||new Set(permissions).size!==permissions.length)throw new Error("permissions must be unique strings in portable permission format");};
 const validateSlots=(slots,permissions)=>{
   if(slots===undefined)slots=[];
   if(!Array.isArray(slots))throw new Error("slots must be an array");
@@ -142,15 +143,19 @@ function readBundleFile(bytes){
   const manifestBytes=members.get("manifest.json"),artifact=members.get("package.tar.gz");
   if(sha256(manifestBytes).slice("sha256:".length)!==index.manifestSha256)throw new Error("bundle index manifestSha256 does not match manifest.json");
   if(sha256(artifact)!==index.packageDigest)throw new Error("bundle index packageDigest does not match package.tar.gz");
-  const manifest=JSON.parse(manifestBytes.toString("utf8"));
+  const manifest=parseManifest(manifestBytes);
   if(manifest.modelId!==index.modelId||manifest.version!==index.version||manifest.packageDigest!==index.packageDigest)throw new Error("bundle index and manifest disagree on the package identity");
-  return {manifest,artifact};
+  return {manifest,manifestBytes,artifact};
 }
 
-function validateManifest(raw,artifact,files){
+function parseManifest(manifestBytes){
+  if(manifestBytes.length>maxManifestBytes)throw new Error(`portable manifest exceeds ${maxManifestBytes} byte limit`);
+  return JSON.parse(manifestBytes.toString("utf8"));
+}
+
+function validateManifest(raw,manifestBytes,artifact,files){
   const manifestKeys=["schemaVersion","modelId","version","displayName","summary","publisher","packageDigest","artifactBytes","entrypoint","companyOsCompatibility","permissions","dependencies","managedPaths","tenantDataIncluded","monthlyPrice","contents","signature"];
-  const optionalManifestKeys=[...(raw.slots===undefined?[]:["slots"]),...(raw.releaseNotes===undefined?[]:["releaseNotes"]),...(raw.functionLead===undefined?[]:["functionLead"])];
-  exactKeys(raw,[...manifestKeys,...optionalManifestKeys],"manifest");
+  if(manifestBytes.length>maxManifestBytes||!raw||typeof raw!=="object"||Array.isArray(raw)||manifestKeys.some(key=>!Object.hasOwn(raw,key))||Object.keys(raw).some(key=>!manifestFieldNamePattern.test(key)))throw new Error("invalid manifest fields");
   exactKeys(raw.publisher,["publisherId","name"],"publisher");
   exactKeys(raw.companyOsCompatibility,["minVersion","maxVersion"],"companyOsCompatibility");
   exactKeys(raw.monthlyPrice,["billingPeriod","amountCents","stripePriceId","activationState"],"monthlyPrice");
@@ -161,7 +166,7 @@ function validateManifest(raw,artifact,files){
   if(raw.functionLead!==undefined&&typeof raw.functionLead!=="boolean")throw new Error("functionLead must be a boolean when present");
   if(!digestPattern.test(raw.packageDigest)||raw.packageDigest!==sha256(artifact)||!Number.isSafeInteger(raw.artifactBytes)||raw.artifactBytes!==artifact.length)throw new Error("artifact size or digest mismatch");
   if(raw.entrypoint!=="agent-definition.json"||!semver.test(raw.companyOsCompatibility.minVersion)||(raw.companyOsCompatibility.maxVersion!==null&&!semver.test(raw.companyOsCompatibility.maxVersion)))throw new Error("invalid entrypoint or compatibility range");
-  uniqueStrings(raw.permissions,"permissions");uniqueStrings(raw.dependencies,"dependencies");validatePermissions(raw.permissions);validateSlots(raw.slots,raw.permissions);
+  validatePermissions(raw.permissions);uniqueStrings(raw.dependencies,"dependencies");validateSlots(raw.slots,raw.permissions);
   const managedRoot=`agents/${raw.modelId}/${raw.version}`;
   if(!Array.isArray(raw.managedPaths)||raw.managedPaths.length!==1||raw.managedPaths[0]!==managedRoot)throw new Error("invalid managedPaths root");
   if(raw.tenantDataIncluded!==false)throw new Error("tenant data must not be included");
@@ -174,10 +179,10 @@ function validateManifest(raw,artifact,files){
   if(raw.signature.algorithm!=="Ed25519"||typeof raw.signature.keyId!=="string"||!raw.signature.keyId||typeof raw.signature.value!=="string"||!base64url.test(raw.signature.value))throw new Error("invalid signature envelope");
 }
 
-let raw,artifact;
-if(bundleFileInput){({manifest:raw,artifact}=readBundleFile(await readFile(bundleFileInput)));}
-else{raw=JSON.parse(await readFile(firstArg,"utf8"));artifact=await readFile(secondArg);}
-const {files,releaseNotes:payloadReleaseNotes}=inspectTarGz(artifact);validateManifest(raw,artifact,files);
+let raw,manifestBytes,artifact;
+if(bundleFileInput){({manifest:raw,manifestBytes,artifact}=readBundleFile(await readFile(bundleFileInput)));}
+else{manifestBytes=await readFile(firstArg);raw=parseManifest(manifestBytes);artifact=await readFile(secondArg);}
+const {files,releaseNotes:payloadReleaseNotes}=inspectTarGz(artifact);validateManifest(raw,manifestBytes,artifact,files);
 // The payload file is signed through the package digest. Keep it as untrusted text data;
 // callers decide whether to render its plain text or Markdown syntax.
 const releaseNotes=releaseNotesInput??payloadReleaseNotes??(typeof raw.releaseNotes==="string"?raw.releaseNotes:null);
@@ -205,7 +210,8 @@ try{
     const priorVersions=await client.query("SELECT version FROM company_os_package_versions WHERE package_id=$1 AND status='published'",[raw.modelId]);
     const previousLatest=priorVersions.rows.reduce((latest,row)=>latest===null||compareSemver(row.version,latest)>0?row.version:latest,null);
     await client.query("INSERT INTO company_os_packages(id,slug,name,summary,status) VALUES($1,$2,$3,$4,'active') ON CONFLICT(id) DO UPDATE SET slug=EXCLUDED.slug,name=EXCLUDED.name,summary=EXCLUDED.summary",[raw.modelId,slug,raw.displayName,raw.summary]);
-    const imported=await client.query("INSERT INTO company_os_package_versions(package_id,version,status,manifest,publisher_key_id,publisher_signature,artifact_url,artifact_sha256,monthly_price_cents,stripe_price_id,min_company_os_version,release_notes,published_at) VALUES($1,$2,'published',$3,$4,$5,$6,$7,$8,$9,$10,$11,now()) ON CONFLICT(package_id,version) DO UPDATE SET release_notes=COALESCE(company_os_package_versions.release_notes,EXCLUDED.release_notes) WHERE company_os_package_versions.artifact_sha256=EXCLUDED.artifact_sha256 AND company_os_package_versions.publisher_signature=EXCLUDED.publisher_signature RETURNING id",[raw.modelId,raw.version,JSON.stringify(raw),signature.keyId,signature.value,artifactUrl.href,raw.packageDigest,raw.monthlyPrice.amountCents,raw.monthlyPrice.stripePriceId,raw.companyOsCompatibility.minVersion,releaseNotes]);
+    // Send the original manifest text to jsonb storage so no signed extension field is projected away.
+    const imported=await client.query("INSERT INTO company_os_package_versions(package_id,version,status,manifest,publisher_key_id,publisher_signature,artifact_url,artifact_sha256,monthly_price_cents,stripe_price_id,min_company_os_version,release_notes,published_at) VALUES($1,$2,'published',$3,$4,$5,$6,$7,$8,$9,$10,$11,now()) ON CONFLICT(package_id,version) DO UPDATE SET release_notes=COALESCE(company_os_package_versions.release_notes,EXCLUDED.release_notes) WHERE company_os_package_versions.artifact_sha256=EXCLUDED.artifact_sha256 AND company_os_package_versions.publisher_signature=EXCLUDED.publisher_signature RETURNING id",[raw.modelId,raw.version,manifestBytes.toString("utf8"),signature.keyId,signature.value,artifactUrl.href,raw.packageDigest,raw.monthlyPrice.amountCents,raw.monthlyPrice.stripePriceId,raw.companyOsCompatibility.minVersion,releaseNotes]);
     if(!imported.rowCount)throw new Error("published version conflicts with different signed material");
     const versionId=imported.rows[0].id;
     if(inlineArtifact){
