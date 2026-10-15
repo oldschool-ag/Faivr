@@ -41,6 +41,7 @@ const digestPattern=/^sha256:[a-f0-9]{64}$/;
 const contentDigestPattern=/^[a-f0-9]{64}$/;
 const base64url=/^[A-Za-z0-9_-]+$/;
 const bundleIdPattern=/^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const maxReleaseNotesCharacters=1000;
 const compareSemver=(a,b)=>{const parse=value=>{const clean=value.split("+",1)[0],dash=clean.indexOf("-");return {core:(dash<0?clean:clean.slice(0,dash)).split(".").map(part=>Number.parseInt(part,10)||0),pre:dash<0?[]:clean.slice(dash+1).split(".")};};const [left,right]=[parse(a),parse(b)];for(let i=0;i<3;i+=1)if((left.core[i]??0)!==(right.core[i]??0))return (left.core[i]??0)-(right.core[i]??0);if(!left.pre.length||!right.pre.length)return left.pre.length===right.pre.length?0:left.pre.length?-1:1;for(let i=0;i<Math.max(left.pre.length,right.pre.length);i+=1){const[x,y]=[left.pre[i],right.pre[i]];if(x===undefined||y===undefined)return x===undefined?-1:1;if(x===y)continue;const[xn,yn]=[/^\d+$/.test(x),/^\d+$/.test(y)];if(xn&&yn)return Number(x)-Number(y);if(xn!==yn)return xn?-1:1;return x<y?-1:1;}return 0;};
 const slotIdPattern=/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const secretPatterns=[/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,/(?:sk_live_|rk_live_|AKIA)[A-Za-z0-9_\-]{12,}/,/\b(?:password|secret|api[_-]?key)\s*[:=]\s*["'][^"']{8,}/i];
@@ -68,6 +69,15 @@ const validateSlots=(slots,permissions)=>{
 };
 const cleanPath=(value)=>typeof value==="string"&&value.length>0&&!value.includes("\\")&&!value.startsWith("/")&&!value.split("/").includes("..")&&!value.includes("//");
 const octal=(field)=>{const value=field.toString("ascii").replace(/\0.*$/s,"").trim();if(!/^[0-7]*$/.test(value))throw new Error("invalid tar numeric field");return value?Number.parseInt(value,8):0;};
+const characterLength=(value)=>Array.from(value).length;
+const capReleaseNotes=(value)=>{
+  const characters=Array.from(value);
+  if(characters.length<=maxReleaseNotesCharacters)return value;
+  const prefix=characters.slice(0,maxReleaseNotesCharacters-1).join("");
+  const lineBoundary=prefix.lastIndexOf("\n");
+  const completeLines=lineBoundary>0?prefix.slice(0,lineBoundary).replace(/\r$/,""):prefix;
+  return `${completeLines}…`;
+};
 
 function tarEntries(tar){
   const entries=[];let offset=0;
@@ -93,7 +103,7 @@ function inspectTarGz(compressed){
   const maxCompressed=Number(process.env.FAIVR_MAX_PACKAGE_BYTES??50*1024*1024);
   if(!Number.isSafeInteger(maxCompressed)||maxCompressed<=0||compressed.length>maxCompressed)throw new Error("portable bundle exceeds compressed size limit");
   const tar=gunzipSync(compressed,{maxOutputLength:maxCompressed*4});
-  const seen=new Set(),files=new Map();let totalPayload=0;
+  const seen=new Set(),files=new Map();let totalPayload=0,releaseNotes=null;
   for(const {path,size,type,body} of tarEntries(tar)){
     if(!cleanPath(path)||seen.has(path))throw new Error(`unsafe or duplicate archive path: ${path}`);
     if(type!=="0"&&type!=="5")throw new Error(`unsupported archive entry type at ${path}`);
@@ -107,10 +117,11 @@ function inspectTarGz(compressed){
       totalPayload+=size;if(totalPayload>maxCompressed*4)throw new Error("portable bundle exceeds expanded size limit");
       if(secretPatterns.some(pattern=>pattern.test(body.toString("utf8"))))throw new Error(`potential secret detected in ${path}`);
       files.set(path,{path,sha256:sha256(body).slice("sha256:".length),bytes:size});
+      if(path==="docs/release-notes.md")releaseNotes=capReleaseNotes(body.toString("utf8"));
     }
   }
   if(!files.has("AGENT.md")||!files.has("agent-definition.json"))throw new Error("required root payload files are missing");
-  return files;
+  return {files,releaseNotes};
 }
 
 /** The appliance's pack-bundle file: exactly bundle-index.json, manifest.json and package.tar.gz. */
@@ -145,7 +156,7 @@ function validateManifest(raw,artifact,files){
   exactKeys(raw.signature,["keyId","algorithm","value"],"signature");
   if(raw.schemaVersion!=="faivr-portable-agent-bundle.v1"||!modelIdPattern.test(raw.modelId)||!semver.test(raw.version)||typeof raw.displayName!=="string"||!raw.displayName||typeof raw.summary!=="string"||!raw.summary)throw new Error("invalid portable manifest identity");
   if(typeof raw.publisher.publisherId!=="string"||!raw.publisher.publisherId||typeof raw.publisher.name!=="string"||!raw.publisher.name)throw new Error("invalid publisher");
-  if(raw.releaseNotes!==undefined&&(typeof raw.releaseNotes!=="string"||raw.releaseNotes.length<1||raw.releaseNotes.length>1000))throw new Error("invalid releaseNotes");
+  if(raw.releaseNotes!==undefined&&(typeof raw.releaseNotes!=="string"||characterLength(raw.releaseNotes)<1||characterLength(raw.releaseNotes)>maxReleaseNotesCharacters))throw new Error("invalid releaseNotes");
   if(!digestPattern.test(raw.packageDigest)||raw.packageDigest!==sha256(artifact)||!Number.isSafeInteger(raw.artifactBytes)||raw.artifactBytes!==artifact.length)throw new Error("artifact size or digest mismatch");
   if(raw.entrypoint!=="agent-definition.json"||!semver.test(raw.companyOsCompatibility.minVersion)||(raw.companyOsCompatibility.maxVersion!==null&&!semver.test(raw.companyOsCompatibility.maxVersion)))throw new Error("invalid entrypoint or compatibility range");
   uniqueStrings(raw.permissions,"permissions");uniqueStrings(raw.dependencies,"dependencies");validatePermissions(raw.permissions);validateSlots(raw.slots,raw.permissions);
@@ -164,9 +175,11 @@ function validateManifest(raw,artifact,files){
 let raw,artifact;
 if(bundleFileInput){({manifest:raw,artifact}=readBundleFile(await readFile(bundleFileInput)));}
 else{raw=JSON.parse(await readFile(firstArg,"utf8"));artifact=await readFile(secondArg);}
-const files=inspectTarGz(artifact);validateManifest(raw,artifact,files);
-const releaseNotes=releaseNotesInput??(typeof raw.releaseNotes==="string"?raw.releaseNotes:null);
-if(releaseNotes!==null&&(releaseNotes.length<1||releaseNotes.length>1000))throw new Error("release notes must be 1 to 1000 characters");
+const {files,releaseNotes:payloadReleaseNotes}=inspectTarGz(artifact);validateManifest(raw,artifact,files);
+// The payload file is signed through the package digest. Keep it as untrusted text data;
+// callers decide whether to render its plain text or Markdown syntax.
+const releaseNotes=releaseNotesInput??payloadReleaseNotes??(typeof raw.releaseNotes==="string"?raw.releaseNotes:null);
+if(releaseNotes!==null&&characterLength(releaseNotes)>maxReleaseNotesCharacters)throw new Error("release notes must be at most 1000 characters");
 if(bundleId!==null&&!bundleIdPattern.test(bundleId))throw new Error("FAIVR_STORE_BUNDLE must be a lower-case bundle id");
 const allowedOrigin=new URL(packageOriginInput);
 if(allowedOrigin.protocol!=="https:")throw new Error("FAIVR_PACKAGE_ORIGIN must be an HTTPS origin");

@@ -76,10 +76,20 @@ describe("importing a signed Truchsess bundle file into the store", () => {
   const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2) + "\n");
   const index = { schemaVersion: "truchsess-signed-bundle-file.v1", modelId, version, packageDigest: manifest.packageDigest, artifactBytes: payload.length, manifestSha256: digest(manifestBytes), publisherKeyId: keyId, publicationState: "local_install" };
 
-  function signedBundle(input: typeof unsigned) {
+  function signedBundle(input: typeof unsigned, packagePayload = payload) {
     const signed = { ...input, signature: { keyId, algorithm: "Ed25519", value: edSign(null, Buffer.from(canonicalJson(input)), privateKey).toString("base64url") } };
     const bytes = Buffer.from(JSON.stringify(signed));
-    return tar([["bundle-index.json", Buffer.from(JSON.stringify({ ...index, manifestSha256: digest(bytes) }))], ["manifest.json", bytes], ["package.tar.gz", payload]]);
+    const bundleIndex = { ...index, modelId: input.modelId, version: input.version, packageDigest: input.packageDigest, artifactBytes: packagePayload.length, manifestSha256: digest(bytes) };
+    return tar([["bundle-index.json", Buffer.from(JSON.stringify(bundleIndex))], ["manifest.json", bytes], ["package.tar.gz", packagePayload]]);
+  }
+
+  function packageFor(packageFiles: typeof files) {
+    const packagePayload = gzipSync(tar(packageFiles), { level: 9 });
+    const packageContents = packageFiles.filter(([, , type]) => type !== "5").map(([path, body]) => ({ path, sha256: digest(body), bytes: body.length }));
+    return {
+      packagePayload,
+      packageManifest: { ...unsigned, packageDigest: `sha256:${digest(packagePayload)}`, artifactBytes: packagePayload.length, contents: packageContents },
+    };
   }
 
   function run(args: string[], env: Record<string, string>) {
@@ -96,6 +106,47 @@ describe("importing a signed Truchsess bundle file into the store", () => {
     const report = JSON.parse(result.stdout.trim());
     expect(report).toMatchObject({ valid: true, modelId, version, digest: manifest.packageDigest, permissions, bundle: "design-review", releaseNotes: "Fixes the misleading report output.", inlineArtifact: true });
     expect(report.artifactUrl).toBe(`https://store.faivr.test/company-os/v1/packages/${modelId}/${version}/${digest(payload)}.tar.gz`);
+  });
+
+  it("reads release notes from the signed payload and reports null only when the file is absent", () => {
+    const dir = mkdtempSync(join(tmpdir(), "faivr-import-release-notes-"));
+    writeFileSync(join(dir, "publisher.pub"), publicPem);
+    const env = { FAIVR_VALIDATE_ONLY: "1", FAIVR_PUBLISHER_PUBLIC_KEY_PATH: join(dir, "publisher.pub"), FAIVR_PACKAGE_ORIGIN: "https://store.faivr.test", FAIVR_STORE_ARTIFACT_INLINE: "1" };
+    const notes = "# 1.0.0\n\n- Fixes the misleading report output.\n";
+    const withNotes = packageFor([...files, ["docs/release-notes.md", Buffer.from(notes)]]);
+    const withNotesFile = join(dir, "with-notes.truchsess-bundle.tar");
+    writeFileSync(withNotesFile, signedBundle(withNotes.packageManifest, withNotes.packagePayload));
+    const withNotesResult = run([withNotesFile], env);
+    expect(withNotesResult.status, withNotesResult.stderr).toBe(0);
+    expect(JSON.parse(withNotesResult.stdout.trim()).releaseNotes).toBe(notes);
+
+    const absentFile = join(dir, "without-notes.truchsess-bundle.tar");
+    writeFileSync(absentFile, signedBundle(unsigned));
+    const absentResult = run([absentFile], env);
+    expect(absentResult.status, absentResult.stderr).toBe(0);
+    expect(JSON.parse(absentResult.stdout.trim()).releaseNotes).toBeNull();
+
+    const emptyNotes = packageFor([...files, ["docs/release-notes.md", Buffer.alloc(0)]]);
+    const emptyNotesFile = join(dir, "empty-notes.truchsess-bundle.tar");
+    writeFileSync(emptyNotesFile, signedBundle(emptyNotes.packageManifest, emptyNotes.packagePayload));
+    const emptyNotesResult = run([emptyNotesFile], env);
+    expect(emptyNotesResult.status, emptyNotesResult.stderr).toBe(0);
+    expect(JSON.parse(emptyNotesResult.stdout.trim()).releaseNotes).toBe("");
+  });
+
+  it("caps oversized payload release notes at a line boundary with an ellipsis", () => {
+    const dir = mkdtempSync(join(tmpdir(), "faivr-import-long-release-notes-"));
+    writeFileSync(join(dir, "publisher.pub"), publicPem);
+    const firstLine = "A".repeat(600);
+    const notes = `${firstLine}\n${"B".repeat(600)}`;
+    const withNotes = packageFor([...files, ["docs/release-notes.md", Buffer.from(notes)]]);
+    const bundleFile = join(dir, "long-notes.truchsess-bundle.tar");
+    writeFileSync(bundleFile, signedBundle(withNotes.packageManifest, withNotes.packagePayload));
+    const result = run([bundleFile], { FAIVR_VALIDATE_ONLY: "1", FAIVR_PUBLISHER_PUBLIC_KEY_PATH: join(dir, "publisher.pub"), FAIVR_PACKAGE_ORIGIN: "https://store.faivr.test", FAIVR_STORE_ARTIFACT_INLINE: "1" });
+    expect(result.status, result.stderr).toBe(0);
+    const releaseNotes = JSON.parse(result.stdout.trim()).releaseNotes as string;
+    expect(releaseNotes).toBe(`${firstLine}…`);
+    expect(Array.from(releaseNotes)).toHaveLength(601);
   });
 
   it("accepts the publisher's folder order but still rejects duplicate or missing contents paths", () => {

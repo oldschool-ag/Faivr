@@ -306,7 +306,7 @@ export async function catalogForAppliance(tenantId: string, instanceId: string, 
         item.latestVersion = version.version as string;
         item.updateAvailable = updateAvailable;
         item.permissionChanges = permissionChanges(installedManifest, manifest);
-        item.releaseNotes = typeof version.release_notes === "string" ? version.release_notes : (typeof manifest.releaseNotes === "string" ? manifest.releaseNotes : null);
+        item.releaseNotes = typeof version.release_notes === "string" ? version.release_notes : null;
         if (updateAvailable) item.artifact = {
           downloadPath: `/api/company-os/v1/installations/${installation.id as string}/package?versionId=${version.id as string}`,
           packageDigest: version.artifact_sha256 as string,
