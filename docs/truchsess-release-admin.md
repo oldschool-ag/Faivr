@@ -54,6 +54,16 @@ links make the release unavailable. Metadata stays cached for five minutes; each
 request fetches fresh download links and the response remains `private, no-store`.
 
 The response includes the closure, its signature, the release manifest and its
-signature, without ISO or checksum files. The Store never proxies update payloads
-or passes its GitHub token to a box. The box must still verify each asset's digest
-and the release signature before applying an update.
+signature, plus release assets whose names start with `truchsess-embedding-`.
+ISO, checksum, and every other asset name remain excluded. Embedding assets follow
+the same accepted-release, enrolled-box authorization, GitHub digest, and optional
+checksum-file consistency rules as the other update assets.
+
+A 587 MB embedding payload must not be proxied through a Vercel Function. It is
+too large to rely on Vercel's function response and execution limits, and proxying
+would also move a download that already has an expiring, authenticated origin URL
+through an unnecessary second hop. Publish it with the established Truchsess
+installer large-part naming (`truchsess-embedding-*`). FAIVR returns each part's
+fresh GitHub URL, byte size, and SHA-256; the installer streams each part directly
+to disk and verifies that SHA-256 before using it. FAIVR does not join, buffer, or
+stream the parts and never passes its GitHub token to a box.
