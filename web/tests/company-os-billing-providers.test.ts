@@ -149,10 +149,10 @@ describe.each(SCENARIOS)("billing provider contract: $name", (scenario) => {
         success_url: "https://store.faivr.test/store/checkout/success",
         return_url: "https://store.faivr.test/store/checkout/cancel",
       });
-      // every key within Polar's metadata limits (40-character keys, 500-character string values)
-      for (const [key, value] of Object.entries(body.metadata as Record<string, string>)) {
+      // every key and serialized primitive stays within Polar's metadata limits
+      for (const [key, value] of Object.entries(body.metadata as Record<string, string | number | boolean>)) {
         expect(key.length).toBeLessThanOrEqual(40);
-        expect(value.length).toBeLessThanOrEqual(500);
+        expect(String(value).length).toBeLessThanOrEqual(500);
       }
     } else {
       expect(call.url).toBe("https://api.stripe.com/v1/checkout/sessions");
