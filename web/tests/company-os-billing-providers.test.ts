@@ -128,7 +128,7 @@ describe.each(SCENARIOS)("billing provider contract: $name", (scenario) => {
 
   it("creates one checkout for one bundle and one appliance and returns the URL for the browser", async () => {
     answers.push(scenario.checkoutAnswer());
-    const created = await provider.createCheckout({ bundle: BUNDLE, subscriptionId: IDS.subscription, tenantId: IDS.tenant, instanceId: IDS.instance, ownerAccountId: IDS.tenant, ownerEmail: "owner@example.test", successUrl: "https://store.faivr.test/store/checkout/success", cancelUrl: "https://store.faivr.test/store/checkout/cancel" });
+    const created = await provider.createCheckout({ bundle: BUNDLE, subscriptionId: IDS.subscription, tenantId: IDS.tenant, instanceId: IDS.instance, ownerAccountId: IDS.tenant, ownerEmail: "owner@example.test", copyNumber: 2, description: "Design review — second copy", successUrl: "https://store.faivr.test/store/checkout/success", cancelUrl: "https://store.faivr.test/store/checkout/cancel" });
     expect(created.checkoutId).toBe(scenario.expectedCheckoutId);
     expect(created.url).toMatch(/^https:\/\//);
     expect(calls).toHaveLength(1);
@@ -145,7 +145,7 @@ describe.each(SCENARIOS)("billing provider contract: $name", (scenario) => {
         products: [IDS.polarProduct],
         external_customer_id: IDS.tenant,
         customer_email: "owner@example.test",
-        metadata: { [POLAR_METADATA_KEYS.subscriptionId]: IDS.subscription, [POLAR_METADATA_KEYS.tenantId]: IDS.tenant, [POLAR_METADATA_KEYS.instanceId]: IDS.instance, [POLAR_METADATA_KEYS.bundleId]: BUNDLE.id },
+        metadata: { [POLAR_METADATA_KEYS.subscriptionId]: IDS.subscription, [POLAR_METADATA_KEYS.tenantId]: IDS.tenant, [POLAR_METADATA_KEYS.instanceId]: IDS.instance, [POLAR_METADATA_KEYS.bundleId]: BUNDLE.id, [POLAR_METADATA_KEYS.copyNumber]: 2, [POLAR_METADATA_KEYS.description]: "Design review — second copy" },
         success_url: "https://store.faivr.test/store/checkout/success",
         return_url: "https://store.faivr.test/store/checkout/cancel",
       });
@@ -168,7 +168,7 @@ describe.each(SCENARIOS)("billing provider contract: $name", (scenario) => {
   it("refuses a bundle without this provider's reference before any request", async () => {
     const unpriced = { ...BUNDLE, polarProductId: null, stripePriceId: null };
     expect(provider.productReference(unpriced)).toEqual({ error: scenario.name === "polar" ? "polar_product_not_configured" : "stripe_price_not_configured" });
-    await expect(provider.createCheckout({ bundle: unpriced, subscriptionId: IDS.subscription, tenantId: IDS.tenant, instanceId: IDS.instance, ownerAccountId: IDS.tenant, ownerEmail: null, successUrl: "https://s", cancelUrl: "https://c" })).rejects.toThrow("_not_configured");
+    await expect(provider.createCheckout({ bundle: unpriced, subscriptionId: IDS.subscription, tenantId: IDS.tenant, instanceId: IDS.instance, ownerAccountId: IDS.tenant, ownerEmail: null, copyNumber: 1, description: "Design review", successUrl: "https://s", cancelUrl: "https://c" })).rejects.toThrow("_not_configured");
     expect(calls).toHaveLength(0);
   });
 

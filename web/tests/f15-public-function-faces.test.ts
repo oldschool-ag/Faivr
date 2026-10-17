@@ -11,6 +11,8 @@ vi.mock("@/components/layout/SiteShell", () => ({ SiteShell: ({ children }: { ch
 
 import HomePage from "@/app/page";
 import AgentPage from "@/app/agents/[agent]/page";
+import CatalogPage from "@/app/catalog/page";
+import FunctionPage from "@/app/catalog/[function]/page";
 import { verifiedSslOptions } from "@/lib/postgres";
 
 const worker = (id: string, name: string) => ({ id, slug: name.toLowerCase().replaceAll(" ", "-"), name, role: "", version: "1.0.0", publisherName: "Old School GmbH", publisherKeyId: "key", digest: "sha256:test", permissions: [], slots: [] });
@@ -38,6 +40,9 @@ describe("F15 public-function presentation", () => {
     catalog.functions = [{ slug: "company-mail", name: "Company mail", description: "", monthlyPriceCents: 14900, currency: "chf", image: face, workers: [worker("mail", "Penn")] }];
     const html = renderToStaticMarkup(await AgentPage({ params: Promise.resolve({ agent: "penn" }) }));
     expect(html).toContain("Company mail agent face");
+    const priceCopy = "Price per box and month. A second copy of a function on the same box costs the same again.";
+    expect(renderToStaticMarkup(await CatalogPage())).toContain(priceCopy);
+    expect(renderToStaticMarkup(await FunctionPage({ params: Promise.resolve({ function: "company-mail" }) }))).toContain(priceCopy);
     catalog.functions = [];
   });
 

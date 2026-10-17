@@ -33,10 +33,12 @@ async function stripeRequest(path:string, init:RequestInit={}) {
   if(!ok) throw new Error(typeof value.error==="object"&&value.error&&"message" in value.error?String((value.error as {message:unknown}).message):"stripe_provider_error");
   return value;
 }
-export async function createCheckoutSession(input:{priceId:string;installationId:string;tenantId:string;successUrl:string;cancelUrl:string;bundleSubscriptionId?:string}){
+export async function createCheckoutSession(input:{priceId:string;installationId:string;tenantId:string;successUrl:string;cancelUrl:string;bundleSubscriptionId?:string;copyNumber?:number;description?:string}){
   const body=new URLSearchParams({mode:"subscription",success_url:input.successUrl,cancel_url:input.cancelUrl,"line_items[0][price]":input.priceId,"line_items[0][quantity]":"1","metadata[installation_id]":input.installationId,"metadata[tenant_id]":input.tenantId,"subscription_data[metadata][installation_id]":input.installationId,"subscription_data[metadata][tenant_id]":input.tenantId});
   // T6b: a function-bundle checkout; the webhook activates the bundle subscription, not one installation
   if(input.bundleSubscriptionId){body.set("metadata[bundle_subscription_id]",input.bundleSubscriptionId);body.set("subscription_data[metadata][bundle_subscription_id]",input.bundleSubscriptionId);}
+  if(input.copyNumber){body.set("metadata[copy_number]",String(input.copyNumber));body.set("subscription_data[metadata][copy_number]",String(input.copyNumber));}
+  if(input.description){body.set("metadata[description]",input.description);body.set("subscription_data[metadata][description]",input.description);}
   return stripeRequest("checkout/sessions",{method:"POST",body});
 }
 export async function retrieveCheckoutSession(id:string){return stripeRequest(`checkout/sessions/${encodeURIComponent(id)}`);}
@@ -93,7 +95,8 @@ export async function createBillingPortalSession(customerId: string, returnUrl: 
 function stripeEventView(event: { id: string; type: string; data: { object: Record<string, unknown> } }): BillingEvent {
   const object = event.data.object;
   const metadata = (typeof object.metadata === "object" && object.metadata ? object.metadata : {}) as Record<string, unknown>;
-  const base = { provider: "stripe" as const, eventId: event.id, type: event.type, providerCustomerId: stringOrNull(object.customer), instanceId: null, bundleId: null, legacyInstallationId: null };
+  const parsedCopyNumber = typeof metadata.copy_number === "string" && /^\d+$/.test(metadata.copy_number) ? Number(metadata.copy_number) : null;
+  const base = { provider: "stripe" as const, eventId: event.id, type: event.type, providerCustomerId: stringOrNull(object.customer), instanceId: null, bundleId: null, copyNumber: Number.isSafeInteger(parsedCopyNumber) && Number(parsedCopyNumber) > 0 ? parsedCopyNumber : null, legacyInstallationId: null };
   const empty = { ...base, kind: "ignored" as const, providerSubscriptionId: null, providerCheckoutId: null, subscriptionId: null, tenantId: null, state: null, periodEnd: null };
   if (event.type === "checkout.session.completed" && typeof object.id === "string" && typeof object.subscription === "string") {
     const bundleSubscriptionId = stringOrNull(metadata.bundle_subscription_id);
@@ -130,7 +133,7 @@ export class StripeBillingProvider implements BillingProvider {
   async createCheckout(input: CreateCheckoutInput) {
     const reference = this.productReference(input.bundle);
     if ("error" in reference) throw new Error(reference.error);
-    const provider = await createCheckoutSession({ priceId: reference.reference, installationId: input.subscriptionId, tenantId: input.tenantId, successUrl: input.successUrl, cancelUrl: input.cancelUrl, bundleSubscriptionId: input.subscriptionId });
+    const provider = await createCheckoutSession({ priceId: reference.reference, installationId: input.subscriptionId, tenantId: input.tenantId, successUrl: input.successUrl, cancelUrl: input.cancelUrl, bundleSubscriptionId: input.subscriptionId, copyNumber: input.copyNumber, description: input.description });
     if (typeof provider.id !== "string" || typeof provider.url !== "string") throw new Error("stripe_invalid_response");
     return { checkoutId: provider.id, url: provider.url };
   }

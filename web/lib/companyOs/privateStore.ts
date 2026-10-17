@@ -221,6 +221,8 @@ export type CatalogBundle = {
   priceConfigured: boolean;
   image: BundleImage | null;
   subscription: { subscriptionId: string; state: string; checkoutState: string | null; checkoutSessionId: string | null; cancelEffectiveAt: string | null; message: string | null } | null;
+  /** Paid copies of this function on this box. Pending and ended checkouts are not entitlements. */
+  entitlements: Array<{ subscriptionId: string; copyNumber: number; description: string; state: string; installationIds: string[]; cancelEffectiveAt: string | null }>;
   packages: CatalogPackage[];
 };
 
@@ -263,11 +265,11 @@ export async function catalogForAppliance(tenantId: string, instanceId: string, 
     "SELECT v.id,v.package_id,v.version,v.manifest,v.publisher_key_id,v.publisher_signature,v.artifact_sha256,v.min_company_os_version,v.release_notes,pub.publisher_id,pub.name AS publisher_name FROM company_os_package_versions v LEFT JOIN company_os_publishers pub ON pub.key_id=v.publisher_key_id WHERE v.status='published'",
   );
   const subscriptions = await q.query(
-    "SELECT id,bundle_id,subscription_state,checkout_session_id,cancel_effective_at,checkout_abandoned_at,created_at FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND instance_id=$2 ORDER BY CASE WHEN subscription_state IN ('active','cancel_at_period_end') THEN 0 WHEN subscription_state IN ('checkout_pending','past_due','suspended','cancellation_pending_uninstall') THEN 1 ELSE 2 END,created_at DESC",
+    "SELECT id,bundle_id,copy_number,billing_description,subscription_state,checkout_session_id,cancel_effective_at,checkout_abandoned_at,entitled_at,created_at FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND instance_id=$2 ORDER BY copy_number,CASE WHEN subscription_state IN ('active','cancel_at_period_end') THEN 0 WHEN subscription_state IN ('checkout_pending','past_due','suspended','cancellation_pending_uninstall') THEN 1 ELSE 2 END,created_at DESC",
     [tenantId, instanceId],
   );
   const installations = await q.query(
-    "SELECT id,package_id,installed_version_id,installation_state,local_agent_definition_id,created_at FROM company_os_installations WHERE tenant_id=$1 AND instance_id=$2 AND installation_state NOT IN ('removed','failed') ORDER BY created_at DESC",
+    "SELECT id,package_id,bundle_subscription_id,installed_version_id,installation_state,local_agent_definition_id,created_at FROM company_os_installations WHERE tenant_id=$1 AND instance_id=$2 AND installation_state NOT IN ('removed','failed') ORDER BY created_at DESC",
     [tenantId, instanceId],
   );
   const packageById = new Map(packages.rows.map((row) => [row.id as string, row]));
@@ -277,10 +279,14 @@ export async function catalogForAppliance(tenantId: string, instanceId: string, 
     const current = latestVersion.get(row.package_id as string);
     if (!current || compareSemver(row.version as string, current.version as string) > 0) latestVersion.set(row.package_id as string, row);
   }
-  const installationByPackage = new Map<string, Record<string, unknown>>();
-  for (const row of installations.rows) if (!installationByPackage.has(row.package_id as string)) installationByPackage.set(row.package_id as string, row);
+  const installationIdsBySubscription = new Map<string, string[]>();
+  for (const row of installations.rows) {
+    const subscriptionId = row.bundle_subscription_id as string | null;
+    if (subscriptionId) installationIdsBySubscription.set(subscriptionId, [...(installationIdsBySubscription.get(subscriptionId) ?? []), row.id as string]);
+  }
   const subscriptionByBundle = new Map<string, Record<string, unknown>>();
   for (const row of subscriptions.rows) {
+    if (Number(row.copy_number) !== 1) continue;
     const existing = subscriptionByBundle.get(row.bundle_id as string);
     // the live subscription wins over an ended one; otherwise the newest
     const live = (state: unknown) => !["cancelled"].includes(String(state));
@@ -288,6 +294,8 @@ export async function catalogForAppliance(tenantId: string, instanceId: string, 
   }
   return bundles.rows.map((bundle) => {
     const subscription = subscriptionByBundle.get(bundle.id as string);
+    const bundleSubscriptions = subscriptions.rows.filter((row) => row.bundle_id === bundle.id);
+    const entitledSubscriptions = bundleSubscriptions.filter((row) => row.entitled_at && row.subscription_state !== "cancelled");
     const packageIds = members.rows.filter((m) => m.bundle_id === bundle.id).map((m) => m.package_id as string);
     const items: CatalogPackage[] = [];
     for (const packageId of packageIds) {
@@ -296,7 +304,8 @@ export async function catalogForAppliance(tenantId: string, instanceId: string, 
       if (!pkg || !version) continue;
       const manifest = (version.manifest ?? {}) as Record<string, unknown>;
       const compatibility = (manifest.companyOsCompatibility ?? {}) as Record<string, unknown>;
-      const installation = installationByPackage.get(packageId);
+      const copyOneSubscription = bundleSubscriptions.find((row) => Number(row.copy_number) === 1 && row.subscription_state !== "cancelled");
+      const installation = copyOneSubscription ? installations.rows.find((row) => row.package_id === packageId && row.bundle_subscription_id === copyOneSubscription.id) : undefined;
       const item: CatalogPackage = {
         modelId: packageId,
         name: pkg.name as string,
@@ -356,13 +365,21 @@ export async function catalogForAppliance(tenantId: string, instanceId: string, 
             message: subscription.checkout_abandoned_at ? "Checkout not finished. Subscribe again" : null,
           }
         : null,
+      entitlements: entitledSubscriptions.map((row) => ({
+        subscriptionId: row.id as string,
+        copyNumber: Number(row.copy_number),
+        description: row.billing_description as string,
+        state: row.subscription_state as string,
+        installationIds: [...(installationIdsBySubscription.get(row.id as string) ?? [])].sort(),
+        cancelEffectiveAt: row.cancel_effective_at ? new Date(row.cancel_effective_at as string).toISOString() : null,
+      })),
       packages: items,
     };
   });
 }
 
 // --- bundle subscriptions -----------------------------------------------------------------
-// One row per bundle checkout. The provider's objects are opaque ids next to the state:
+// One row per paid function copy on one enrolled box. Provider objects stay opaque:
 // billing_provider, provider_checkout_id, provider_subscription_id, provider_customer_id.
 
 export type BundleSubscriptionRow = {
@@ -370,6 +387,9 @@ export type BundleSubscriptionRow = {
   tenant_id: string;
   instance_id: string;
   bundle_id: string;
+  copy_number: number;
+  requested_installation_id: string | null;
+  billing_description: string;
   checkout_session_id: string | null;
   billing_provider: string | null;
   provider_checkout_id: string | null;
@@ -395,20 +415,38 @@ export async function ownerEmail(tenantId: string, client?: Queryable): Promise<
   return (r.rows[0]?.owner_email as string | undefined) ?? null;
 }
 
-export async function liveSubscription(tenantId: string, instanceId: string, bundleId: string, client?: Queryable) {
+export async function liveSubscriptionForCopy(tenantId: string, instanceId: string, bundleId: string, copyNumber: number, client?: Queryable) {
   const r = await db(client).query(
-    "SELECT id,subscription_state,checkout_session_id,billing_provider,provider_checkout_id,provider_subscription_id,provider_customer_id FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND instance_id=$2 AND bundle_id=$3 AND subscription_state IN ('checkout_pending','active','past_due','suspended','cancellation_pending_uninstall','cancel_at_period_end') ORDER BY CASE WHEN subscription_state IN ('active','cancel_at_period_end') THEN 0 ELSE 1 END,created_at DESC LIMIT 1",
-    [tenantId, instanceId, bundleId],
+    "SELECT id,copy_number,requested_installation_id,billing_description,subscription_state,checkout_session_id,billing_provider,provider_checkout_id,provider_subscription_id,provider_customer_id FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND instance_id=$2 AND bundle_id=$3 AND copy_number=$4 AND subscription_state IN ('checkout_pending','active','past_due','suspended','cancellation_pending_uninstall','cancel_at_period_end') ORDER BY CASE WHEN subscription_state IN ('active','cancel_at_period_end') THEN 0 ELSE 1 END,created_at DESC LIMIT 1",
+    [tenantId, instanceId, bundleId, copyNumber],
   );
-  return (r.rows[0] as Pick<BundleSubscriptionRow, "id" | "subscription_state" | "checkout_session_id" | "billing_provider" | "provider_checkout_id" | "provider_subscription_id" | "provider_customer_id"> | undefined) ?? null;
+  return (r.rows[0] as Pick<BundleSubscriptionRow, "id" | "copy_number" | "requested_installation_id" | "billing_description" | "subscription_state" | "checkout_session_id" | "billing_provider" | "provider_checkout_id" | "provider_subscription_id" | "provider_customer_id"> | undefined) ?? null;
 }
 
-export async function createBundleSubscription(input: { tenantId: string; instanceId: string; bundleId: string; provider: string }, client?: Queryable) {
+export async function liveSubscription(tenantId: string, instanceId: string, bundleId: string, client?: Queryable) {
+  return liveSubscriptionForCopy(tenantId, instanceId, bundleId, 1, client);
+}
+
+/** Resolve F12's checkout selector. A fresh installation id receives the next stable copy number. */
+export async function checkoutCopySelection(tenantId: string, instanceId: string, bundleId: string, selector: { copyNumber?: number; installationId?: string }, client?: Queryable) {
+  const q = db(client);
+  if (selector.copyNumber) return { copyNumber: selector.copyNumber, requestedInstallationId: null as string | null };
+  if (!selector.installationId) return { copyNumber: 1, requestedInstallationId: null as string | null };
+  const bound = await q.query(
+    "SELECT s.copy_number FROM company_os_bundle_subscriptions s LEFT JOIN company_os_installations i ON i.bundle_subscription_id=s.id WHERE s.tenant_id=$1 AND s.instance_id=$2 AND s.bundle_id=$3 AND (s.requested_installation_id=$4 OR i.id=$4) ORDER BY s.created_at DESC LIMIT 1",
+    [tenantId, instanceId, bundleId, selector.installationId],
+  );
+  if (bound.rowCount) return { copyNumber: Number(bound.rows[0].copy_number), requestedInstallationId: selector.installationId };
+  const next = await q.query("SELECT COALESCE(MAX(copy_number),0)::int+1 AS copy_number FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND instance_id=$2 AND bundle_id=$3", [tenantId, instanceId, bundleId]);
+  return { copyNumber: Number(next.rows[0]?.copy_number ?? 1), requestedInstallationId: selector.installationId };
+}
+
+export async function createBundleSubscription(input: { tenantId: string; instanceId: string; bundleId: string; provider: string; copyNumber: number; requestedInstallationId: string | null; billingDescription: string }, client?: Queryable) {
   const id = randomUUID();
   const checkoutSessionId = randomUUID();
   await db(client).query(
-    "INSERT INTO company_os_bundle_subscriptions(id,tenant_id,instance_id,bundle_id,checkout_session_id,billing_provider,subscription_state) VALUES($1,$2,$3,$4,$5,$6,'checkout_pending')",
-    [id, input.tenantId, input.instanceId, input.bundleId, checkoutSessionId, input.provider],
+    "INSERT INTO company_os_bundle_subscriptions(id,tenant_id,instance_id,bundle_id,copy_number,requested_installation_id,billing_description,checkout_session_id,billing_provider,subscription_state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'checkout_pending')",
+    [id, input.tenantId, input.instanceId, input.bundleId, input.copyNumber, input.requestedInstallationId, input.billingDescription, checkoutSessionId, input.provider],
   );
   return { subscriptionId: id, checkoutSessionId };
 }
@@ -459,18 +497,21 @@ export async function reconcileBundleCheckout(input: PendingBundleCheckout & { s
  * store recorded when it created the checkout); the metadata the provider echoes back must
  * agree with it when present.
  */
-export async function activateBundleSubscription(input: { provider: string; providerCheckoutId: string; providerSubscriptionId: string; providerCustomerId?: string | null; subscriptionId?: string | null; tenantId?: string | null; instanceId?: string | null }, client?: Queryable) {
+export async function activateBundleSubscription(input: { provider: string; providerCheckoutId: string; providerSubscriptionId: string; providerCustomerId?: string | null; subscriptionId?: string | null; tenantId?: string | null; instanceId?: string | null; copyNumber?: number | null }, client?: Queryable) {
   const r = await db(client).query(
-    "UPDATE company_os_bundle_subscriptions SET subscription_state='active',provider_subscription_id=$3,provider_customer_id=COALESCE($4,provider_customer_id),checkout_abandoned_at=NULL,stopped_at=CASE WHEN checkout_abandoned_at IS NOT NULL THEN NULL ELSE stopped_at END,entitled_at=COALESCE(entitled_at,now()),updated_at=now() WHERE billing_provider=$1 AND provider_checkout_id=$2 AND ($5::uuid IS NULL OR id=$5::uuid) AND ($6::uuid IS NULL OR tenant_id=$6::uuid) AND ($7::uuid IS NULL OR instance_id=$7::uuid) AND (subscription_state IN ('checkout_pending','active','past_due') OR checkout_abandoned_at IS NOT NULL) RETURNING id",
-    [input.provider, input.providerCheckoutId, input.providerSubscriptionId, input.providerCustomerId ?? null, input.subscriptionId ?? null, input.tenantId ?? null, input.instanceId ?? null],
+    "UPDATE company_os_bundle_subscriptions SET subscription_state='active',provider_subscription_id=$3,provider_customer_id=COALESCE($4,provider_customer_id),checkout_abandoned_at=NULL,stopped_at=CASE WHEN checkout_abandoned_at IS NOT NULL THEN NULL ELSE stopped_at END,entitled_at=COALESCE(entitled_at,now()),updated_at=now() WHERE billing_provider=$1 AND provider_checkout_id=$2 AND ($5::uuid IS NULL OR id=$5::uuid) AND ($6::uuid IS NULL OR tenant_id=$6::uuid) AND ($7::uuid IS NULL OR instance_id=$7::uuid) AND ($8::int IS NULL OR copy_number=$8::int) AND (subscription_state IN ('checkout_pending','active','past_due') OR checkout_abandoned_at IS NOT NULL) RETURNING id",
+    [input.provider, input.providerCheckoutId, input.providerSubscriptionId, input.providerCustomerId ?? null, input.subscriptionId ?? null, input.tenantId ?? null, input.instanceId ?? null, input.copyNumber ?? null],
   );
   return Boolean(r.rowCount);
 }
 
-export async function bundleSubscriptionRow(tenantId: string, instanceId: string, filter: { subscriptionId?: string; bundleId?: string }, client?: Queryable): Promise<BundleSubscriptionRow | null> {
+export async function bundleSubscriptionRow(tenantId: string, instanceId: string, filter: { subscriptionId?: string; bundleId?: string; copyNumber?: number; installationId?: string }, client?: Queryable): Promise<BundleSubscriptionRow | null> {
+  const q = db(client);
   const r = filter.subscriptionId
-    ? await db(client).query("SELECT * FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND instance_id=$2 AND id=$3", [tenantId, instanceId, filter.subscriptionId])
-    : await db(client).query("SELECT * FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND instance_id=$2 AND bundle_id=$3 ORDER BY CASE WHEN subscription_state IN ('active','cancel_at_period_end') THEN 0 WHEN subscription_state IN ('checkout_pending','past_due','suspended','cancellation_pending_uninstall') THEN 1 ELSE 2 END,created_at DESC LIMIT 1", [tenantId, instanceId, filter.bundleId]);
+    ? await q.query("SELECT * FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND instance_id=$2 AND id=$3", [tenantId, instanceId, filter.subscriptionId])
+    : filter.installationId
+      ? await q.query("SELECT DISTINCT s.* FROM company_os_bundle_subscriptions s LEFT JOIN company_os_installations i ON i.bundle_subscription_id=s.id WHERE s.tenant_id=$1 AND s.instance_id=$2 AND (s.requested_installation_id=$3 OR i.id=$3) ORDER BY s.created_at DESC LIMIT 1", [tenantId, instanceId, filter.installationId])
+      : await q.query("SELECT * FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND instance_id=$2 AND bundle_id=$3 AND copy_number=$4 ORDER BY CASE WHEN subscription_state IN ('active','cancel_at_period_end') THEN 0 WHEN subscription_state IN ('checkout_pending','past_due','suspended','cancellation_pending_uninstall') THEN 1 ELSE 2 END,created_at DESC LIMIT 1", [tenantId, instanceId, filter.bundleId, filter.copyNumber ?? 1]);
   return (r.rows[0] as BundleSubscriptionRow | undefined) ?? null;
 }
 
@@ -481,6 +522,9 @@ export function subscriptionViewOf(row: BundleSubscriptionRow) {
   return {
     subscriptionId: row.id,
     bundleId: row.bundle_id,
+    copyNumber: Number(row.copy_number),
+    description: row.billing_description,
+    requestedInstallationId: row.requested_installation_id ?? null,
     subscriptionState: row.subscription_state,
     checkoutState: row.checkout_abandoned_at ? "abandoned" : null,
     message: row.checkout_abandoned_at ? "Checkout not finished. Subscribe again" : null,
@@ -491,7 +535,7 @@ export function subscriptionViewOf(row: BundleSubscriptionRow) {
   };
 }
 
-export async function subscriptionView(tenantId: string, instanceId: string, filter: { subscriptionId?: string; bundleId?: string }, client?: Queryable) {
+export async function subscriptionView(tenantId: string, instanceId: string, filter: { subscriptionId?: string; bundleId?: string; copyNumber?: number; installationId?: string }, client?: Queryable) {
   const row = await bundleSubscriptionRow(tenantId, instanceId, filter, client);
   return row ? subscriptionViewOf(row) : null;
 }
@@ -561,15 +605,22 @@ export async function refreshBundleSubscription(provider: string, providerSubscr
  * the bundle subscription's identity, so the locked uninstall receipt and billing
  * acknowledgement keep working unchanged on the appliance.
  */
-export async function createStoreInstallation(input: { tenantId: string; instanceId: string; bundleId: string; modelId: string }, client?: Queryable) {
+export async function createStoreInstallation(input: { tenantId: string; instanceId: string; bundleId: string; modelId: string; subscriptionId?: string; copyNumber?: number; installationId?: string }, client?: Queryable) {
   const q = db(client);
   const member = await q.query("SELECT 1 FROM company_os_bundle_packages WHERE bundle_id=$1 AND package_id=$2", [input.bundleId, input.modelId]);
   if (!member.rowCount) throw new StoreError("package_not_in_bundle", 404);
-  const subscription = await liveSubscription(input.tenantId, input.instanceId, input.bundleId, q);
+  const subscription = await bundleSubscriptionRow(input.tenantId, input.instanceId, input.subscriptionId
+    ? { subscriptionId: input.subscriptionId }
+    : input.installationId && !input.copyNumber
+      ? { installationId: input.installationId }
+      : { bundleId: input.bundleId, copyNumber: input.copyNumber ?? 1 }, q);
+  if (subscription?.bundle_id !== input.bundleId) throw new StoreError("subscription_scope_mismatch", 409);
+  if (input.copyNumber && subscription && Number(subscription.copy_number) !== input.copyNumber) throw new StoreError("copy_number_mismatch", 409);
   if (!subscription || subscription.subscription_state !== "active") throw new StoreError("subscription_not_active", 409);
+  if (subscription.requested_installation_id && input.installationId && subscription.requested_installation_id !== input.installationId) throw new StoreError("installation_scope_mismatch", 409);
   const existing = await q.query(
-    "SELECT id,installation_state FROM company_os_installations WHERE tenant_id=$1 AND package_id=$2 AND installation_state NOT IN ('removed','failed') ORDER BY created_at DESC LIMIT 1",
-    [input.tenantId, input.modelId],
+    "SELECT id,installation_state FROM company_os_installations WHERE tenant_id=$1 AND instance_id=$2 AND package_id=$3 AND bundle_subscription_id=$4 AND installation_state NOT IN ('removed','failed') ORDER BY created_at DESC LIMIT 1",
+    [input.tenantId, input.instanceId, input.modelId, subscription.id],
   );
   if (existing.rowCount) throw new StoreError(`package_already_installed:${existing.rows[0].id}`, 409);
   const version = await q.query(
@@ -579,7 +630,10 @@ export async function createStoreInstallation(input: { tenantId: string; instanc
   if (!version.rowCount) throw new StoreError("package_not_found", 404);
   let latest = version.rows[0];
   for (const row of version.rows) if (compareSemver(row.version as string, latest.version as string) > 0) latest = row;
-  const installationId = randomUUID();
+  const installationId = input.installationId ?? subscription.requested_installation_id ?? randomUUID();
+  const idOwner = await q.query("SELECT tenant_id,instance_id FROM company_os_installations WHERE id=$1", [installationId]);
+  if (idOwner.rowCount) throw new StoreError("installation_id_reused", 409);
+  await q.query("UPDATE company_os_bundle_subscriptions SET requested_installation_id=COALESCE(requested_installation_id,$2),updated_at=now() WHERE id=$1", [subscription.id, installationId]);
   await q.query(
     "INSERT INTO company_os_installations(id,tenant_id,instance_id,package_id,desired_version_id,subscription_id,bundle_subscription_id,installation_state,subscription_state,entitled_at) VALUES($1,$2,$3,$4,$5,$6,$6,'entitled','active',now())",
     [installationId, input.tenantId, input.instanceId, input.modelId, latest.id, subscription.id],
@@ -587,6 +641,8 @@ export async function createStoreInstallation(input: { tenantId: string; instanc
   return {
     installationId,
     subscriptionId: subscription.id,
+    copyNumber: Number(subscription.copy_number),
+    description: subscription.billing_description,
     bundleId: input.bundleId,
     modelId: input.modelId,
     versionId: latest.id as string,
@@ -624,13 +680,13 @@ export async function scheduleBundleCancellation(subscriptionId: string, effecti
 }
 
 /** The CEO cancels a bundle nothing is installed from any more (the receipt-gated path handles the rest). */
-export async function cancellableSubscription(tenantId: string, subscriptionId: string, client?: Queryable) {
+export async function cancellableSubscription(tenantId: string, instanceId: string, subscriptionId: string, client?: Queryable) {
   const q = db(client);
-  const r = await q.query("SELECT id,bundle_id,subscription_state,billing_provider,provider_subscription_id FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND id=$2", [tenantId, subscriptionId]);
-  const row = r.rows[0] as { id: string; bundle_id: string; subscription_state: string; billing_provider: string | null; provider_subscription_id: string | null } | undefined;
+  const r = await q.query("SELECT id,bundle_id,copy_number,billing_description,subscription_state,billing_provider,provider_subscription_id FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND instance_id=$2 AND id=$3", [tenantId, instanceId, subscriptionId]);
+  const row = r.rows[0] as { id: string; bundle_id: string; copy_number: number; billing_description: string; subscription_state: string; billing_provider: string | null; provider_subscription_id: string | null } | undefined;
   if (!row) throw new StoreError("subscription_not_found", 404);
   if (!["active", "past_due", "suspended"].includes(row.subscription_state)) throw new StoreError(`subscription_state_mismatch:${row.subscription_state}`, 409);
-  const active = await q.query("SELECT count(*)::int AS n FROM company_os_installations WHERE bundle_subscription_id=$1 AND installation_state NOT IN ('removed','failed')", [subscriptionId]);
+  const active = await q.query("SELECT count(*)::int AS n FROM company_os_installations WHERE bundle_subscription_id=$1 AND instance_id=$2 AND installation_state NOT IN ('removed','failed')", [subscriptionId, instanceId]);
   if (Number(active.rows[0]?.n ?? 0) > 0) throw new StoreError("installations_still_active_uninstall_first", 409);
   return row;
 }
