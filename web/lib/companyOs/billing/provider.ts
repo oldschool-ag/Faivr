@@ -37,6 +37,10 @@ export type CreateCheckoutInput = {
   /** The FAIVR account of the appliance owner: one provider customer per owner, any number of appliances. */
   ownerAccountId: string;
   ownerEmail: string | null;
+  /** One separately paid installation of this function on this appliance. */
+  copyNumber: number;
+  /** Stable customer-facing text recorded with the checkout and resulting receipt metadata. */
+  description: string;
   successUrl: string;
   cancelUrl: string;
 };
@@ -104,6 +108,8 @@ export type BillingEvent = {
   tenantId: string | null;
   instanceId: string | null;
   bundleId: string | null;
+  /** Copy identity echoed from checkout metadata; null for legacy provider events. */
+  copyNumber: number | null;
   /** The state the event expresses, null for refresh and ignored events without one. */
   state: BillingSubscriptionState | null;
   /** The period end, cancellation date or end date the event carries. */
@@ -133,11 +139,16 @@ export class BillingProviderError extends Error {
   }
 }
 
+export function paidCopyDescription(functionName: string, copyNumber: number): string {
+  if (copyNumber === 1) return functionName;
+  return `${functionName} — ${copyNumber === 2 ? "second copy" : `copy ${copyNumber}`}`;
+}
+
 export interface BillingProvider {
   readonly name: BillingProviderName;
   /** The bundle's reference at this provider, or the `*_not_configured` error the store answers with. */
   productReference(bundle: BillingBundle): { reference: string } | { error: string };
-  /** One checkout for one function bundle and one appliance. */
+  /** One checkout for one paid copy of one function bundle on one appliance. */
   createCheckout(input: CreateCheckoutInput): Promise<CheckoutCreated>;
   /** Read a checkout by the opaque id the Store recorded when it created it. */
   readCheckout(providerCheckoutId: string, options?: { signal?: AbortSignal }): Promise<ProviderCheckout>;

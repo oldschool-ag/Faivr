@@ -13,6 +13,7 @@ const envelope = {
 };
 
 export const bundleIdSchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80);
+export const copyNumberSchema = z.number().int().min(1).max(10_000);
 
 /** Enrolment is the one unsigned call: the appliance has no enrolled key yet. */
 export const enrolmentRequestSchema = z.object({
@@ -24,14 +25,19 @@ export const enrolmentRequestSchema = z.object({
 export const storeCheckoutSchema = z.object({
   ...envelope,
   bundleId: bundleIdSchema,
+  copyNumber: copyNumberSchema.optional(),
+  installationId: uuidSchema.optional(),
   successUrl: z.string().url().optional(),
   cancelUrl: z.string().url().optional(),
-}).strict();
+}).strict().refine((value) => !(value.copyNumber && value.installationId), { message: "copy_number_or_installation_id" });
 
 export const storeInstallationSchema = z.object({
   ...envelope,
   bundleId: bundleIdSchema,
   faivrAgentModelId: modelIdSchema,
+  subscriptionId: uuidSchema.optional(),
+  copyNumber: copyNumberSchema.optional(),
+  installationId: uuidSchema.optional(),
 }).strict();
 
 export const storeCancelSchema = z.object({

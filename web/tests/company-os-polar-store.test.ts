@@ -101,8 +101,8 @@ describe("the private Truchsess store billed through Polar", () => {
     await holder.pool.end();
   });
 
-  function values(extra: Record<string, string> = {}) {
-    return { POLAR_SUBSCRIPTION_ID: POLAR.subscription, POLAR_CHECKOUT_ID: POLAR.checkout, POLAR_CUSTOMER_ID: POLAR.customer, POLAR_PRODUCT_ID: POLAR.product, POLAR_ORGANIZATION_ID: POLAR.organization, TENANT_ID: tenantId, INSTANCE_ID: appliance.instanceId, BUNDLE_ID: BUNDLE, PERIOD_END, POLAR_ORDER_ID: randomUUID(), BILLING_REASON: "subscription_create", ...extra };
+  function values(extra: Record<string, string> = {}, target: Appliance = appliance) {
+    return { POLAR_SUBSCRIPTION_ID: POLAR.subscription, POLAR_CHECKOUT_ID: POLAR.checkout, POLAR_CUSTOMER_ID: POLAR.customer, POLAR_PRODUCT_ID: POLAR.product, POLAR_ORGANIZATION_ID: POLAR.organization, TENANT_ID: target.tenantId, INSTANCE_ID: target.instanceId, BUNDLE_ID: BUNDLE, PERIOD_END, POLAR_ORDER_ID: randomUUID(), BILLING_REASON: "subscription_create", ...extra };
   }
 
   async function enrolAppliance() {
@@ -128,6 +128,32 @@ describe("the private Truchsess store billed through Polar", () => {
     return { subscriptionId: result.subscriptionId as string, result, checkoutBody };
   }
 
+  async function enrolAdditionalBox(label: string): Promise<Appliance> {
+    const keys = ed25519Pair();
+    const issued = await issueEnrolmentCode({ tenantId, label, createdBy: "store-admin", ownerEmail: "owner@example.test" });
+    const response = await enrol(new NextRequest("https://store.faivr.test/api/company-os/v1/enrol", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enrolmentCode: issued.code, appliancePublicKeyPem: keys.publicPem, label }) }));
+    const body = await bodyOf(response);
+    expect(response.status, JSON.stringify(body)).toBe(201);
+    return { tenantId, instanceId: body.instanceId as string, keyId: body.keyId as string, keys };
+  }
+
+  async function checkoutCopy(target: Appliance, selector: { copyNumber?: number; installationId?: string }, checkoutId: string) {
+    answers.push(jsonResponse(polarFixture("api/checkout.created", values({ POLAR_CHECKOUT_ID: checkoutId, FAIVR_SUBSCRIPTION_ID: "pending" }, target)), 201));
+    const requestBody = envelope(target, { bundleId: BUNDLE, ...selector });
+    const response = await storeCheckoutSessions(signedRequest(target, "POST", "/api/company-os/v1/store/checkout-sessions", requestBody, { idempotencyKey: requestBody.idempotencyKey as string }));
+    const body = await bodyOf(response);
+    expect(response.status, JSON.stringify(body)).toBe(201);
+    return { body, providerBody: JSON.parse(String(calls.at(-1)?.init.body)) as Record<string, unknown> };
+  }
+
+  async function activateCopy(target: Appliance, input: { subscriptionId: string; checkoutId: string; providerSubscriptionId: string; copyNumber: number }) {
+    const payload = JSON.parse(polarFixture("webhooks/subscription.active", values({ FAIVR_SUBSCRIPTION_ID: input.subscriptionId, POLAR_CHECKOUT_ID: input.checkoutId, POLAR_SUBSCRIPTION_ID: input.providerSubscriptionId }, target))) as { data: { metadata: Record<string, unknown> } };
+    payload.data.metadata.faivr_copy_number = input.copyNumber;
+    const body = JSON.stringify(payload);
+    const response = await polarWebhook(new NextRequest("https://store.faivr.test/api/company-os/v1/billing/polar/webhook", { method: "POST", headers: signPolarWebhook(body), body }));
+    return { status: response.status, body: await bodyOf(response) };
+  }
+
   async function poll(query: string) {
     return (await bodyOf(await storeSubscriptions(signedRequest(appliance, "GET", `/api/company-os/v1/store/subscriptions?${query}`)))).subscription as Record<string, unknown>;
   }
@@ -144,7 +170,7 @@ describe("the private Truchsess store billed through Polar", () => {
     expect(asked.products).toEqual([POLAR.product]);
     expect(asked.external_customer_id).toBe(tenantId);
     expect(asked.customer_email).toBe("owner@example.test");
-    expect(asked.metadata).toEqual({ faivr_subscription_id: subscriptionId, faivr_tenant_id: tenantId, faivr_instance_id: appliance.instanceId, faivr_bundle_id: BUNDLE });
+    expect(asked.metadata).toEqual({ faivr_subscription_id: subscriptionId, faivr_tenant_id: tenantId, faivr_instance_id: appliance.instanceId, faivr_bundle_id: BUNDLE, faivr_copy_number: 1, faivr_description: "Design review" });
     expect(asked.success_url).toBe("https://store.faivr.test/store/checkout/success");
     // the same idempotency key replays the same answer without a second Polar call
     const replay = await storeCheckoutSessions(signedRequest(appliance, "POST", "/api/company-os/v1/store/checkout-sessions", checkoutBody, { idempotencyKey: checkoutBody.idempotencyKey as string }));
@@ -314,6 +340,102 @@ describe("the private Truchsess store billed through Polar", () => {
     const unknown = JSON.stringify({ type: "benefit_grant.created", timestamp: "2026-09-30T12:00:00Z", api_version: "2026-10", data: { id: randomUUID() } });
     expect(await bodyOf(await post(signPolarWebhook(unknown), unknown))).toMatchObject({ received: true, action: "ignored" });
     expect(await poll(`subscriptionId=${subscriptionId}`)).toMatchObject({ subscriptionState: "checkout_pending" });
+  });
+
+  it("F12: keeps two boxes with the same email and function independent", async () => {
+    await enrolAppliance();
+    const secondBox = await enrolAdditionalBox("Second box");
+    const first = await checkoutCopy(appliance, { copyNumber: 1 }, "11111111-1111-4111-8111-111111111111");
+    const second = await checkoutCopy(secondBox, { copyNumber: 1 }, "22222222-2222-4222-8222-222222222222");
+    expect(first.providerBody).toMatchObject({ external_customer_id: tenantId, customer_email: "owner@example.test", metadata: { faivr_instance_id: appliance.instanceId, faivr_copy_number: 1 } });
+    expect(second.providerBody).toMatchObject({ external_customer_id: tenantId, customer_email: "owner@example.test", metadata: { faivr_instance_id: secondBox.instanceId, faivr_copy_number: 1 } });
+    expect(first.body.subscriptionId).not.toBe(second.body.subscriptionId);
+    const rows = await holder.pool.query("SELECT instance_id,copy_number FROM company_os_bundle_subscriptions ORDER BY instance_id");
+    expect(rows.rows).toHaveLength(2);
+    expect(new Set(rows.rows.map((row) => row.instance_id))).toEqual(new Set([appliance.instanceId, secondBox.instanceId]));
+    expect(rows.rows.every((row) => Number(row.copy_number) === 1)).toBe(true);
+  });
+
+  it("F12: keeps copies 1 and 2 on one box independent", async () => {
+    await enrolAppliance();
+    const firstCheckout = "11111111-1111-4111-8111-111111111111";
+    const secondCheckout = "22222222-2222-4222-8222-222222222222";
+    const firstProviderSubscription = "33333333-3333-4333-8333-333333333333";
+    const secondProviderSubscription = "44444444-4444-4444-8444-444444444444";
+    const first = await checkoutCopy(appliance, { copyNumber: 1 }, firstCheckout);
+    const second = await checkoutCopy(appliance, { copyNumber: 2 }, secondCheckout);
+    const reservedInstallationId = randomUUID();
+    const third = await checkoutCopy(appliance, { installationId: reservedInstallationId }, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    expect(first.body).toMatchObject({ copyNumber: 1, description: "Design review" });
+    expect(second.body).toMatchObject({ copyNumber: 2, description: "Design review — second copy" });
+    expect(third.body).toMatchObject({ copyNumber: 3, installationId: reservedInstallationId, description: "Design review — copy 3" });
+    expect((second.providerBody.metadata as Record<string, unknown>)).toMatchObject({ faivr_copy_number: 2, faivr_description: "Design review — second copy" });
+    await activateCopy(appliance, { subscriptionId: first.body.subscriptionId as string, checkoutId: firstCheckout, providerSubscriptionId: firstProviderSubscription, copyNumber: 1 });
+    await activateCopy(appliance, { subscriptionId: second.body.subscriptionId as string, checkoutId: secondCheckout, providerSubscriptionId: secondProviderSubscription, copyNumber: 2 });
+
+    const installBody = envelope(appliance, { bundleId: BUNDLE, faivrAgentModelId: MODEL_ID, subscriptionId: first.body.subscriptionId });
+    const installation = await bodyOf(await storeInstallations(signedRequest(appliance, "POST", "/api/company-os/v1/store/installations", installBody, { idempotencyKey: installBody.idempotencyKey as string })));
+    expect(installation).toMatchObject({ subscriptionId: first.body.subscriptionId, copyNumber: 1 });
+
+    answers.push(
+      jsonResponse(polarFixture("api/subscription.active", values({ POLAR_SUBSCRIPTION_ID: secondProviderSubscription }))),
+      jsonResponse(polarFixture("api/subscription.cancel_at_period_end", values({ POLAR_SUBSCRIPTION_ID: secondProviderSubscription }))),
+    );
+    const cancelBody = envelope(appliance, { subscriptionId: second.body.subscriptionId });
+    const cancel = await bodyOf(await storeSubscriptionCancel(signedRequest(appliance, "POST", "/api/company-os/v1/store/subscriptions/cancel", cancelBody, { idempotencyKey: cancelBody.idempotencyKey as string })));
+    expect(cancel).toMatchObject({ subscriptionId: second.body.subscriptionId, copyNumber: 2, subscriptionState: "cancel_at_period_end" });
+    expect(await poll(`subscriptionId=${first.body.subscriptionId as string}`)).toMatchObject({ copyNumber: 1, subscriptionState: "active" });
+    expect(await poll(`subscriptionId=${second.body.subscriptionId as string}`)).toMatchObject({ copyNumber: 2, subscriptionState: "cancel_at_period_end" });
+    const catalog = await bodyOf(await storeCatalog(signedRequest(appliance, "GET", "/api/company-os/v1/store/catalog")));
+    const entitlements = (catalog.bundles as Array<{ entitlements: Array<Record<string, unknown>> }>)[0].entitlements;
+    expect(entitlements).toEqual(expect.arrayContaining([
+      expect.objectContaining({ copyNumber: 1, installationIds: [installation.installationId] }),
+      expect.objectContaining({ copyNumber: 2, installationIds: [] }),
+    ]));
+  });
+
+  it("F12: projects a legacy subscription fixture as copy 1", async () => {
+    await enrolAppliance();
+    const subscriptionId = randomUUID();
+    await holder.pool.query("INSERT INTO company_os_bundle_subscriptions(id,tenant_id,instance_id,bundle_id,subscription_state,entitled_at) VALUES($1,$2,$3,$4,'active',now())", [subscriptionId, tenantId, appliance.instanceId, BUNDLE]);
+    const legacy = await poll(`bundleId=${BUNDLE}`);
+    expect(legacy).toMatchObject({ subscriptionId, copyNumber: 1, subscriptionState: "active" });
+    const catalog = await bodyOf(await storeCatalog(signedRequest(appliance, "GET", "/api/company-os/v1/store/catalog")));
+    expect((catalog.bundles as Array<{ entitlements: Array<Record<string, unknown>> }>)[0].entitlements).toEqual([expect.objectContaining({ subscriptionId, copyNumber: 1 })]);
+  });
+
+  it("F12: normalizes Polar's duplicate-subscription error and logs the setting once", async () => {
+    await enrolAppliance();
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const raw = "Customer already has a secret active subscription payload";
+    answers.push(jsonResponse(JSON.stringify({ error: "AlreadyActiveSubscriptionError", detail: raw }), 409));
+    const requestBody = envelope(appliance, { bundleId: BUNDLE, copyNumber: 2 });
+    const response = await storeCheckoutSessions(signedRequest(appliance, "POST", "/api/company-os/v1/store/checkout-sessions", requestBody, { idempotencyKey: requestBody.idempotencyKey as string }));
+    const body = await bodyOf(response);
+    expect(response.status).toBe(409);
+    expect(body.error).toBe("Your store account does not allow a second subscription yet. Please contact Truchsess support.");
+    expect(JSON.stringify(body)).not.toContain(raw);
+    expect(errorLog).toHaveBeenCalledTimes(1);
+    expect(String(errorLog.mock.calls[0][0])).toContain("Allow multiple subscriptions");
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain(raw);
+    errorLog.mockRestore();
+  });
+
+  it("F12: isolates webhook activation to the matching box copy", async () => {
+    await enrolAppliance();
+    const firstCheckout = "11111111-1111-4111-8111-111111111111";
+    const secondCheckout = "22222222-2222-4222-8222-222222222222";
+    const first = await checkoutCopy(appliance, { copyNumber: 1 }, firstCheckout);
+    const second = await checkoutCopy(appliance, { copyNumber: 2 }, secondCheckout);
+    const activated = await activateCopy(appliance, { subscriptionId: second.body.subscriptionId as string, checkoutId: secondCheckout, providerSubscriptionId: "44444444-4444-4444-8444-444444444444", copyNumber: 2 });
+    expect(activated).toMatchObject({ status: 202, body: { applied: true, action: "activated" } });
+    expect(await poll(`subscriptionId=${first.body.subscriptionId as string}`)).toMatchObject({ subscriptionState: "checkout_pending" });
+    expect(await poll(`subscriptionId=${second.body.subscriptionId as string}`)).toMatchObject({ subscriptionState: "active" });
+
+    const crossed = await activateCopy(appliance, { subscriptionId: first.body.subscriptionId as string, checkoutId: secondCheckout, providerSubscriptionId: "55555555-5555-4555-8555-555555555555", copyNumber: 1 });
+    expect(crossed).toMatchObject({ status: 202, body: { applied: false, action: "unknown_subscription" } });
+    expect(await poll(`subscriptionId=${first.body.subscriptionId as string}`)).toMatchObject({ subscriptionState: "checkout_pending" });
+    expect(await poll(`subscriptionId=${second.body.subscriptionId as string}`)).toMatchObject({ subscriptionState: "active" });
   });
 
   it("refuses to run the store when Polar's credentials are missing, and needs no Stripe account", async () => {
