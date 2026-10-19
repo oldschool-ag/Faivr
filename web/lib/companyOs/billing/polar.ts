@@ -44,7 +44,11 @@ export const POLAR_METADATA_KEYS = {
   tenantId: "faivr_tenant_id",
   instanceId: "faivr_instance_id",
   bundleId: "faivr_bundle_id",
+  copyNumber: "faivr_copy_number",
+  description: "faivr_description",
 } as const;
+
+export const POLAR_MULTIPLE_SUBSCRIPTIONS_ERROR = "Your store account does not allow a second subscription yet. Please contact Truchsess support.";
 
 const POLAR_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -85,6 +89,10 @@ export class PolarBillingProvider implements BillingProvider {
     }
     if (!response.ok) {
       if (response.status === 429) throw new BillingProviderError("polar_rate_limited", 503);
+      if (isAlreadyActiveSubscriptionError(value)) {
+        console.error('[faivr-store] Polar checkout blocked: enable "Allow multiple subscriptions" in Organization Settings → Subscriptions.');
+        throw new BillingProviderError(POLAR_MULTIPLE_SUBSCRIPTIONS_ERROR, 409);
+      }
       throw new BillingProviderError(`polar_provider_error:${response.status}:${polarErrorDetail(value)}`, response.status === 404 ? 404 : 502);
     }
     return { status: response.status, value: value as T };
@@ -101,6 +109,8 @@ export class PolarBillingProvider implements BillingProvider {
         [POLAR_METADATA_KEYS.tenantId]: input.tenantId,
         [POLAR_METADATA_KEYS.instanceId]: input.instanceId,
         [POLAR_METADATA_KEYS.bundleId]: input.bundle.id,
+        [POLAR_METADATA_KEYS.copyNumber]: input.copyNumber,
+        [POLAR_METADATA_KEYS.description]: input.description.slice(0, 500),
       },
       success_url: input.successUrl,
       return_url: input.cancelUrl,
@@ -181,6 +191,10 @@ export class PolarBillingProvider implements BillingProvider {
   }
 }
 
+function isAlreadyActiveSubscriptionError(value: unknown): boolean {
+  return typeof value === "object" && value !== null && (value as Record<string, unknown>).error === "AlreadyActiveSubscriptionError";
+}
+
 function polarErrorDetail(value: unknown): string {
   if (typeof value !== "object" || value === null) return "error";
   const record = value as Record<string, unknown>;
@@ -224,7 +238,12 @@ export function polarSubscriptionView(value: Record<string, unknown>): ProviderS
 }
 
 function ignoredEvent(eventId: string, type: string): BillingEvent {
-  return { provider: "polar", eventId, type, kind: "ignored", providerSubscriptionId: null, providerCheckoutId: null, providerCustomerId: null, subscriptionId: null, tenantId: null, instanceId: null, bundleId: null, state: null, periodEnd: null, legacyInstallationId: null };
+  return { provider: "polar", eventId, type, kind: "ignored", providerSubscriptionId: null, providerCheckoutId: null, providerCustomerId: null, subscriptionId: null, tenantId: null, instanceId: null, bundleId: null, copyNumber: null, state: null, periodEnd: null, legacyInstallationId: null };
+}
+
+function positiveIntegerOrNull(value: unknown): number | null {
+  const parsed = typeof value === "number" ? value : typeof value === "string" && /^\d+$/.test(value) ? Number(value) : Number.NaN;
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function metadataOf(data: Record<string, unknown>) {
@@ -234,6 +253,7 @@ function metadataOf(data: Record<string, unknown>) {
     tenantId: stringOrNull(metadata[POLAR_METADATA_KEYS.tenantId]),
     instanceId: stringOrNull(metadata[POLAR_METADATA_KEYS.instanceId]),
     bundleId: stringOrNull(metadata[POLAR_METADATA_KEYS.bundleId]),
+    copyNumber: positiveIntegerOrNull(metadata[POLAR_METADATA_KEYS.copyNumber]),
   };
 }
 

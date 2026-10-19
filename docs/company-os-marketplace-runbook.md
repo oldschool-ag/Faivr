@@ -70,7 +70,7 @@ Decision of 2026-09-29: for the next twelve months FAIVR is the Truchsess store,
 | `company_os_function_bundles`, `company_os_bundle_packages` | function bundles (name, description, Polar product id and/or Stripe price id, monthly amount) and their packages; at most one package whose latest signed version declares `functionLead: true` |
 | `company_os_enrolment_codes` | the SHA-256 of every enrolment code, its tenant, label, expiry, the owner's email if given and, once used, the appliance it enrolled |
 | `company_os_instance_keys` | enrolled appliances: tenant, instance, derived key id, public key, label, enrolled at, last contact |
-| `company_os_bundle_subscriptions` | one row per bundle checkout: the provider name and its opaque checkout, subscription and customer ids, state, entitled at, cancel effective at, stopped at |
+| `company_os_bundle_subscriptions` | one row per paid function copy on one enrolled box: copy number, optional reserved installation id, receipt description, provider name and opaque ids, state and billing timestamps |
 | `company_os_installations` | the installations of an appliance (package, version, state) riding a bundle subscription; the locked receipts and acknowledgements as before |
 
 What FAIVR never receives from an appliance: run content, chats, files, knowledge, credentials. The lifecycle payloads carry appliance and package identifiers, the activation acknowledgement, the signed uninstall receipt and the "last contact" timestamp of each signed request.
@@ -89,8 +89,8 @@ What FAIVR never receives from an appliance: run content, chats, files, knowledg
 | Route | Signed by the appliance key | Effect |
 | --- | --- | --- |
 | `POST /api/company-os/v1/enrol` | no (the one-time code and the appliance public key) | registers the appliance under its derived key id; returns tenant, instance, key id, FAIVR's billing signing key and the publisher keys |
-| `GET /api/company-os/v1/store/catalog` | yes | bundles, packages, prices, the appliance's own subscriptions and installations; a lead package version carries `functionLead: true`, while false or absent is omitted |
-| `POST /api/company-os/v1/store/checkout-sessions` | yes | creates the bundle subscription (`checkout_pending`) and the checkout at the billing provider; returns the hosted URL the CEO opens in the browser |
+| `GET /api/company-os/v1/store/catalog` | yes | bundles, packages, prices, and `entitlements`: the paid copies on this appliance with their installation ids; the legacy `subscription` member remains the copy-1 view; a lead package version carries `functionLead: true`, while false or absent is omitted |
+| `POST /api/company-os/v1/store/checkout-sessions` | yes | creates one separately priced copy subscription (`checkout_pending`) and the checkout at the billing provider; returns the hosted URL the CEO opens in the browser |
 | `GET /api/company-os/v1/store/subscriptions?subscriptionId=\|bundleId=[&customerPortal=1]` | yes | the state the provider's webhook mirrored (`checkout_pending`, `active`, `past_due`, `cancel_at_period_end`, `cancelled`); with `customerPortal=1` also a fresh, short-lived `customerPortalUrl` to the provider's customer portal (T6b.1; absent before a purchase) |
 | `POST /api/company-os/v1/store/installations` | yes | an `entitled` installation of one package of a subscribed bundle |
 | `GET /api/company-os/v1/installations/{id}/package` | yes | the signed payload with digest, publisher key id, publisher signature and manifest headers |
@@ -118,6 +118,8 @@ Polar's API is date-versioned. This integration is pinned to `2026-10` (`Polar-V
 ### Set Polar up once (Old School)
 
 Sandbox first. Everything below is in the Polar dashboard of the **sandbox** organization at `https://sandbox.polar.sh` (production later has its own organization, tokens and secrets at `https://polar.sh`).
+
+For F12, enable **Organization Settings → Subscriptions → Allow multiple subscriptions** in both organizations: once at `https://sandbox.polar.sh` for sandbox and separately at `https://polar.sh` for live. Polar's current subscription documentation says customers are limited to one active subscription per organization by default and names that exact navigation and toggle: [Polar, “Can a customer have more than one active subscription?”](https://polar.sh/docs/features/subscriptions/introduction#can-a-customer-have-more-than-one-active-subscription). The pinned 2026-10 OpenAPI also names `AlreadyActiveSubscriptionError` and `subscription_settings.allow_multiple_subscriptions`. Do not infer that configuring sandbox changes live; they are separate organizations.
 
 | Step | Where in the Polar dashboard | What goes where |
 | --- | --- | --- |
@@ -156,7 +158,35 @@ Stripe's mapping (unchanged from T6b, `web/app/api/company-os/stripe/webhook/rou
 
 To Polar: the owner's account id (the store tenant id, as Polar's `external_customer_id`: one Polar customer per owner, any number of appliances) and, if given at `issue-code`, the owner's email; the bundle id, the appliance (instance) id, the tenant id and the store's subscription id in the checkout metadata; the payment itself, entered by the owner on Polar's page. Never package contents, never run data, never anything from the appliance. Card data lives at Polar (and its processor) only.
 
+F12 also sends the copy number and the persisted Store billing description in metadata. Polar documents that checkout metadata is copied to the resulting order and subscription. The Store/box API returns that `description` in the checkout response **before** the customer follows `hostedUrl`, and repeats it in catalog entitlements, subscription reads, installation responses, and cancellation responses.
+
+**Known Polar limitation — acceptance item not met on Polar-hosted surfaces:** with one unchanged Polar product and price, Polar 2026-10 has no supported per-checkout product-name, product-description, order-description, subscription-description, or receipt-line override. Consequently `Design review — second copy` / `Design review — copy 3` cannot be shown on both the hosted Polar checkout and Polar receipt. The hosted checkout and receipt show the configured function product name; the copy-specific text remains visible in the Store/box API and available to FAIVR/Polar internally as copied checkout metadata.
+
+This is not solved by the adjacent Polar fields:
+
+- `metadata` is copied to the resulting order/subscription but is not a customer-facing checkout or receipt description. Polar's product documentation likewise says product metadata is not shown to customers.
+- `custom_field_data` only pre-fills custom fields already attached to the product; Polar documents those values as checkout form inputs and dashboard/API data on orders/subscriptions, not receipt lines. It would also add an editable form field rather than change the product description.
+- `prices` creates ad-hoc prices for the selected product, but exposes no line-label/name/description override and is unnecessary because each copy uses the same catalog price.
+- Product `name` and `description` can be changed only on the shared product. Polar's hosted checkout renders `checkout.product.name`/`description`; changing the shared product for one checkout would affect all checkouts and would not provide a safe per-copy identity.
+- Polar's receipt renderer builds every line from `OrderItem.label`; checkout-created fixed-price items default that label to the shared `product.name`. The checkout API exposes no `OrderItem.label` input.
+
+Authoritative Polar evidence, captured 2026-10-17 from Polar commit `3f9d6f101a55a0b660914191dcae4ec37bce2030` (2026-10-16): [2026-10 `CheckoutCreate` schema](https://github.com/polarsource/polar/blob/3f9d6f101a55a0b660914191dcae4ec37bce2030/sdk/typescript/src/2026-10/models.ts#L6838-L7005), [custom-field behavior](https://github.com/polarsource/polar/blob/3f9d6f101a55a0b660914191dcae4ec37bce2030/docs/features/custom-fields.mdx#L59-L94), [product metadata and checkout description](https://github.com/polarsource/polar/blob/3f9d6f101a55a0b660914191dcae4ec37bce2030/docs/features/products.mdx#L185-L201), [checkout order-item label construction](https://github.com/polarsource/polar/blob/3f9d6f101a55a0b660914191dcae4ec37bce2030/server/polar/models/order_item.py#L68-L118), and [receipt line rendering](https://github.com/polarsource/polar/blob/3f9d6f101a55a0b660914191dcae4ec37bce2030/server/polar/receipt/generator.py#L142-L150).
+
 At FAIVR: the state machine and Polar's opaque ids (checkout, subscription, customer), the verified webhook payloads with their `webhook-id` for idempotency.
+
+## F12 paid-copy identity and T106 box contract
+
+Each function subscription is identified by `(tenantId, instanceId, bundleId, copyNumber)`. `tenantId` is the enrolled owner, `instanceId` is the enrolled box, and `copyNumber` is a positive integer local to that function on that box. Existing rows migrate as copy 1; the existing `subscription` catalog member and selector-free calls remain copy-1 compatibility behavior. A customer pays the same product price for every box and every copy.
+
+T106 must use these calls:
+
+1. `GET /api/company-os/v1/store/catalog`: read `bundles[].entitlements[]`. Each paid entry is `{ subscriptionId, copyNumber, description, state, installationIds, cancelEffectiveAt }`. `installationIds` contains only installations on that exact paid copy.
+2. `POST /api/company-os/v1/store/checkout-sessions`: send the signed V1 envelope plus `bundleId` and **one** selector: `copyNumber` for a numbered copy, or a client-generated UUID `installationId` to reserve the next copy for that installation. Omitting both is legacy copy 1; sending both is invalid. The answer adds `{ subscriptionId, copyNumber, installationId, description }` and retains the existing checkout fields.
+3. `POST /api/company-os/v1/store/installations`: send `bundleId`, `faivrAgentModelId`, and the returned `subscriptionId`; send the reserved `installationId` when checkout used one. `copyNumber` is an accepted alternative selector. The response repeats `subscriptionId`, `copyNumber`, and `description`.
+4. `GET /api/company-os/v1/store/subscriptions`: use `subscriptionId`, `installationId`, or `bundleId&copyNumber=N`. `bundleId` alone means copy 1 for compatibility.
+5. `POST /api/company-os/v1/store/subscriptions/cancel`: send the exact `subscriptionId`. Only that copy's Polar subscription and installations change state.
+
+Webhooks activate by provider checkout id and, when present, must also match subscription id, tenant id, instance id, and copy number. A webhook for one box or copy cannot activate another. Rollout order is: apply `20261017_f12_paid_copies.sql`; enable Polar's setting independently in sandbox/live before accepting second subscriptions there; deploy the Store API; then release T106's new selectors and entitlement rendering. Roll back application code only after preventing new F12 calls; do not remove the additive columns or indexes while any copy-numbered rows exist.
 
 ### Cancellation and refunds
 

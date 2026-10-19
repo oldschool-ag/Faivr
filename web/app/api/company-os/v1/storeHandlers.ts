@@ -1,11 +1,12 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { authenticatedJson, type AuthenticatedRequest } from "@/lib/companyOs/http";
-import { activePublishers, StoreError, abandonBundleCheckout, billingBundle, bundleForCheckout, bundleSubscriptionRow, cancellableSubscription, catalogForAppliance, createBundleSubscription, createStoreInstallation, liveSubscription, ownerEmail, recordBundleCheckout, redeemEnrolmentCode, scheduleBundleCancellation, subscriptionViewOf } from "@/lib/companyOs/privateStore";
+import { activePublishers, StoreError, abandonBundleCheckout, billingBundle, bundleForCheckout, bundleSubscriptionRow, cancellableSubscription, catalogForAppliance, checkoutCopySelection, createBundleSubscription, createStoreInstallation, liveSubscriptionForCopy, ownerEmail, recordBundleCheckout, redeemEnrolmentCode, scheduleBundleCancellation, subscriptionViewOf } from "@/lib/companyOs/privateStore";
 import { normalizePublicKeyPem, PublicKeyError } from "@/lib/companyOs/publisherKeys";
-import { enrolmentRequestSchema, storeCancelSchema, storeCheckoutSchema, storeInstallationSchema } from "@/lib/companyOs/storeSchemas";
+import { copyNumberSchema, enrolmentRequestSchema, storeCancelSchema, storeCheckoutSchema, storeInstallationSchema } from "@/lib/companyOs/storeSchemas";
+import { uuidSchema } from "@/lib/companyOs/schemas";
 import { idempotent } from "@/lib/companyOs/store";
-import { billingProvider, billingProviderFor, BillingProviderError } from "@/lib/companyOs/billing";
+import { billingProvider, billingProviderFor, BillingProviderError, paidCopyDescription } from "@/lib/companyOs/billing";
 import { reconcilePendingCheckouts } from "@/lib/companyOs/checkoutReconciliation";
 
 /**
@@ -134,11 +135,13 @@ export async function storeCheckoutSessions(req: NextRequest) {
       await idempotent(auth.principal.tenantId, auth.principal.idempotencyKey, "store.checkout.create", auth.bodyHash, async () => {
         const row = await bundleForCheckout(parsed.data.bundleId);
         const bundle = billingBundle(row);
-        const existing = await liveSubscription(auth.principal.tenantId, auth.principal.instanceId, bundle.id);
-        if (existing && existing.subscription_state !== "checkout_pending") throw new StoreError(`subscription_exists:${existing.id}`, 409);
+        const selected = await checkoutCopySelection(auth.principal.tenantId, auth.principal.instanceId, bundle.id, { copyNumber: parsed.data.copyNumber, installationId: parsed.data.installationId });
+        const existing = await liveSubscriptionForCopy(auth.principal.tenantId, auth.principal.instanceId, bundle.id, selected.copyNumber);
+        if (existing) throw new StoreError(`subscription_exists:${existing.id}`, 409);
         const reference = provider.productReference(bundle);
         if ("error" in reference) throw new Error(reference.error);
-        const created = await createBundleSubscription({ tenantId: auth.principal.tenantId, instanceId: auth.principal.instanceId, bundleId: bundle.id, provider: provider.name });
+        const description = paidCopyDescription(bundle.name, selected.copyNumber);
+        const created = await createBundleSubscription({ tenantId: auth.principal.tenantId, instanceId: auth.principal.instanceId, bundleId: bundle.id, provider: provider.name, copyNumber: selected.copyNumber, requestedInstallationId: selected.requestedInstallationId, billingDescription: description });
         try {
           const urls = checkoutReturnUrls(req, parsed.data.successUrl, parsed.data.cancelUrl);
           const checkout = await provider.createCheckout({
@@ -148,11 +151,13 @@ export async function storeCheckoutSessions(req: NextRequest) {
             instanceId: auth.principal.instanceId,
             ownerAccountId: auth.principal.tenantId,
             ownerEmail: await ownerEmail(auth.principal.tenantId),
+            copyNumber: selected.copyNumber,
+            description,
             successUrl: urls.successUrl,
             cancelUrl: urls.cancelUrl,
           });
           await recordBundleCheckout(created.subscriptionId, checkout.checkoutId);
-          return { subscriptionId: created.subscriptionId, checkoutSessionId: created.checkoutSessionId, bundleId: bundle.id, hostedUrl: checkout.url, subscriptionState: "checkout_pending", monthlyPriceCents: bundle.monthlyPriceCents, currency: bundle.currency, billingProvider: provider.name };
+          return { subscriptionId: created.subscriptionId, checkoutSessionId: created.checkoutSessionId, bundleId: bundle.id, copyNumber: selected.copyNumber, installationId: selected.requestedInstallationId, description, hostedUrl: checkout.url, subscriptionState: "checkout_pending", monthlyPriceCents: bundle.monthlyPriceCents, currency: bundle.currency, billingProvider: provider.name };
         } catch (error) {
           await abandonBundleCheckout(created.subscriptionId);
           throw error;
@@ -176,10 +181,15 @@ export async function storeSubscriptions(req: NextRequest) {
   if (auth instanceof NextResponse) return auth;
   const subscriptionId = req.nextUrl.searchParams.get("subscriptionId") ?? undefined;
   const bundleId = req.nextUrl.searchParams.get("bundleId") ?? undefined;
+  const copyNumberValue = req.nextUrl.searchParams.get("copyNumber");
+  const installationId = req.nextUrl.searchParams.get("installationId") ?? undefined;
+  const parsedCopyNumber = copyNumberValue === null ? undefined : copyNumberSchema.safeParse(Number(copyNumberValue));
   const wantsPortal = ["1", "true", "yes"].includes((req.nextUrl.searchParams.get("customerPortal") ?? "").toLowerCase());
-  if (!subscriptionId && !bundleId) return json({ error: "subscription_or_bundle_required" }, 400);
+  if (!subscriptionId && !bundleId && !installationId) return json({ error: "subscription_bundle_or_installation_required" }, 400);
+  if (parsedCopyNumber && !parsedCopyNumber.success) return json({ error: "copy_number_invalid" }, 400);
+  if (installationId && !uuidSchema.safeParse(installationId).success) return json({ error: "installation_id_invalid" }, 400);
   try {
-    const row = await bundleSubscriptionRow(auth.principal.tenantId, auth.principal.instanceId, { subscriptionId, bundleId });
+    const row = await bundleSubscriptionRow(auth.principal.tenantId, auth.principal.instanceId, { subscriptionId, bundleId, copyNumber: parsedCopyNumber?.data, installationId });
     if (!row) return json({ error: "subscription_not_found" }, 404);
     const view: Record<string, unknown> = subscriptionViewOf(row);
     if (wantsPortal && row.subscription_state !== "checkout_pending") {
@@ -203,11 +213,11 @@ export async function storeSubscriptionCancel(req: NextRequest) {
   try {
     return json(
       await idempotent(auth.principal.tenantId, auth.principal.idempotencyKey, "store.subscription.cancel", auth.bodyHash, async () => {
-        const subscription = await cancellableSubscription(auth.principal.tenantId, parsed.data.subscriptionId);
+        const subscription = await cancellableSubscription(auth.principal.tenantId, auth.principal.instanceId, parsed.data.subscriptionId);
         if (!subscription.provider_subscription_id) throw new Error("billing_subscription_not_configured");
         const cancellation = await billingProviderFor(subscription.billing_provider).cancelAtPeriodEnd(subscription.provider_subscription_id, `faivr-store-cancel-${subscription.id}`);
         await scheduleBundleCancellation(subscription.id, cancellation.effectiveAt);
-        return { subscriptionId: subscription.id, bundleId: subscription.bundle_id, subscriptionState: "cancel_at_period_end", effectiveAt: cancellation.effectiveAt };
+        return { subscriptionId: subscription.id, bundleId: subscription.bundle_id, copyNumber: Number(subscription.copy_number), description: subscription.billing_description, subscriptionState: "cancel_at_period_end", effectiveAt: cancellation.effectiveAt };
       }),
     );
   } catch (error) {
@@ -225,7 +235,7 @@ export async function storeInstallations(req: NextRequest) {
   try {
     return json(
       await idempotent(auth.principal.tenantId, auth.principal.idempotencyKey, "store.installation.create", auth.bodyHash, () =>
-        createStoreInstallation({ tenantId: auth.principal.tenantId, instanceId: auth.principal.instanceId, bundleId: parsed.data.bundleId, modelId: parsed.data.faivrAgentModelId }),
+        createStoreInstallation({ tenantId: auth.principal.tenantId, instanceId: auth.principal.instanceId, bundleId: parsed.data.bundleId, modelId: parsed.data.faivrAgentModelId, subscriptionId: parsed.data.subscriptionId, copyNumber: parsed.data.copyNumber, installationId: parsed.data.installationId }),
       ),
       201,
     );
