@@ -106,7 +106,7 @@ describe("W2 public catalog presentation",()=>{
     const html=renderToStaticMarkup(await CatalogPage());
     expect(html).toContain("CHF 79.00");
     expect(html).toContain("Early access: talk to us to get a Truchsess");
-    expect(html).toContain('href="/agents/ai-visibility"');
+    expect(html).not.toContain('href="/agents/ai-visibility"');
     expect(html).not.toMatch(/COMING SOON[\s\S]*Visibility in AI search/);
     const home=renderToStaticMarkup(await HomePage());
     expect(home).toContain("Visibility in AI search");

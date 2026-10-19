@@ -1,5 +1,4 @@
 import type { PoolClient } from "pg";
-import { storePublicOrigin } from "@/lib/companyOs/bundleImageUrl";
 
 export type PublicSlot = { id: string; question: string; kind: "repository" | "product" | "website"; required: boolean };
 export type PublicWorker = {
@@ -36,6 +35,8 @@ export const PUBLIC_CATALOG_SQL = `
   ORDER BY v.published_at DESC,b.name,b.id,p.id,v.version DESC
 `;
 
+export const publicCatalogImagePath = (sha256: string) => `/api/company-os/v1/catalog-images/${encodeURIComponent(sha256)}.webp`;
+
 export async function queryPublicCatalog(client: CatalogDb): Promise<PublicFunction[]> {
   const { rows } = await client.query(PUBLIC_CATALOG_SQL);
   const functions = new Map<string, PublicFunction>();
@@ -47,7 +48,7 @@ export async function queryPublicCatalog(client: CatalogDb): Promise<PublicFunct
     const item: PublicFunction = functions.get(row.bundle_id) ?? {
       slug: row.bundle_id, name: row.bundle_name, description: row.description,
       monthlyPriceCents: row.monthly_price_cents, currency: row.currency,
-      image: row.content_sha256 ? { url: `${storePublicOrigin()}/api/company-os/v1/catalog-images/${encodeURIComponent(String(row.content_sha256))}.webp`, sha256: String(row.content_sha256), width: Number(row.width), height: Number(row.height), mediaType: "image/webp" } : null, workers: [],
+      image: row.content_sha256 ? { url: publicCatalogImagePath(String(row.content_sha256)), sha256: String(row.content_sha256), width: Number(row.width), height: Number(row.height), mediaType: "image/webp" } : null, workers: [],
     };
     item.workers.push({
       id: row.package_id, slug: row.worker_slug, name: row.worker_name,
