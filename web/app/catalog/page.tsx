@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import Link from "next/link";
+import { FunctionFace } from "@/components/catalog/FunctionFace";
 import { SiteShell } from "@/components/layout/SiteShell";
 import { comingSoonFunctionForPackageIds, comingSoonFunctions } from "@/data/catalog-coming-soon";
 import { CONTACT_EMAIL } from "@/lib/contact";
@@ -24,8 +24,36 @@ export default async function Catalog() {
     <p className="mt-5 max-w-2xl text-lg leading-8 text-[var(--body)]">Each function has one monthly price and one or more agents. Agents run only on a Truchsess appliance.</p>
     <p className="mt-2 max-w-2xl text-sm text-[var(--body)]">Price per box and month. A second copy of a function on the same box costs the same again.</p>
     {unavailable && <p className="mt-6 rounded-2xl bg-white p-4 text-sm text-[var(--body)]">Public packages are temporarily unavailable. Coming-soon functions are still shown below.</p>}
-    <section className="mt-12 space-y-5">
-      {functions.map((item) => { const planned = plannedFor(item); const functionSlug = planned?.slug ?? item.slug; return <article key={item.slug} className="rounded-[28px] bg-white p-7 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-5">{item.image && <Image src={item.image.url} alt={`${item.name} agent face`} width={item.image.width} height={item.image.height} className="h-20 w-20 rounded-full object-cover" /> }<div><h2 className="text-3xl font-extrabold"><Link className="inline-flex min-h-11 min-w-11 items-center" href={`/catalog/${functionSlug}`}>{item.name}</Link></h2><p className="mt-3 max-w-2xl text-[var(--body)]">{agentTerminology(item.description)}</p></div><p className="text-xl font-extrabold">{price(item.monthlyPriceCents, item.currency)} <span className="text-sm font-medium text-[var(--muted)]">/ month</span></p></div><div className="mt-6 grid gap-5 md:grid-cols-2"><div><h3 className="font-bold">You get</h3><p className="mt-2 text-sm text-[var(--body)]">The signed agents listed below, installed and approved on your Truchsess.</p></div><div><h3 className="font-bold">Agents</h3><ul className="mt-2 flex flex-wrap gap-2">{item.workers.map((agent) => <li key={agent.id}><Link className="inline-flex min-h-11 items-center rounded-full bg-[var(--page)] px-4 text-sm font-bold" href={`/agents/${agent.slug}`}>{agent.name}</Link></li>)}</ul></div></div><p className="mt-6 text-sm font-bold">You subscribe on your Truchsess, not on this site.</p><p className="mt-2 text-sm text-[var(--body)]">Early access: talk to us to get a Truchsess. Plus VAT where applicable.</p><Link className="mt-5 inline-flex min-h-11 items-center rounded-full bg-[var(--ink)] px-5 text-sm font-bold text-white" href={`/catalog/${functionSlug}`}>View function</Link></article>; })}
+    <section data-testid="catalog-function-grid" className="mx-auto mt-10 grid w-full max-w-full grid-cols-1 items-stretch gap-5 md:max-w-[764px] md:grid-cols-2 min-[1101px]:max-w-[1156px] min-[1101px]:grid-cols-3">
+      {functions.map((item) => {
+        const planned = plannedFor(item);
+        const functionSlug = planned?.slug ?? item.slug;
+        return <article key={item.slug} data-testid="catalog-function-card" className="flex h-full min-w-0 flex-col rounded-[24px] bg-white p-5 shadow-sm">
+          <div className="flex min-w-0 items-start gap-4">
+            <FunctionFace image={item.image} name={item.name} className="h-14 w-14 shrink-0" />
+            <div className="min-w-0">
+              <h2 className="min-w-0 text-xl font-extrabold tracking-[-.02em]"><Link className="block min-h-11 truncate leading-[2.75rem]" href={`/catalog/${functionSlug}`} title={item.name}>{item.name}</Link></h2>
+            </div>
+          </div>
+          <p className="mt-2 text-sm leading-6 text-[var(--body)]">{agentTerminology(item.description)}</p>
+          <p className="mt-3 text-xl font-extrabold">{price(item.monthlyPriceCents, item.currency)} <span className="text-sm font-medium text-[var(--muted)]">/ month</span></p>
+          <div className="mt-3 grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] gap-3 rounded-2xl bg-[var(--page)] p-3">
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold">You get</h3>
+              <p className="mt-1 text-sm leading-5 text-[var(--body)]">The signed agents listed below, installed and approved on your Truchsess.</p>
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold">Agents</h3>
+              <ul className="mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-1">{item.workers.map((agent) => <li key={agent.id} className="min-w-0"><Link className="inline-flex min-h-11 min-w-0 items-center break-words text-sm font-bold underline decoration-[var(--line)] underline-offset-4" href={`/agents/${agent.slug}`}>{agent.name}</Link></li>)}</ul>
+            </div>
+          </div>
+          <div className="mt-auto pt-3">
+            <p className="text-sm font-bold">You subscribe on your Truchsess, not on this site.</p>
+            <p className="mt-1 text-sm leading-5 text-[var(--body)]">Early access: talk to us to get a Truchsess. Plus VAT where applicable.</p>
+            <Link className="mt-3 inline-flex min-h-11 items-center rounded-full bg-[var(--ink)] px-5 text-sm font-bold text-white" href={`/catalog/${functionSlug}`}>View function</Link>
+          </div>
+        </article>;
+      })}
     </section>
     <section className="mt-16"><h2 className="text-3xl font-extrabold">Coming soon</h2><div className="mt-6 grid gap-4 md:grid-cols-3">{comingSoonFunctions.filter((item) => !functions.some((available) => plannedFor(available)?.slug === item.slug)).map((item) => <article key={item.slug} className="rounded-[28px] border border-dashed border-[#C9CCE4] bg-white p-6"><p className="text-xs font-bold tracking-[.12em] text-[var(--accent)]">COMING SOON</p><h3 className="mt-3 text-xl font-bold"><Link className="inline-flex min-h-11 min-w-11 items-center" href={`/catalog/${item.slug}`}>{item.name}</Link></h3><p className="mt-3 text-sm leading-6 text-[var(--body)]">{item.summary}</p><div className="mt-5 flex gap-4"><Link className="inline-flex min-h-11 items-center text-sm font-bold underline" href={`/catalog/${item.slug}`}>Details</Link><a className="inline-flex min-h-11 items-center text-sm font-bold underline" href={`mailto:${CONTACT_EMAIL}`}>Tell me when it is ready</a></div></article>)}</div></section>
     <section className="mt-16 rounded-[28px] bg-white p-7"><h2 className="text-3xl font-extrabold">No Truchsess yet?</h2><p className="mt-3 text-[var(--body)]">Agents run on a Truchsess appliance in your office.</p><Link className="mt-5 inline-flex min-h-11 items-center rounded-full bg-[var(--ink)] px-5 text-sm font-bold text-white" href="/how-it-works#contact">Talk to us about a Truchsess</Link></section>

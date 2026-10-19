@@ -5,12 +5,21 @@ const supportChat = readFileSync(new URL("../components/support/SupportChat.tsx"
 const companyOsPage = readFileSync(new URL("../app/company-os/page.tsx", import.meta.url), "utf8");
 const rootLayout = readFileSync(new URL("../app/layout.tsx", import.meta.url), "utf8");
 const homePage = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
+const catalogPage = readFileSync(new URL("../app/catalog/page.tsx", import.meta.url), "utf8");
 const webManifest = readFileSync(new URL("../public/site.webmanifest", import.meta.url), "utf8");
 
 describe("preview UI production gates", () => {
   it("keeps the floating support launcher out of narrow mobile viewports", () => {
     expect(supportChat).toContain('data-testid="support-chat-launcher"');
     expect(supportChat).toMatch(/className="[^"]*hidden[^"]*sm:flex[^"]*"[\s\S]*?support-chat-launcher/);
+  });
+
+  it("renders compact catalog cards in one, two, and at most three equal columns", () => {
+    expect(catalogPage).toContain('className="mx-auto mt-10 grid w-full max-w-full grid-cols-1 items-stretch gap-5 md:max-w-[764px] md:grid-cols-2 min-[1101px]:max-w-[1156px] min-[1101px]:grid-cols-3"');
+    expect(catalogPage).toMatch(/data-testid="catalog-function-card" className="[^"]*flex[^"]*h-full[^"]*min-w-0[^"]*flex-col[^"]*"/);
+    expect(catalogPage).toContain('className="h-14 w-14 shrink-0"');
+    expect(catalogPage).toContain('className="block min-h-11 truncate leading-[2.75rem]"');
+    expect(catalogPage).toContain('title={item.name}');
   });
 
   it("routes the Company OS CTA to accurate V1 requirements on the page", () => {
