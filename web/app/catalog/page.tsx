@@ -28,25 +28,29 @@ export default async function Catalog() {
       {functions.map((item) => {
         const planned = plannedFor(item);
         const functionSlug = planned?.slug ?? item.slug;
-        return <article key={item.slug} data-testid="catalog-function-card" className="flex min-w-0 flex-col rounded-[24px] bg-white p-5 shadow-sm sm:p-6">
+        return <article key={item.slug} data-testid="catalog-function-card" className="flex min-w-0 flex-col rounded-[24px] bg-white p-5 shadow-sm">
           <div className="flex min-w-0 items-start gap-4">
             <FunctionFace image={item.image} name={item.name} className="h-14 w-14 shrink-0" />
             <div className="min-w-0">
               <h2 className="text-xl font-extrabold leading-tight tracking-[-.02em]"><Link className="inline-flex min-h-11 min-w-0 items-center break-words" href={`/catalog/${functionSlug}`}>{item.name}</Link></h2>
             </div>
           </div>
-          <p className="mt-3 text-sm leading-6 text-[var(--body)]">{agentTerminology(item.description)}</p>
-          <p className="mt-4 text-xl font-extrabold">{price(item.monthlyPriceCents, item.currency)} <span className="text-sm font-medium text-[var(--muted)]">/ month</span></p>
-          <div className="mt-4 rounded-2xl bg-[var(--page)] p-4">
-            <h3 className="text-sm font-bold">You get</h3>
-            <p className="mt-1 text-sm leading-5 text-[var(--body)]">The signed agents listed below, installed and approved on your Truchsess.</p>
-            <h3 className="mt-3 text-sm font-bold">Agents</h3>
-            <ul className="mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-1">{item.workers.map((agent) => <li key={agent.id} className="min-w-0"><Link className="inline-flex min-h-11 min-w-0 items-center break-words text-sm font-bold underline decoration-[var(--line)] underline-offset-4" href={`/agents/${agent.slug}`}>{agent.name}</Link></li>)}</ul>
+          <p className="mt-2 text-sm leading-6 text-[var(--body)]">{agentTerminology(item.description)}</p>
+          <p className="mt-3 text-xl font-extrabold">{price(item.monthlyPriceCents, item.currency)} <span className="text-sm font-medium text-[var(--muted)]">/ month</span></p>
+          <div className="mt-3 grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] gap-3 rounded-2xl bg-[var(--page)] p-3">
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold">You get</h3>
+              <p className="mt-1 text-sm leading-5 text-[var(--body)]">The signed agents listed below, installed and approved on your Truchsess.</p>
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold">Agents</h3>
+              <ul className="mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-1">{item.workers.map((agent) => <li key={agent.id} className="min-w-0"><Link className="inline-flex min-h-11 min-w-0 items-center break-words text-sm font-bold underline decoration-[var(--line)] underline-offset-4" href={`/agents/${agent.slug}`}>{agent.name}</Link></li>)}</ul>
+            </div>
           </div>
-          <div className="mt-auto pt-4">
+          <div className="mt-auto pt-3">
             <p className="text-sm font-bold">You subscribe on your Truchsess, not on this site.</p>
             <p className="mt-1 text-sm leading-5 text-[var(--body)]">Early access: talk to us to get a Truchsess. Plus VAT where applicable.</p>
-            <Link className="mt-4 inline-flex min-h-11 items-center rounded-full bg-[var(--ink)] px-5 text-sm font-bold text-white" href={`/catalog/${functionSlug}`}>View function</Link>
+            <Link className="mt-3 inline-flex min-h-11 items-center rounded-full bg-[var(--ink)] px-5 text-sm font-bold text-white" href={`/catalog/${functionSlug}`}>View function</Link>
           </div>
         </article>;
       })}
