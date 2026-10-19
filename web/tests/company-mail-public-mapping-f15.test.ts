@@ -25,7 +25,8 @@ describe("F15 Company mail publication mapping", () => {
       workers: [{ id: "faivr.agent.mail-assistant", slug: "penn", name: "Penn", role: "", version: "1.0.0", publisherName: "Old School GmbH", publisherKeyId: "key", digest: "sha256:test", permissions: [], slots: [] }],
     }];
     const html = renderToStaticMarkup(await CatalogPage());
-    expect((html.match(/Company mail/g) ?? [])).toHaveLength(1);
+    expect((html.match(/>Company mail<\/a>/g) ?? [])).toHaveLength(1);
+    expect(html).toContain("Company mail agent face unavailable");
     expect(html).not.toMatch(/COMING SOON[\s\S]*Company mail/);
     catalog.functions = [];
   });
