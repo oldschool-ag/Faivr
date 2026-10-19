@@ -24,15 +24,15 @@ export default async function Catalog() {
     <p className="mt-5 max-w-2xl text-lg leading-8 text-[var(--body)]">Each function has one monthly price and one or more agents. Agents run only on a Truchsess appliance.</p>
     <p className="mt-2 max-w-2xl text-sm text-[var(--body)]">Price per box and month. A second copy of a function on the same box costs the same again.</p>
     {unavailable && <p className="mt-6 rounded-2xl bg-white p-4 text-sm text-[var(--body)]">Public packages are temporarily unavailable. Coming-soon functions are still shown below.</p>}
-    <section data-testid="catalog-function-grid" className="mt-10 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+    <section data-testid="catalog-function-grid" className="mx-auto mt-10 grid w-full max-w-full grid-cols-1 items-stretch gap-5 md:max-w-[764px] md:grid-cols-2 min-[1101px]:max-w-[1156px] min-[1101px]:grid-cols-3">
       {functions.map((item) => {
         const planned = plannedFor(item);
         const functionSlug = planned?.slug ?? item.slug;
-        return <article key={item.slug} data-testid="catalog-function-card" className="flex min-w-0 flex-col rounded-[24px] bg-white p-5 shadow-sm">
+        return <article key={item.slug} data-testid="catalog-function-card" className="flex h-full min-w-0 flex-col rounded-[24px] bg-white p-5 shadow-sm">
           <div className="flex min-w-0 items-start gap-4">
             <FunctionFace image={item.image} name={item.name} className="h-14 w-14 shrink-0" />
             <div className="min-w-0">
-              <h2 className="text-xl font-extrabold leading-tight tracking-[-.02em]"><Link className="inline-flex min-h-11 min-w-0 items-center break-words" href={`/catalog/${functionSlug}`}>{item.name}</Link></h2>
+              <h2 className="min-w-0 text-xl font-extrabold tracking-[-.02em]"><Link className="block min-h-11 truncate leading-[2.75rem]" href={`/catalog/${functionSlug}`} title={item.name}>{item.name}</Link></h2>
             </div>
           </div>
           <p className="mt-2 text-sm leading-6 text-[var(--body)]">{agentTerminology(item.description)}</p>
