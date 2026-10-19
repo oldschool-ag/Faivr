@@ -6,6 +6,7 @@ const companyOsPage = readFileSync(new URL("../app/company-os/page.tsx", import.
 const rootLayout = readFileSync(new URL("../app/layout.tsx", import.meta.url), "utf8");
 const homePage = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
 const catalogPage = readFileSync(new URL("../app/catalog/page.tsx", import.meta.url), "utf8");
+const functionFace = readFileSync(new URL("../components/catalog/FunctionFace.tsx", import.meta.url), "utf8");
 const webManifest = readFileSync(new URL("../public/site.webmanifest", import.meta.url), "utf8");
 
 describe("preview UI production gates", () => {
@@ -18,8 +19,23 @@ describe("preview UI production gates", () => {
     expect(catalogPage).toContain('className="mx-auto mt-10 grid w-full max-w-full grid-cols-1 items-stretch gap-5 md:max-w-[764px] md:grid-cols-2 min-[1101px]:max-w-[1156px] min-[1101px]:grid-cols-3"');
     expect(catalogPage).toMatch(/data-testid="catalog-function-card" className="[^"]*flex[^"]*h-full[^"]*min-w-0[^"]*flex-col[^"]*"/);
     expect(catalogPage).toContain('className="h-14 w-14 shrink-0"');
-    expect(catalogPage).toContain('className="block min-h-11 truncate leading-[2.75rem]"');
+    expect(catalogPage).toContain('className="truncate text-xl font-extrabold leading-7 tracking-[-.02em]"');
     expect(catalogPage).toContain('title={item.name}');
+    expect(catalogPage).toContain('data-testid="catalog-agent-names"');
+    expect(catalogPage).not.toMatch(/href=\{?[^}\n]*\/agents\//);
+  });
+
+  it("keeps catalog card descriptions to one line and repeated subscription copy outside cards", () => {
+    expect(catalogPage).toContain('className="mt-2 truncate text-sm leading-6 text-[var(--body)]"');
+    expect(catalogPage.match(/You get:/g)).toHaveLength(1);
+    expect(catalogPage.match(/You subscribe on your Truchsess, not on this site\./g)).toHaveLength(1);
+    expect(catalogPage.match(/Early access: talk to us to get a Truchsess\. Plus VAT where applicable\./g)).toHaveLength(1);
+  });
+
+  it("replaces a broken function image with the existing initial fallback", () => {
+    expect(functionFace).toContain("onError={() => setFailedImageUrl(image.url)}");
+    expect(functionFace).toContain("failedImageUrl !== image.url");
+    expect(functionFace).toContain("name.trim().charAt(0).toUpperCase()");
   });
 
   it("routes the Company OS CTA to accurate V1 requirements on the page", () => {

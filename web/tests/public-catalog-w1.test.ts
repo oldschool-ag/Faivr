@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createStoreDb } from "./helpers/companyOsStoreDb";
-import { loadPublicCatalog, queryPublicCatalog } from "@/lib/publicCatalogData";
+import { loadPublicCatalog, publicCatalogImagePath, queryPublicCatalog } from "@/lib/publicCatalogData";
 import { removePackageFromBundle, renamePublicPublisher, setBundlePublic } from "@/lib/publicCatalogAdmin";
 import { describePermission } from "@/lib/publicPermissions";
 
@@ -72,6 +72,11 @@ describe("W1 public catalog boundary", () => {
   });
   it("provides an explicit unavailable state without leaking database errors",async()=>{
     expect(await loadPublicCatalog(()=>{throw new Error("private connection detail");})).toEqual({functions:[],unavailable:true});
+  });
+  it("uses a page-origin-relative image URL on the website",()=>{
+    const sha256=`sha256:${"b".repeat(64)}`;
+    expect(publicCatalogImagePath(sha256)).toBe(`/api/company-os/v1/catalog-images/${encodeURIComponent(sha256)}.webp`);
+    expect(publicCatalogImagePath(sha256)).not.toMatch(/^https?:/);
   });
 });
 

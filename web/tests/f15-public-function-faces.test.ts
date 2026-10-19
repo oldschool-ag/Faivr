@@ -46,7 +46,7 @@ describe("F15 public-function presentation", () => {
     catalog.functions = [];
   });
 
-  it("keeps catalog order, faces or initials, agent links, status, and actions in compact cards", async () => {
+  it("keeps catalog order, faces or initials, plain agent names, shared status copy, and actions in compact cards", async () => {
     catalog.functions = [
       { slug: "pricing-and-business-models", name: "Pricing and business models", description: "Pricing help.", monthlyPriceCents: 14900, currency: "chf", image: null, workers: [worker("pricing", "Cora")] },
       { slug: "company-mail", name: "Company mail", description: "Mail help.", monthlyPriceCents: 14900, currency: "chf", image: face, workers: [worker("mail", "Penn")] },
@@ -58,9 +58,38 @@ describe("F15 public-function presentation", () => {
     expect(html.match(/data-testid="catalog-function-card"/g)).toHaveLength(3);
     expect(html).toContain("Company mail agent face");
     expect(html).toContain("Pricing and business models agent face unavailable");
-    for (const href of ["/agents/cora", "/agents/penn", "/agents/product-owner"]) expect(html).toContain(`href="${href}"`);
-    expect(html).toContain("You subscribe on your Truchsess, not on this site.");
+    for (const name of ["Cora", "Penn", "Product Owner"]) expect(html).toContain(`Agents:</span> ${name}`);
+    expect(html).not.toMatch(/href="\/agents\//);
+    expect(html.match(/You get:/g)).toHaveLength(1);
+    expect(html.match(/You subscribe on your Truchsess, not on this site\./g)).toHaveLength(1);
+    expect(html.match(/Early access: talk to us to get a Truchsess\. Plus VAT where applicable\./g)).toHaveLength(1);
     expect(html.match(/>View function<\/a>/g)).toHaveLength(3);
+    catalog.functions = [];
+  });
+
+  it("shows Bob once, orders all six specialist labels, and keeps their links on the function page", async () => {
+    catalog.functions = [{
+      slug: "published-software-delivery",
+      name: "Software delivery: Bob",
+      description: "Software delivery help.",
+      monthlyPriceCents: 34900,
+      currency: "chf",
+      image: null,
+      workers: [
+        { ...worker("faivr.agent.build-issue-writer", "Bob - Issue Writer"), slug: "bob-issue-writer" },
+        { ...worker("faivr.agent.build-security-reviewer", "Bob - Security Reviewer"), slug: "bob-security-reviewer" },
+        { ...worker("faivr.agent.build-merge-gate", "Bob - Merge Gate"), slug: "bob-merge-gate" },
+        { ...worker("faivr.agent.build-instructions-keeper", "Bob - Instructions Keeper"), slug: "bob-instructions-keeper" },
+        { ...worker("faivr.agent.build-ci-fixer", "Bob - CI Fixer"), slug: "bob-ci-fixer" },
+        { ...worker("faivr.agent.build-qa-reviewer", "Bob - QA Reviewer"), slug: "bob-qa-reviewer" },
+      ],
+    }];
+    const catalogHtml = renderToStaticMarkup(await CatalogPage());
+    expect(catalogHtml).toContain("Agents:</span> Bob, Merge Gate, CI Fixer, Security Reviewer, QA Reviewer, Instructions Keeper, Issue Writer");
+    expect(catalogHtml).not.toContain("Bob - ");
+    expect(catalogHtml).not.toMatch(/href="\/agents\//);
+    const functionHtml = renderToStaticMarkup(await FunctionPage({ params: Promise.resolve({ function: "software-delivery" }) }));
+    expect(functionHtml).toContain('href="/agents/bob-merge-gate"');
     catalog.functions = [];
   });
 
