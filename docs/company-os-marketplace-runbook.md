@@ -182,9 +182,19 @@ T106 must use these calls:
 
 1. `GET /api/company-os/v1/store/catalog`: read `bundles[].entitlements[]`. Each paid entry is `{ subscriptionId, copyNumber, description, state, installationIds, cancelEffectiveAt }`. `installationIds` contains only installations on that exact paid copy.
 2. `POST /api/company-os/v1/store/checkout-sessions`: send the signed V1 envelope plus `bundleId` and **one** selector: `copyNumber` for a numbered copy, or a client-generated UUID `installationId` to reserve the next copy for that installation. Omitting both is legacy copy 1; sending both is invalid. The answer adds `{ subscriptionId, copyNumber, installationId, description }` and retains the existing checkout fields.
-3. `POST /api/company-os/v1/store/installations`: send `bundleId`, `faivrAgentModelId`, and the returned `subscriptionId`; send the reserved `installationId` when checkout used one. `copyNumber` is an accepted alternative selector. The response repeats `subscriptionId`, `copyNumber`, and `description`.
+3. `POST /api/company-os/v1/store/installations`: send `bundleId`, `faivrAgentModelId`, and the returned `subscriptionId`; send the reserved `installationId` when checkout used one, for the agent it was reserved for, and a fresh `installationId` for every other agent of the copy (F25, below). `copyNumber` is an accepted alternative selector. The response repeats `subscriptionId`, `copyNumber`, and `description`.
 4. `GET /api/company-os/v1/store/subscriptions`: use `subscriptionId`, `installationId`, or `bundleId&copyNumber=N`. `bundleId` alone means copy 1 for compatibility.
 5. `POST /api/company-os/v1/store/subscriptions/cancel`: send the exact `subscriptionId`. Only that copy's Polar subscription and installations change state.
+
+#### F25: one installation per agent of a copy
+
+A function can have several agents (a lead and its roles). The copy is the subscription; each agent of the copy is one installation with its own `installationId`:
+
+- A checkout's reserved `installationId` belongs to the one installation it was reserved for (T106: the copy's lead). It is used once.
+- Every other agent of the copy sends its own fresh UUID with the copy's `subscriptionId` (or `copyNumber`). Without an id, the store uses the reservation while it is still free and otherwise makes a new id.
+- Refused with 409: an id that is already an installation (`installation_id_reused`), an id another live copy of the box reserved (`installation_scope_mismatch`), and a second live installation of the same agent on the same copy (`package_already_installed:<id>`, which names the unfinished one the box can take over).
+
+Before F25 the reservation (or, for copy 1, the id of the copy's first installation) was reused for every later agent, so the second agent of any copy was refused with `installation_id_reused` (box 1, 22 Oct 2026). No data migration is needed: existing rows keep their ids.
 
 Webhooks activate by provider checkout id and, when present, must also match subscription id, tenant id, instance id, and copy number. A webhook for one box or copy cannot activate another. Rollout order is: apply `20261017_f12_paid_copies.sql`; enable Polar's setting independently in sandbox/live before accepting second subscriptions there; deploy the Store API; then release T106's new selectors and entitlement rendering. Roll back application code only after preventing new F12 calls; do not remove the additive columns or indexes while any copy-numbered rows exist.
 

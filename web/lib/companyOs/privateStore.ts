@@ -617,7 +617,19 @@ export async function createStoreInstallation(input: { tenantId: string; instanc
   if (subscription?.bundle_id !== input.bundleId) throw new StoreError("subscription_scope_mismatch", 409);
   if (input.copyNumber && subscription && Number(subscription.copy_number) !== input.copyNumber) throw new StoreError("copy_number_mismatch", 409);
   if (!subscription || subscription.subscription_state !== "active") throw new StoreError("subscription_not_active", 409);
-  if (subscription.requested_installation_id && input.installationId && subscription.requested_installation_id !== input.installationId) throw new StoreError("installation_scope_mismatch", 409);
+  // F25 (T129): the copy is the subscription; each agent of it is one installation with its own id.
+  // A checkout's reserved id belongs to the one installation it was reserved for; every other agent
+  // of the copy brings the box's fresh id (or gets the store's). An id another live copy reserved
+  // stays that copy's.
+  const reservation = subscription.requested_installation_id;
+  if (input.installationId && input.installationId !== reservation) {
+    const reservedElsewhere = await q.query(
+      "SELECT 1 FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND instance_id=$2 AND requested_installation_id=$3 AND id<>$4 AND subscription_state<>'cancelled'",
+      [input.tenantId, input.instanceId, input.installationId, subscription.id],
+    );
+    if (reservedElsewhere.rowCount) throw new StoreError("installation_scope_mismatch", 409);
+  }
+  const reservationTaken = reservation ? Boolean((await q.query("SELECT 1 FROM company_os_installations WHERE id=$1", [reservation])).rowCount) : true;
   const existing = await q.query(
     "SELECT id,installation_state FROM company_os_installations WHERE tenant_id=$1 AND instance_id=$2 AND package_id=$3 AND bundle_subscription_id=$4 AND installation_state NOT IN ('removed','failed') ORDER BY created_at DESC LIMIT 1",
     [input.tenantId, input.instanceId, input.modelId, subscription.id],
@@ -630,7 +642,7 @@ export async function createStoreInstallation(input: { tenantId: string; instanc
   if (!version.rowCount) throw new StoreError("package_not_found", 404);
   let latest = version.rows[0];
   for (const row of version.rows) if (compareSemver(row.version as string, latest.version as string) > 0) latest = row;
-  const installationId = input.installationId ?? subscription.requested_installation_id ?? randomUUID();
+  const installationId = input.installationId ?? (reservationTaken ? randomUUID() : reservation!);
   const idOwner = await q.query("SELECT tenant_id,instance_id FROM company_os_installations WHERE id=$1", [installationId]);
   if (idOwner.rowCount) throw new StoreError("installation_id_reused", 409);
   await q.query("UPDATE company_os_bundle_subscriptions SET requested_installation_id=COALESCE(requested_installation_id,$2),updated_at=now() WHERE id=$1", [subscription.id, installationId]);
