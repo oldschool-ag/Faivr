@@ -82,7 +82,7 @@ export function envelope(appliance: Appliance, extra: Record<string, unknown> = 
 }
 
 /** A signed portable manifest for one payload, the way the Truchsess exporter signs it (RFC 8785 minus `signature`). */
-export function signedManifest(input: { modelId: string; version: string; payload: Buffer; publisherKeyId: string; publisherPrivatePem: string; permissions: string[]; slots?: Array<{ id: string; question: string; kind: "repository" | "product" | "website"; required: boolean }>; summary?: string; releaseNotes?: string; functionLead?: boolean; extensions?: Record<string, unknown> }) {
+export function signedManifest(input: { modelId: string; version: string; payload: Buffer; publisherKeyId: string; publisherPrivatePem: string; permissions: string[]; slots?: Array<{ id: string; question: string; kind: "repository" | "product" | "website"; required: boolean; multiple?: boolean }>; summary?: string; releaseNotes?: string; functionLead?: boolean; extensions?: Record<string, unknown> }) {
   const sha256 = (value: Buffer) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
   const manifest: Record<string, unknown> = {
     schemaVersion: "faivr-portable-agent-bundle.v1",

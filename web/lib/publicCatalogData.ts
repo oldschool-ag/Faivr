@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 
-export type PublicSlot = { id: string; question: string; kind: "repository" | "product" | "website"; required: boolean };
+/** F24: `multiple` (repository slots only) lets the box offer several repositories of one product; it passes through unchanged. */
+export type PublicSlot = { id: string; question: string; kind: "repository" | "product" | "website"; required: boolean; multiple?: boolean };
 export type PublicWorker = {
   id: string; slug: string; name: string; role: string; version: string;
   publisherName: string; publisherKeyId: string; digest: string; permissions: string[]; slots: PublicSlot[];
@@ -35,6 +36,15 @@ export const PUBLIC_CATALOG_SQL = `
   ORDER BY v.published_at DESC,b.name,b.id,p.id,v.version DESC
 `;
 
+/** A slot as the signed manifest declares it; the object is passed through unchanged, `multiple` included. */
+export function isPublicSlot(slot: unknown): slot is PublicSlot {
+  if (!slot || typeof slot !== "object" || Array.isArray(slot)) return false;
+  const value = slot as Record<string, unknown>;
+  if (typeof value.id !== "string" || typeof value.question !== "string" || !(["repository", "product", "website"] as string[]).includes(String(value.kind)) || typeof value.required !== "boolean") return false;
+  if ("multiple" in value && (typeof value.multiple !== "boolean" || value.kind !== "repository")) return false;
+  return true;
+}
+
 export const publicCatalogImagePath = (sha256: string) => `/api/company-os/v1/catalog-images/${encodeURIComponent(sha256)}.webp`;
 
 export async function queryPublicCatalog(client: CatalogDb): Promise<PublicFunction[]> {
@@ -56,7 +66,7 @@ export async function queryPublicCatalog(client: CatalogDb): Promise<PublicFunct
       publisherKeyId: row.publisher_key_id, digest: row.artifact_sha256,
       permissions: Array.isArray(row.permissions)
         ? row.permissions.filter((permission: unknown): permission is string => typeof permission === "string") : [],
-      slots: Array.isArray(row.slots) ? row.slots.filter((slot: unknown): slot is PublicSlot => Boolean(slot&&typeof slot==="object"&&typeof (slot as PublicSlot).id==="string"&&typeof (slot as PublicSlot).question==="string"&&(["repository","product","website"] as string[]).includes((slot as PublicSlot).kind)&&typeof (slot as PublicSlot).required==="boolean")) : [],
+      slots: Array.isArray(row.slots) ? row.slots.filter(isPublicSlot) : [],
     });
     functions.set(item.slug, item);
   }

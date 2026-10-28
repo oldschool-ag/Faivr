@@ -58,8 +58,12 @@ const validateSlots=(slots,permissions)=>{
   if(!Array.isArray(slots))throw new Error("slots must be an array");
   const ids=new Set();
   for(const slot of slots){
-    exactKeys(slot,["id","question","kind","required"],"slot");
+    // F24: a repository slot may carry `multiple: true` (the box shows ticks to choose several repositories of one product);
+    // the field is optional, boolean, allowed on kind repository only, and travels to the box unchanged inside the signed manifest.
+    const hasMultiple=slot&&typeof slot==="object"&&!Array.isArray(slot)&&Object.prototype.hasOwnProperty.call(slot,"multiple");
+    exactKeys(slot,hasMultiple?["id","question","kind","required","multiple"]:["id","question","kind","required"],"slot");
     if(typeof slot.id!=="string"||!slotIdPattern.test(slot.id)||typeof slot.question!=="string"||slot.question.length<1||slot.question.length>200||!(["repository","product","website"].includes(slot.kind))||typeof slot.required!=="boolean")throw new Error("invalid slot");
+    if(hasMultiple&&(typeof slot.multiple!=="boolean"||slot.kind!=="repository"))throw new Error("invalid slot: multiple is a boolean allowed on repository slots only");
     if(ids.has(slot.id))throw new Error("slot ids must be unique");
     ids.add(slot.id);
   }

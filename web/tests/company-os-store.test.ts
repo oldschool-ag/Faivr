@@ -83,7 +83,7 @@ describe("the private Truchsess store on FAIVR", () => {
       publisherKeyId: keyId,
       publisherPrivatePem: pair.privatePem,
       permissions: PERMISSIONS,
-      slots: [{ id: "product", question: "Which product does this worker support?", kind: "product", required: true }],
+      slots: [{ id: "product", question: "Which product does this worker support?", kind: "product", required: true }, { id: "code-repository", question: "Which repositories hold the product code?", kind: "repository", required: false, multiple: true }],
       extensions: { routines: [{ name: "weeklyReview", workflow: "workflows/example.md" }], fooBar: { enabled: true } },
     });
     versionId = randomUUID();
@@ -165,7 +165,9 @@ describe("the private Truchsess store on FAIVR", () => {
     expect(bundles).toHaveLength(1);
     expect(bundles[0]).toMatchObject({ bundleId: BUNDLE, monthlyPriceCents: 4900, currency: "chf", priceConfigured: true, subscription: null });
     const pkg = (bundles[0].packages as Array<Record<string, unknown>>)[0];
-    expect(pkg).toMatchObject({ modelId: MODEL_ID, version: VERSION, versionId, packageDigest: manifest.packageDigest, publisherKeyId: publisher.keyId, publisherId: "old-school", publisherName: "Old School AG", permissions: PERMISSIONS, slots: [{ id: "product", question: "Which product does this worker support?", kind: "product", required: true }], installation: null });
+    expect(pkg).toMatchObject({ modelId: MODEL_ID, version: VERSION, versionId, packageDigest: manifest.packageDigest, publisherKeyId: publisher.keyId, publisherId: "old-school", publisherName: "Old School AG", permissions: PERMISSIONS, slots: [{ id: "product", question: "Which product does this worker support?", kind: "product", required: true }, { id: "code-repository", question: "Which repositories hold the product code?", kind: "repository", required: false, multiple: true }], installation: null });
+    // F24: the box receives the slot exactly as the signed manifest declares it, `multiple` included
+    expect((pkg as { slots: Array<Record<string, unknown>> }).slots[1]).toEqual({ id: "code-repository", question: "Which repositories hold the product code?", kind: "repository", required: false, multiple: true });
     expect(pkg).not.toHaveProperty("functionLead");
     expect(pkg).not.toHaveProperty("routines");
     expect(pkg).not.toHaveProperty("fooBar");
