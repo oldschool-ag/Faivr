@@ -4,6 +4,7 @@ import type { PoolClient } from "pg";
 import { getPgPool } from "@/lib/postgres";
 import { describePermission } from "@/lib/publicPermissions";
 import { normalizePublicKeyPem } from "./publisherKeys";
+import { isPublicSlot, type PublicSlot } from "@/lib/publicCatalogData";
 import type { BundleImage } from "./bundleImages";
 
 /**
@@ -195,8 +196,8 @@ export type CatalogPackage = {
   publisherName: string | null;
   permissions: string[];
   permissionDescriptions: string[];
-  /** Empty when the signed manifest has no installation questions. */
-  slots: Array<{ id: string; question: string; kind: "repository" | "product" | "website"; required: boolean }>;
+  /** Empty when the signed manifest has no installation questions. F24: `multiple` (repository slots only) passes through unchanged. */
+  slots: PublicSlot[];
   description: string;
   minCompanyOsVersion: string;
   maxCompanyOsVersion: string | null;
@@ -318,7 +319,7 @@ export async function catalogForAppliance(tenantId: string, instanceId: string, 
         publisherName: (version.publisher_name as string | null) ?? null,
         permissions: manifestPermissions(manifest),
         permissionDescriptions: manifestPermissions(manifest).map((permission) => describePermission(permission)),
-        slots: Array.isArray(manifest.slots) ? manifest.slots.filter((slot): slot is { id: string; question: string; kind: "repository" | "product" | "website"; required: boolean } => Boolean(slot && typeof slot === "object" && typeof (slot as Record<string, unknown>).id === "string" && typeof (slot as Record<string, unknown>).question === "string" && ["repository", "product", "website"].includes(String((slot as Record<string, unknown>).kind)) && typeof (slot as Record<string, unknown>).required === "boolean")) : [],
+        slots: Array.isArray(manifest.slots) ? manifest.slots.filter(isPublicSlot) : [],
         description: typeof manifest.summary === "string" ? manifest.summary : (pkg.summary as string),
         minCompanyOsVersion: version.min_company_os_version as string,
         maxCompanyOsVersion: typeof compatibility.maxVersion === "string" ? compatibility.maxVersion : null,

@@ -333,8 +333,19 @@ describe("importing a signed Truchsess bundle file into the store", () => {
     writeFileSync(validFile, signManifest(valid));
     const env = { FAIVR_VALIDATE_ONLY: "1", FAIVR_PUBLISHER_PUBLIC_KEY_PATH: join(dir, "publisher.pub"), FAIVR_PACKAGE_ORIGIN: "https://store.faivr.test", FAIVR_STORE_ARTIFACT_INLINE: "1" };
     expect(run([validFile], env).status).toBe(0);
+    // F24: a repository slot may take several repositories (`multiple: true`); the field travels unchanged
+    const multipleSlots = [slots[0], { ...slots[1], multiple: true }, { id: "docs-repository", question: "Which repositories hold the documents?", kind: "repository", required: false, multiple: false }];
+    const multipleFile = join(dir, "slots-multiple.truchsess-bundle.tar");
+    writeFileSync(multipleFile, signManifest({ ...valid, slots: multipleSlots }));
+    const multipleResult = run([multipleFile], env);
+    expect(multipleResult.status, multipleResult.stderr).toBe(0);
+    expect((JSON.parse(multipleResult.stdout.trim()) as { slots: unknown }).slots).toEqual(multipleSlots);
     const invalid = [
       { ...valid, slots: [{ ...slots[0], extra: true }] },
+      { ...valid, slots: [{ ...slots[0], multiple: true }] },
+      { ...valid, slots: [{ id: "site", question: "Which website?", kind: "website", required: true, multiple: true }] },
+      { ...valid, slots: [slots[0], { ...slots[1], multiple: "yes" }] },
+      { ...valid, slots: [slots[0], { ...slots[1], multiple: true, extra: 1 }] },
       { ...valid, slots: [{ ...slots[0], id: "Bad_id" }] },
       { ...valid, slots: [{ ...slots[0], kind: "other" }] },
       { ...valid, permissions: ["repo.read:{missing}"], slots },
