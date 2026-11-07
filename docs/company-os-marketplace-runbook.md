@@ -60,6 +60,8 @@ After an approved operator uploads the exact artifact, ingest it with `DATABASE_
 
 Decision of 2026-09-29: for the next twelve months FAIVR is the Truchsess store, not a standalone marketplace. It is Old School's catalog of governed AI workers, installable on enrolled Truchsess appliances only. Payments are fiat, monthly, one price per function bundle, through the billing provider of the next section (Polar by default since T6b.1; Stripe stays as the second implementation). Escrow, per-task payment, task-based reputation and x402 are frozen: nothing behind `/api/company-os/**` reaches the chain, the fee module or the router (`web/tests/company-os-frozen-boundaries.test.ts` walks the import graph; the same directories carry an ESLint `no-restricted-imports` rule). There is no public listing, no review, no third-party publisher flow.
 
+The [external Truchsess publisher specification](external-truchsess-publisher-spec.md) is a documentation-only proposal. It does not change this current boundary or make external publishing available.
+
 ### What FAIVR stores
 
 | Table | Content |
