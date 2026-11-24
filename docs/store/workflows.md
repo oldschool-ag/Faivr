@@ -219,7 +219,7 @@ review, the box's full test against the store change, and the CEO's own "merge".
 ## 9. The CEO's decisions
 
 The CEO decided NR1 **"as advised"** on Tue 24 Nov 2026, about 13:20 Swiss time (relayed by the
-supervisor). The same table is section 12 of the box document. Nothing here is open any more.
+supervisor). The same table is section 12 of the box document. D1 to D4 and D6 are decided; D5 is being confirmed with the CEO (see its row).
 
 | # | Decided | Not chosen, and why | What it means for the store |
 |---|---|---|---|
@@ -227,5 +227,5 @@ supervisor). The same table is section 12 of the box document. Nothing here is o
 | D2 | **Several agents to buy: one payment page per agent, one after the other.** "Per agent" means per function copy: Bob with his six roles is one page. Polar takes one product per checkout (F-NR0). One page later only if Polar allows it | One "room" product with a made-up total: one subscription would pay for several copies | F-NR2 builds the chain; one copy stays one subscription |
 | D3 | **Members:** a member may create a room only from agents she already has; anything to buy goes to an administrator as one ask | A member buying | Nothing: the store only sells to the box's signed requests, which only an administrator's press starts |
 | D4 | **Rooms come back** only when the room shows its real team and every red state has its reason and one button, proven on box 2 | Rooms back before the room page is true | Nothing: box only |
-| D5 | **One agent may work in several rooms** when allowed, shown in both. Each product still gets its own Product Owner copy | One Bob copy per room | Nothing new to sell; a new product room still sells a new Product Owner copy |
+| D5 | **Being confirmed with the CEO (24 Nov, afternoon).** Codex's security review found that a member can reach another product's knowledge through a shared agent. The CEO answered: "That's why we need several agents - one for each product, so there is no overlap. If you don't have access to this product you cannot ask the agent about the product." That would replace D5 with one agent copy per product. Until he confirms, nothing below in this row is decided. Was: **One agent may work in several rooms** when allowed, shown in both. Each product still gets its own Product Owner copy | One Bob copy per room | Nothing new to sell; a new product room still sells a new Product Owner copy |
 | D6 | **Only Old School publishes workflows** for now | Other publishers: needs a review process for their routes and texts first | `import-workflow` accepts Old School's enrolled publisher key only |
