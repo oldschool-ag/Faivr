@@ -84,18 +84,65 @@ several functions has three ways:
 | Way | What she sees | Store change | Risk |
 |---|---|---|---|
 | **Chain** | Several payment pages in one browser tab: "Payment 1 of 2: Product Owner, second copy". The store opens the next page after each success | A `checkout-groups` record linking several checkouts; success page forwards to the next | Payments. A chain can stop halfway; each finished copy stays valid and installable |
-| **One payment, several subscriptions** | One page | Depends on Polar (spike F-NR0) | Unknown until verified |
+| **One payment, several subscriptions** | One page | **Not possible with Polar** (section 3a) | |
 | **One offer function** | One page | A function whose agents are the workflow's (option B or C) | Double payment when she already has an agent |
 
 **Subscriptions stay per function copy** in every way, so removing one agent ends only its own
 subscription, and copies count as today.
 
-**Spike F-NR0, before any build:** read Polar's checkout documentation and test in the sandbox
-whether one checkout can create several subscriptions for several products. My inference from
-`polar.ts:104-105` (the store already sends a list, `products: [...]`) is that Polar's list is a
-choice of products, not a basket. Confidence that it is not a basket: 0.6. Not verified in this step.
+**Spike F-NR0** is answered in section 3a: Polar cannot take one payment for several products.
 
-Confidence for the section: 0.7.
+Confidence for the section: 0.8.
+
+## 3a. F-NR0: can Polar take one payment for several products or subscriptions?
+
+**Answer: no.** One Polar checkout buys exactly one product and gives one order or one subscription.
+Confidence 0.9: Polar's documentation says so in plain words. It was read on 24 Nov 2026 and not yet
+tried in the sandbox.
+
+### What Polar's documentation says
+
+| Question | Polar's words | Page |
+|---|---|---|
+| Several products in one checkout? | "Customers always purchase a single product per checkout. Selecting multiple products on a Checkout Link gives the customer a choice between them; it doesn't bundle them together. True multi-product checkout (multiple products in the same order) isn't supported yet." | https://polar.sh/docs/features/checkout/links |
+| What the `products` list at checkout means | "List of product IDs available to select at that checkout. The first one will be selected by default." and "Customers will be able to switch between those products." | https://polar.sh/docs/api-reference/checkouts/create-session |
+| A price made for one checkout | `prices`: "Optional mapping of product IDs to a list of ad-hoc prices to create for that product." One product, one custom amount | same page; changelog 21 Nov 2025 "Ad-hoc Checkout Pricing", https://polar.sh/docs/changelog |
+| Several products in one subscription? | A subscription has one `product_id`. It may have several price parts of that one product ("you can attach multiple metered prices to the same product") | https://polar.sh/docs/features/subscriptions/introduction.md; https://polar.sh/docs/features/products |
+| Moving a subscription to another product | `product_id`: "Update subscription to another product.", with proration choices | https://polar.sh/docs/api-reference/subscriptions/update; https://polar.sh/docs/features/subscriptions/proration.md |
+| Several subscriptions for one customer | "By default, no — a customer can only have one active subscription per organization at a time." There is a setting that allows it. Each subscription stays separate and is billed separately | https://polar.sh/docs/features/subscriptions/introduction.md |
+
+### What the store's code does with this
+
+- **The store sends one product.** The checkout body is `products: [reference.reference]`
+  (`web/lib/companyOs/billing/polar.ts:104-105`). With one entry, Polar's switcher has nothing to
+  switch, so this is already correct.
+- **The customer is known to Polar.** Every checkout carries `external_customer_id` set to the
+  owner's account (`polar.ts:106`).
+- **Separate subscriptions are already required.** The store needs "Allow multiple subscriptions"
+  for paid copies (`polar.ts:92-95`). A room with several functions uses the same setting.
+
+### What this means for New room
+
+| Way | Works with Polar today? | What she sees | Cost to us |
+|---|---|---|---|
+| **Chain** (one checkout per function, one after the other) | Yes | One payment page per function to buy: "Payment 1 of 2" | Small. Each copy stays its own subscription, as today |
+| **One payment through a "room" product with an ad-hoc price** (the sum of the missing agents) | Yes, as a checkout | One page | Large. One Polar subscription would pay for several store copies. Removing one agent then means changing that subscription's price, which the documentation does not show for ad-hoc prices. The store's rule that one copy is one subscription breaks. Payments class |
+| **One offer function** (option B or C) | Yes | One page | Medium. One more Polar product per offer. The double payment for an agent she already has stays a CEO decision (section 4) |
+| **Later moves between single functions and an offer** | Partly: one subscription can move to another product with proration. Several subscriptions cannot be merged into one | | Only relevant for option C |
+
+**Recommendation:** chain now (the CEO's decision D2). Keep "one copy is one subscription".
+Do not build the ad-hoc "room" product: it saves her one or two payment pages but makes every later
+removal a billing change. Confidence 0.75.
+
+### Not verified in this step
+
+- Whether a returning customer pays a second checkout without typing the card again (a saved card
+  offered on the next checkout). Polar's documentation describes saved cards for the customer portal
+  and for pausing and resuming. It says nothing clear about a new checkout. **This decides how much
+  the chain hurts.** It can be checked with two sandbox checkouts by the same customer, under the
+  CEO's eyes.
+- Polar's changelog before October 2025 was read only as a summary. No roadmap entry for baskets was
+  found.
 
 ## 4. A workflow price, if the CEO wants one
 
@@ -150,9 +197,9 @@ Confidence: 0.85.
 
 | # | Pull request | Risk class | Before the pricing decision? |
 |---|---|---|---|
-| F-NR0 | Spike: Polar and several subscriptions in one payment; written answer only | none | Yes |
+| F-NR0 | Spike: Polar and several subscriptions in one payment; written answer only. **Done: section 3a, the answer is no** | none | Yes |
 | F-NR1 | Workflow documents: table, signature check, `import-workflow`, `workflows[]` in the store catalog, public listing; no price | Catalog the box reads | Yes |
-| F-NR2 | Several functions in one purchase (chain, or one payment after F-NR0); subscriptions stay per copy | **Payments** | After |
+| F-NR2 | Several functions in one purchase: a chain of checkouts, one per function copy; subscriptions stay per copy | **Payments** | After |
 | F-NR3 | Offer price for a workflow (only if B or C) | **Payments** | After, only if chosen |
 
 Payments pull requests merge only with the supervisor's review, the other company's code and security
