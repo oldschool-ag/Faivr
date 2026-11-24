@@ -1,6 +1,7 @@
 # Workflows in the store (NR1, design)
 
-Status: **design, step 1. Nothing here is built.** It waits for the CEO's decisions. The box side
+Status: **design, step 1, decided.** The CEO decided D1 to D6 "as advised" on Tue 24 Nov 2026
+(section 9). Nothing here is built. The box side
 is in oldschool-ag/truchsess, `docs/architecture/new-room-flow.md` (same task, its own draft pull
 request).
 
@@ -54,7 +55,7 @@ grants nothing. It names functions by id and says how their agents work together
 | `connections` | What she will connect (GitHub, website, mailbox) |
 | `firstTask`, `match` | The guided first task; phrases that find it |
 | `minCompanyOsVersion` | Like packages |
-| `offerFunctionId` | Only if the CEO chooses an offer price (section 4) |
+| `offerFunctionId` | Not used (D1 chose A); kept free for a later bundle (C) |
 | `signature`, `publisherKeyId` | Ed25519 over the canonical document, as for manifests |
 
 The shape is the box's W1 catalog (oldschool-ag/truchsess, branch `claude/w1-workflows`,
@@ -79,13 +80,14 @@ saves one table but ties a workflow to one function.
 ## 3. One checkout for several agents
 
 Today one checkout is one function copy, one Polar product, one subscription. A room that needs
-several functions has three ways:
+several functions had three ways. **Decided (D2): the chain**, one payment page per agent, one after
+the other.
 
 | Way | What she sees | Store change | Risk |
 |---|---|---|---|
-| **Chain** | Several payment pages in one browser tab: "Payment 1 of 2: Product Owner, second copy". The store opens the next page after each success | A `checkout-groups` record linking several checkouts; success page forwards to the next | Payments. A chain can stop halfway; each finished copy stays valid and installable |
+| **Chain (chosen, D2)** | Several payment pages in one browser tab: "Payment 1 of 2: Product Owner, second copy". The store opens the next page after each success | A `checkout-groups` record linking several checkouts; success page forwards to the next | Payments. A chain can stop halfway; each finished copy stays valid and installable |
 | **One payment, several subscriptions** | One page | **Not possible with Polar** (section 3a) | |
-| **One offer function** | One page | A function whose agents are the workflow's (option B or C) | Double payment when she already has an agent |
+| **One offer function** (not chosen, D1) | One page | A function whose agents are the workflow's | Double payment when she already has an agent. Kept only for Client Follow-up |
 
 **Subscriptions stay per function copy** in every way, so removing one agent ends only its own
 subscription, and copies count as today.
@@ -127,12 +129,12 @@ tried in the sandbox.
 |---|---|---|---|
 | **Chain** (one checkout per function, one after the other) | Yes | One payment page per function to buy: "Payment 1 of 2" | Small. Each copy stays its own subscription, as today |
 | **One payment through a "room" product with an ad-hoc price** (the sum of the missing agents) | Yes, as a checkout | One page | Large. One Polar subscription would pay for several store copies. Removing one agent then means changing that subscription's price, which the documentation does not show for ad-hoc prices. The store's rule that one copy is one subscription breaks. Payments class |
-| **One offer function** (option B or C) | Yes | One page | Medium. One more Polar product per offer. The double payment for an agent she already has stays a CEO decision (section 4) |
+| **One offer function** (option B or C) | Yes | One page | Not chosen (D1): she would pay twice for an agent she already has |
 | **Later moves between single functions and an offer** | Partly: one subscription can move to another product with proration. Several subscriptions cannot be merged into one | | Only relevant for option C |
 
-**Recommendation:** chain now (the CEO's decision D2). Keep "one copy is one subscription".
-Do not build the ad-hoc "room" product: it saves her one or two payment pages but makes every later
-removal a billing change. Confidence 0.75.
+**Decided (D2, 24 Nov, "as advised"):** the chain. "One copy is one subscription" stays. The ad-hoc
+"room" product is not chosen: it saves her one or two payment pages but makes every later removal a
+billing change. One page later only if Polar allows several products in one checkout.
 
 ### Not verified in this step
 
@@ -144,15 +146,20 @@ removal a billing change. Confidence 0.75.
 - Polar's changelog before October 2025 was read only as a summary. No roadmap entry for baskets was
   found.
 
-## 4. A workflow price, if the CEO wants one
+## 4. A workflow price
 
-The store already has the parts: a function with several agents at one price, one Polar product.
+**Decided (D1, Tue 24 Nov 2026, the CEO: "as advised"): A.** A workflow is free; she pays for the
+agents she does not have. Client Follow-up stays the one offer with one price (B, only there).
+Cheaper workflow bundles (C) only later, after a second workflow sells. The store builds no workflow
+price now.
 
-- **A (the 3 Nov rule):** the workflow has no price. Nothing to build at the store but section 3.
-- **B (one offer):** the offer **is** a function whose agents are the workflow's lead and team. The
+The options as they were weighed:
+
+- **A (the 3 Nov rule), chosen:** the workflow has no price. Nothing to build at the store but section 3.
+- **B (one offer), not chosen** except for Client Follow-up: the offer **is** a function whose agents are the workflow's lead and team. The
   workflow's `offerFunctionId` points to it. One checkout, one subscription. Needs a rule for an
   agent she already has: refuse the offer and sell the missing agents, or accept paying twice.
-- **C (hybrid):** B plus single functions still sold. The box shows the cheaper total for what is
+- **C (hybrid), not chosen for now:** B plus single functions still sold. The box shows the cheaper total for what is
   missing. Needs: which subscription covers an agent bought both ways; what happens when she removes
   one agent of an offer (the offer stays whole until she ends it).
 
@@ -161,15 +168,15 @@ Example prices for the arithmetic only (real prices are set per function with
 CHF 299, Website Owner CHF 99. A product room is CHF 647 one by one (A), or an offer at, say,
 CHF 549 (B, C). Customers stays Client Follow-up at CHF 149.
 
-Recommendation (same as the box document): **A as the rule, B only for Client Follow-up, C after a
-second workflow sells.** Confidence 0.65.
 
 ## 5. Copies
 
 - A copy is one subscription (`tenantId, instanceId, bundleId, copyNumber`), unchanged.
 - **One lead install can lead several rooms** when it leads per product (the Product Owner): the box
   makes one room per product it works for. The company's own rule keeps one Product Owner copy per
-  product, so a new product room usually sells a new copy.
+  product, so a new product room usually sells a new copy (D5).
+- **One team agent may work in several rooms** (Bob in GDER and in Webshop) when the box allows it,
+  shown in both rooms (D5). The store sells nothing extra for that.
 - An offer bought twice is two copies of the offer function, each priced again (17 Oct rule).
 
 Confidence: 0.85.
@@ -195,12 +202,26 @@ Confidence: 0.85.
 
 ## 8. Build order (store)
 
-| # | Pull request | Risk class | Before the pricing decision? |
+| # | Pull request | Risk class | When |
 |---|---|---|---|
-| F-NR0 | Spike: Polar and several subscriptions in one payment; written answer only. **Done: section 3a, the answer is no** | none | Yes |
-| F-NR1 | Workflow documents: table, signature check, `import-workflow`, `workflows[]` in the store catalog, public listing; no price | Catalog the box reads | Yes |
-| F-NR2 | Several functions in one purchase: a chain of checkouts, one per function copy; subscriptions stay per copy | **Payments** | After |
-| F-NR3 | Offer price for a workflow (only if B or C) | **Payments** | After, only if chosen |
+| F-NR0 | Spike: Polar and several subscriptions in one payment; written answer only. **Done: section 3a, the answer is no** | none | Done |
+| F-NR1 | Workflow documents: table, signature check, `import-workflow`, `workflows[]` in the store catalog, public listing; no price (D1); Old School's key only (D6) | Catalog the box reads | Can start |
+| F-NR2 | Several functions in one purchase: one payment page per agent, one after the other (D2); subscriptions stay per copy | **Payments** | D1 and D2 decided |
+| ~~F-NR3~~ | Offer price for a workflow: **not built** (D1 chose A); comes back as C only after a second workflow sells | Payments | Not chosen |
 
 Payments pull requests merge only with the supervisor's review, the other company's code and security
 review, the box's full test against the store change, and the CEO's own "merge".
+
+## 9. The CEO's decisions
+
+The CEO decided NR1 **"as advised"** on Tue 24 Nov 2026, about 13:20 Swiss time (relayed by the
+supervisor). The same table is section 12 of the box document. Nothing here is open any more.
+
+| # | Decided | Not chosen, and why | What it means for the store |
+|---|---|---|---|
+| D1 | **Price: A.** A workflow is free; she pays for the agents she does not have. Client Follow-up stays the one offer with one price (B, only there). Cheaper workflow bundles (C) only later, after a second workflow sells | B for every workflow: she would pay twice for an agent she has. C now: too early, no sales data | No workflow price, no offer table; `offerFunctionId` unused; F-NR3 not built |
+| D2 | **Several agents to buy: one payment page per agent, one after the other.** Polar takes one product per checkout (F-NR0). One page later only if Polar allows it | One "room" product with a made-up total: one subscription would pay for several copies | F-NR2 builds the chain; one copy stays one subscription |
+| D3 | **Members:** a member may create a room only from agents she already has; anything to buy goes to an administrator as one ask | A member buying | Nothing: the store only sells to the box's signed requests, which only an administrator's press starts |
+| D4 | **Rooms come back** only when the room shows its real team and every red state has its reason and one button, proven on box 2 | Rooms back before the room page is true | Nothing: box only |
+| D5 | **One agent may work in several rooms** when allowed, shown in both. Each product still gets its own Product Owner copy | One Bob copy per room | Nothing new to sell; a new product room still sells a new Product Owner copy |
+| D6 | **Only Old School publishes workflows** for now | Other publishers: needs a review process for their routes and texts first | `import-workflow` accepts Old School's enrolled publisher key only |
