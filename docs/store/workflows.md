@@ -85,12 +85,15 @@ the other.
 
 | Way | What she sees | Store change | Risk |
 |---|---|---|---|
-| **Chain (chosen, D2)** | Several payment pages in one browser tab: "Payment 1 of 2: Product Owner, second copy". The store opens the next page after each success | A `checkout-groups` record linking several checkouts; success page forwards to the next | Payments. A chain can stop halfway; each finished copy stays valid and installable |
+| **Chain (chosen, D2)** | Several payment pages in one browser tab: "Payment 1 of 2: Product Owner, second copy". One page per function copy (Bob with his six roles is one page) | **One signed group request from the box**, sent after her single Yes and before any browser navigation. It binds the complete list of function and copy selections, the total she saw and an expiry. The store creates each checkout in order **only from that group** and never adds to it; a new selection needs a new signed request. Today's contract takes one `bundleId` per signed request (`web/lib/companyOs/storeSchemas.ts:25-32`, `web/app/api/company-os/v1/storeHandlers.ts:126-147`), so this is new. The success page forwards to the group's next checkout | Payments. A chain can stop halfway; each finished copy stays valid and installable |
 | **One payment, several subscriptions** | One page | **Not possible with Polar** (section 3a) | |
 | **One offer function** (not chosen, D1) | One page | A function whose agents are the workflow's | Double payment when she already has an agent. Kept only for Client Follow-up |
 
-**Subscriptions stay per function copy** in every way, so removing one agent ends only its own
-subscription, and copies count as today.
+**Subscriptions stay per function copy** in every way, and copies count as today. The agents of one
+function copy share its one subscription (`web/lib/companyOs/privateStore.ts:621-624`, `:650-652`).
+Removing one of them changes nothing in billing while another agent of that copy is still installed
+(`web/app/api/company-os/v1/handlers.ts:44`, `otherInstallationsOnSubscription` at
+`web/lib/companyOs/privateStore.ts:670-676`). Billing ends only when the copy's last agent is removed.
 
 **Spike F-NR0** is answered in section 3a: Polar cannot take one payment for several products.
 
@@ -195,7 +198,8 @@ Confidence: 0.85.
 
 | Risk | Stop |
 |---|---|
-| A payment without her tap | The store only creates a checkout for a signed box request; the box sends it only after her press; card entry is at Polar in her browser |
+| A payment without her tap | The store only creates a checkout for a signed box request, or for the next step of a signed group request (section 3); the box sends either only after her press; card entry is at Polar in her browser |
+| "Nothing was charged" said too early | The store answers the box about the same checkout (it reads it at Polar, `web/lib/companyOs/checkoutReconciliation.ts:77-115`); only an expired or failed checkout counts as not paid. The end of the box's polling window is not an answer |
 | A chain that charges for something she cancelled | Each page is its own checkout; cancelling leaves the paid ones paid and creates nothing more |
 | A workflow that grants more | The store's validator refuses unknown fields and permissions; the box re-checks (section 6) |
 | A public workflow naming a private function | `setWorkflowPublic` refuses it, as W1 refuses an unsigned package |
@@ -220,7 +224,7 @@ supervisor). The same table is section 12 of the box document. Nothing here is o
 | # | Decided | Not chosen, and why | What it means for the store |
 |---|---|---|---|
 | D1 | **Price: A.** A workflow is free; she pays for the agents she does not have. Client Follow-up stays the one offer with one price (B, only there). Cheaper workflow bundles (C) only later, after a second workflow sells | B for every workflow: she would pay twice for an agent she has. C now: too early, no sales data | No workflow price, no offer table; `offerFunctionId` unused; F-NR3 not built |
-| D2 | **Several agents to buy: one payment page per agent, one after the other.** Polar takes one product per checkout (F-NR0). One page later only if Polar allows it | One "room" product with a made-up total: one subscription would pay for several copies | F-NR2 builds the chain; one copy stays one subscription |
+| D2 | **Several agents to buy: one payment page per agent, one after the other.** "Per agent" means per function copy: Bob with his six roles is one page. Polar takes one product per checkout (F-NR0). One page later only if Polar allows it | One "room" product with a made-up total: one subscription would pay for several copies | F-NR2 builds the chain; one copy stays one subscription |
 | D3 | **Members:** a member may create a room only from agents she already has; anything to buy goes to an administrator as one ask | A member buying | Nothing: the store only sells to the box's signed requests, which only an administrator's press starts |
 | D4 | **Rooms come back** only when the room shows its real team and every red state has its reason and one button, proven on box 2 | Rooms back before the room page is true | Nothing: box only |
 | D5 | **One agent may work in several rooms** when allowed, shown in both. Each product still gets its own Product Owner copy | One Bob copy per room | Nothing new to sell; a new product room still sells a new Product Owner copy |
