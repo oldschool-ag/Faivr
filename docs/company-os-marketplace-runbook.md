@@ -321,6 +321,12 @@ node scripts/company-os-store-admin.mjs add-invoice-line --tenant <tenant id> --
 node scripts/company-os-store-admin.mjs invoice-csv --month 2026-12 > invoices-2026-12.csv
 ```
 
+**Office prep: the box's AI budget by hand.** Until the box reads `aiAllowance` from the store (box task ST1d, Plan and costs), the box does not know its allowance. For each box, set its AI budget by hand to the store's allowance for that box: USD 30 for each workflow it holds, plus the USD of the month's top-ups (`add-invoice-line` prints them as `allowanceUsdCents`). Two places:
+1. The box's OpenRouter key: its limit in USD is the hard stop. Set it on openrouter.ai under Keys (the key labelled `appliance-...`), or with `services/workflow-spine/scripts/openrouter_appliance_keys.py set-limit --appliance <box id> --limit-usd <amount>` in the truchsess repository for a key made with that script. The key from activation has no monthly reset: raise its limit by the month's allowance at the start of each month.
+2. The box's Budget panel (Administration tab, "Managed by Old School"): the monthly limit, the same amount in CHF at the contract rate, within the key's limit.
+
+Change both when a workflow or a top-up is added. Remove this step once the box reads `store/plan`.
+
 A price changed later goes the same way: `set-price --id <function> --amount-cents <cents>`. It is refused if it puts an agent above the cheapest workflow. Boxes that already hold a function keep the price they were granted at.
 
 For customer 1 with a box and the Customers workflow, December gives:
