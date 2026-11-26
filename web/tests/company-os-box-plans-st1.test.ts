@@ -381,6 +381,25 @@ describe("ST1 plans: what Old School invoices per box", () => {
     await expect(invoiceLines(holder.pool, { month: "2027-01" })).rejects.toThrow(`box_has_more_than_one_currency:${appliance.instanceId}:chf,usd`);
   });
 
+  it("Codex P2: a plan includes only workflows in its own currency", async () => {
+    await upsertBundle({ id: "dollar-workflow", name: "Dollar workflow", description: "Priced in USD.", stripePriceId: null, polarProductId: null, monthlyPriceCents: 0, currency: "usd" });
+    await expect(setPlanFunction(holder.pool, { planId: PLAN, bundleId: "dollar-workflow", included: true, administrator: ADMIN })).rejects.toThrow("included_workflow_currency_differs_from_plan:usd:chf");
+    // a workflow whose currency changed after it was included is refused when the plan is given
+    await holder.pool.query("UPDATE company_os_function_bundles SET currency='usd' WHERE id='product-management'");
+    await expect(assign(appliance.instanceId)).rejects.toThrow("included_workflow_currency_differs_from_plan:usd:chf");
+  });
+
+  it("Codex P2: a subscription on a plan loses its entitlement when the plan ends, whatever later end it has", async () => {
+    await assign(appliance.instanceId, { endsOn: "2027-02-01" });
+    const addOn = await grantSubscriptionByOrder(holder.pool, { tenantId, instanceId: appliance.instanceId, bundleId: "extra-workflow", startsOn: "2026-12-01", endsOn: "2027-03-01", administrator: ADMIN, now: NOW });
+    expect(addOn.endsAt).toBe("2027-02-01T00:00:00.000Z");
+    // data written around the commands: the sweep still follows the plan's end
+    await holder.pool.query("UPDATE company_os_bundle_subscriptions SET billing_ends_at='2027-03-01T00:00:00Z' WHERE id=$1", [addOn.subscriptionId]);
+    const swept = await applyDueSubscriptionDates(holder.pool, { now: new Date("2027-02-02T00:00:00.000Z") });
+    expect(swept.ended).toEqual(expect.arrayContaining([{ subscriptionId: addOn.subscriptionId, reason: "plan_ended", stoppedAt: "2027-02-01T00:00:00.000Z" }]));
+    expect((await holder.pool.query("SELECT subscription_state FROM company_os_bundle_subscriptions WHERE id=$1", [addOn.subscriptionId])).rows[0].subscription_state).toBe("cancelled");
+  });
+
   it("refuses plan data and invoice lines that would be wrong", async () => {
     const plan = (input: Record<string, unknown>) => definePlan(holder.pool, { id: "p", name: "P", prices: "1=10", aiAllowanceChf: "0", freeMonths: 0, pricesExcludeVat: true, includes: ["Support"], administrator: ADMIN, ...input } as Parameters<typeof definePlan>[1]);
     await expect(plan({ prices: "1=149.999" })).rejects.toThrow("prices_invalid");

@@ -202,8 +202,10 @@ export async function setPlanFunction(client, input) {
   const admin = administrator(input.administrator);
   const plan = await client.query("SELECT id FROM company_os_plans WHERE id=$1", [input.planId]);
   if (!plan.rowCount) throw new OrderError("plan_not_found", 404);
-  const bundle = await client.query("SELECT id FROM company_os_function_bundles WHERE id=$1", [input.bundleId]);
+  const bundle = await client.query("SELECT id,currency FROM company_os_function_bundles WHERE id=$1", [input.bundleId]);
   if (!bundle.rowCount) throw new OrderError("bundle_not_found", 404);
+  const planCurrency = (await client.query("SELECT currency FROM company_os_plans WHERE id=$1", [input.planId])).rows[0].currency;
+  if (input.included && String(bundle.rows[0].currency) !== String(planCurrency)) throw new OrderError(`included_workflow_currency_differs_from_plan:${bundle.rows[0].currency}:${planCurrency}`);
   if (input.included) await client.query("INSERT INTO company_os_plan_functions(plan_id,bundle_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [input.planId, input.bundleId]);
   else await client.query("DELETE FROM company_os_plan_functions WHERE plan_id=$1 AND bundle_id=$2", [input.planId, input.bundleId]);
   await planAudit(client, "plan_function_changed", admin, { bundleId: input.bundleId, included: Boolean(input.included) }, { planId: input.planId });
@@ -265,7 +267,8 @@ export async function assignPlan(client, input) {
     const cents = included ? 0 : Number(row.invoice_monthly_cents ?? row.monthly_price_cents);
     // the price it had before stays for the months before the plan (they are not rewritten)
     const before = Number(row.invoice_monthly_cents ?? row.monthly_price_cents);
-    await client.query("UPDATE company_os_bundle_subscriptions SET box_plan_id=$2,included_in_plan=$3,invoice_monthly_cents=$4,pre_plan_monthly_cents=$7,billing_ends_at=COALESCE(billing_ends_at,$5),updated_at=$6 WHERE id=$1", [row.id, boxPlanId, included, cents, endsAt ? endsAt.toISOString() : null, now.toISOString(), before]);
+    // it never outlives the plan's planned end; an earlier end of its own stays
+    await client.query("UPDATE company_os_bundle_subscriptions SET box_plan_id=$2,included_in_plan=$3,invoice_monthly_cents=$4,pre_plan_monthly_cents=$7,billing_ends_at=CASE WHEN $5::timestamptz IS NULL THEN billing_ends_at WHEN billing_ends_at IS NULL OR billing_ends_at>$5::timestamptz THEN $5::timestamptz ELSE billing_ends_at END,updated_at=$6 WHERE id=$1", [row.id, boxPlanId, included, cents, endsAt ? endsAt.toISOString() : null, now.toISOString(), before]);
     joined.push({ subscriptionId: row.id, bundleId: row.bundle_id, includedInPlan: included, monthlyPriceCents: cents });
   }
   // every function the plan includes, not yet held: granted by order at CHF 0
@@ -293,11 +296,13 @@ export async function endPlan(client, input) {
   let effective = new Date(now.getTime() + graceDays * DAY_MS);
   if (plan.ends_at && new Date(plan.ends_at).getTime() < effective.getTime()) effective = new Date(plan.ends_at);
   const reason = typeof input.reason === "string" && input.reason.trim() ? input.reason.trim().slice(0, 500) : null;
-  await client.query("UPDATE company_os_box_plans SET ends_at=$2,ended_by=$3,end_reason=$4 WHERE id=$1", [plan.id, effective.toISOString(), admin, reason]);
   const subscriptions = await client.query("SELECT id FROM company_os_bundle_subscriptions WHERE box_plan_id=$1 AND billing_provider=$2 AND subscription_state<>'cancelled' AND admin_ended_at IS NULL", [plan.id, INVOICE]);
   const ended = [];
-  // the subscriptions end at the plan's exact deadline, not at a rounded number of days
+  // the subscriptions end at the plan's exact deadline, not at a rounded number of days; they are
+  // ended before the plan's own end is written, so the date sweep (which also follows a plan's end)
+  // cannot end them while this loop still works through them
   for (const row of subscriptions.rows) ended.push(await endSubscriptionByAdmin(client, { subscriptionId: row.id, graceDays, effectiveAt: effective, administrator: admin, reason: reason ?? `plan ${plan.plan_id} ended`, now }));
+  await client.query("UPDATE company_os_box_plans SET ends_at=$2,ended_by=$3,end_reason=$4 WHERE id=$1", [plan.id, effective.toISOString(), admin, reason]);
   // a subscription an administrator already ended later than the plan now ends with the plan; an earlier end stays
   const later = await client.query("SELECT id FROM company_os_bundle_subscriptions WHERE box_plan_id=$1 AND billing_provider=$2 AND subscription_state='cancel_at_period_end' AND admin_ended_at IS NOT NULL AND cancel_effective_at>$3", [plan.id, INVOICE, effective.toISOString()]);
   for (const row of later.rows) {
