@@ -624,7 +624,7 @@ export async function markBundleSubscriptionState(provider: string, providerSubs
 }
 
 export async function rememberProviderCustomer(provider: string, providerSubscriptionId: string, providerCustomerId: string, client?: Queryable) {
-  await db(client).query("UPDATE company_os_bundle_subscriptions SET provider_customer_id=$3,updated_at=now() WHERE billing_provider=$1 AND provider_subscription_id=$2 AND billing_provider<>'invoice' AND provider_customer_id IS NULL", [provider, providerSubscriptionId, providerCustomerId]);
+  await db(client).query("UPDATE company_os_bundle_subscriptions SET provider_customer_id=$3,updated_at=now() WHERE billing_provider=$1 AND provider_subscription_id=$2 AND billing_provider<>'invoice' AND admin_ended_at IS NULL AND provider_customer_id IS NULL", [provider, providerSubscriptionId, providerCustomerId]);
 }
 
 /**
@@ -640,8 +640,10 @@ export async function refreshBundleSubscription(provider: string, providerSubscr
   if (!row) return false;
   if (view.providerCustomerId) await rememberProviderCustomer(provider, providerSubscriptionId, view.providerCustomerId, q);
   if (row.subscription_state === "cancel_at_period_end" && view.periodEnd) {
-    await q.query("UPDATE company_os_bundle_subscriptions SET cancel_effective_at=$2,updated_at=now() WHERE id=$1", [row.id, view.periodEnd]);
-    await q.query("UPDATE company_os_installations SET billing_cancel_effective_at=$2,updated_at=now() WHERE bundle_subscription_id=$1", [row.id, view.periodEnd]);
+    // ST1: the guard sits in the UPDATE itself, so an administrator's end committed after the
+    // SELECT above still wins (the row is re-checked under its lock); the mirror follows only a change
+    const changed = await q.query("UPDATE company_os_bundle_subscriptions SET cancel_effective_at=$2,updated_at=now() WHERE id=$1 AND subscription_state='cancel_at_period_end' AND billing_provider<>'invoice' AND admin_ended_at IS NULL RETURNING id", [row.id, view.periodEnd]);
+    if (changed.rowCount) await q.query("UPDATE company_os_installations SET billing_cancel_effective_at=$2,updated_at=now() WHERE bundle_subscription_id=$1", [row.id, view.periodEnd]);
   }
   if (view.state === "past_due" && row.subscription_state === "active") await markBundleSubscriptionState(provider, providerSubscriptionId, "past_due", null, q);
   if (view.state === "active" && row.subscription_state === "past_due") await markBundleSubscriptionState(provider, providerSubscriptionId, "active", null, q);
@@ -728,10 +730,22 @@ export async function otherInstallationsOnSubscription(bundleSubscriptionId: str
 
 export async function bundleSubscriptionForInstallation(installationId: string, client?: Queryable) {
   const r = await db(client).query(
-    "SELECT s.id,s.billing_provider,s.provider_subscription_id,s.provider_customer_id,s.subscription_state,s.admin_ended_at,s.cancel_effective_at FROM company_os_installations i JOIN company_os_bundle_subscriptions s ON s.id=i.bundle_subscription_id WHERE i.id=$1",
+    "SELECT s.id,s.billing_provider,s.provider_subscription_id,s.provider_customer_id,s.subscription_state,s.admin_ended_at,s.cancel_effective_at,s.stopped_at FROM company_os_installations i JOIN company_os_bundle_subscriptions s ON s.id=i.bundle_subscription_id WHERE i.id=$1",
     [installationId],
   );
-  return (r.rows[0] as { id: string; billing_provider: string | null; provider_subscription_id: string | null; provider_customer_id: string | null; subscription_state: string; admin_ended_at: Date | string | null; cancel_effective_at: Date | string | null } | undefined) ?? null;
+  return (r.rows[0] as { id: string; billing_provider: string | null; provider_subscription_id: string | null; provider_customer_id: string | null; subscription_state: string; admin_ended_at: Date | string | null; cancel_effective_at: Date | string | null; stopped_at: Date | string | null } | undefined) ?? null;
+}
+
+/**
+ * ST1: an agent uninstalled after its order or administrator-ended subscription already ended:
+ * the uninstall request moved its mirror away from `cancelled`; the receipt puts it back, with
+ * the subscription's stop date, so the billing acknowledgement can be signed.
+ */
+export async function mirrorEndedSubscriptionOnRemoved(installationId: string, subscriptionId: string, stoppedAt: string, client?: Queryable) {
+  await db(client).query(
+    "UPDATE company_os_installations SET subscription_state='cancelled',billing_stopped_at=COALESCE(billing_stopped_at,$3),updated_at=now() WHERE id=$1 AND bundle_subscription_id=$2 AND installation_state='removed'",
+    [installationId, subscriptionId, stoppedAt],
+  );
 }
 
 export async function scheduleBundleCancellation(subscriptionId: string, effectiveAt: string, client?: Queryable) {

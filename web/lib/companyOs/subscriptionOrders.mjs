@@ -153,7 +153,8 @@ export async function endSubscriptionByAdmin(client, input) {
   if (!UUID.test(String(input.subscriptionId ?? ""))) throw new OrderError("subscription_id_invalid", 400);
   const graceDays = Number(input.graceDays);
   if (!Number.isInteger(graceDays) || graceDays < 0 || graceDays > 366) throw new OrderError("grace_days_invalid", 400);
-  const found = await client.query("SELECT id,subscription_state,billing_provider,billing_ends_at,admin_ended_at,cancel_effective_at FROM company_os_bundle_subscriptions WHERE id=$1", [input.subscriptionId]);
+  // the row is locked: a provider event in flight waits, then finds the administrator's end
+  const found = await client.query("SELECT id,subscription_state,billing_provider,billing_ends_at,admin_ended_at,cancel_effective_at FROM company_os_bundle_subscriptions WHERE id=$1 FOR UPDATE", [input.subscriptionId]);
   const row = found.rows[0];
   if (!row) throw new OrderError("subscription_not_found", 404);
   if (row.admin_ended_at) throw new OrderError(`subscription_already_ended_by_admin:${new Date(row.cancel_effective_at).toISOString()}`);
@@ -189,23 +190,29 @@ export async function endSubscriptionByAdmin(client, input) {
  * @param {{ tenantId?: string | null; instanceId?: string | null; now?: Date }} [scope]
  */
 export async function applyDueSubscriptionDates(client, scope = {}) {
-  const now = (scope.now ?? new Date()).toISOString();
+  const at = scope.now ?? new Date();
+  const now = at.toISOString();
   const tenantId = scope.tenantId ?? null;
   const instanceId = scope.instanceId ?? null;
   const ended = [];
-  const statements = [
-    ["order_end_date", "UPDATE company_os_bundle_subscriptions SET subscription_state='cancelled',stopped_at=billing_ends_at,updated_at=$1 WHERE billing_provider='invoice' AND subscription_state<>'cancelled' AND billing_ends_at IS NOT NULL AND billing_ends_at<=$1 AND ($2::uuid IS NULL OR tenant_id=$2::uuid) AND ($3::uuid IS NULL OR instance_id=$3::uuid) RETURNING id,stopped_at"],
-    ["admin_grace_over", "UPDATE company_os_bundle_subscriptions SET subscription_state='cancelled',stopped_at=cancel_effective_at,updated_at=$1 WHERE admin_ended_at IS NOT NULL AND subscription_state='cancel_at_period_end' AND cancel_effective_at<=$1 AND ($2::uuid IS NULL OR tenant_id=$2::uuid) AND ($3::uuid IS NULL OR instance_id=$3::uuid) RETURNING id,stopped_at"],
-  ];
-  for (const [reason, sql] of statements) {
-    const result = await client.query(sql, [now, tenantId, instanceId]);
-    for (const row of result.rows) {
-      const stoppedAt = new Date(row.stopped_at).toISOString();
-      await client.query("UPDATE company_os_installations SET subscription_state='cancelled',updated_at=$2 WHERE bundle_subscription_id=$1", [row.id, now]);
-      await client.query("UPDATE company_os_installations SET billing_stopped_at=COALESCE(billing_stopped_at,$2),updated_at=$3 WHERE bundle_subscription_id=$1 AND installation_state='removed'", [row.id, stoppedAt, now]);
-      await audit(client, row.id, "ended", STORE_ACTOR, { reason, stoppedAt }, new Date(now));
-      ended.push({ subscriptionId: row.id, reason, stoppedAt });
-    }
+  // both dates a row may carry are weighed together: the earliest one that has passed is the stop
+  const due = await client.query(
+    "SELECT id,billing_provider,billing_ends_at,admin_ended_at,cancel_effective_at,subscription_state FROM company_os_bundle_subscriptions WHERE subscription_state<>'cancelled' AND ((billing_provider='invoice' AND billing_ends_at IS NOT NULL AND billing_ends_at<=$1) OR (admin_ended_at IS NOT NULL AND subscription_state='cancel_at_period_end' AND cancel_effective_at<=$1)) AND ($2::uuid IS NULL OR tenant_id=$2::uuid) AND ($3::uuid IS NULL OR instance_id=$3::uuid)",
+    [now, tenantId, instanceId],
+  );
+  for (const row of due.rows) {
+    const candidates = [];
+    if (row.billing_provider === INVOICE && row.billing_ends_at) candidates.push({ reason: "order_end_date", at: new Date(row.billing_ends_at) });
+    if (row.admin_ended_at && row.subscription_state === "cancel_at_period_end" && row.cancel_effective_at) candidates.push({ reason: "admin_grace_over", at: new Date(row.cancel_effective_at) });
+    const first = candidates.filter((item) => item.at.getTime() <= at.getTime()).sort((a, b) => a.at.getTime() - b.at.getTime())[0];
+    if (!first) continue;
+    const stoppedAt = first.at.toISOString();
+    const changed = await client.query("UPDATE company_os_bundle_subscriptions SET subscription_state='cancelled',stopped_at=$2,updated_at=$3 WHERE id=$1 AND subscription_state<>'cancelled' RETURNING id", [row.id, stoppedAt, now]);
+    if (!changed.rowCount) continue;
+    await client.query("UPDATE company_os_installations SET subscription_state='cancelled',updated_at=$2 WHERE bundle_subscription_id=$1", [row.id, now]);
+    await client.query("UPDATE company_os_installations SET billing_stopped_at=COALESCE(billing_stopped_at,$2),updated_at=$3 WHERE bundle_subscription_id=$1 AND installation_state='removed'", [row.id, stoppedAt, now]);
+    await audit(client, row.id, "ended", STORE_ACTOR, { reason: first.reason, stoppedAt }, at);
+    ended.push({ subscriptionId: row.id, reason: first.reason, stoppedAt });
   }
   return { ended };
 }

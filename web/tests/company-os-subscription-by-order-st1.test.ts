@@ -7,7 +7,7 @@ const holder = vi.hoisted(() => ({ pool: null as unknown as import("pg").Pool })
 vi.mock("@/lib/postgres", () => ({ getPgPool: () => holder.pool }));
 
 import { canonicalSignedMessage } from "@/lib/companyOs/auth";
-import { addPackageToBundle, enrolPublisher, issueEnrolmentCode, upsertBundle } from "@/lib/companyOs/privateStore";
+import { addPackageToBundle, enrolPublisher, issueEnrolmentCode, refreshBundleSubscription, upsertBundle } from "@/lib/companyOs/privateStore";
 import { applyDueSubscriptionDates, endSubscriptionByAdmin, grantSubscriptionByOrder, OrderError } from "@/lib/companyOs/subscriptionOrders.mjs";
 import { applyBillingEvent } from "@/lib/companyOs/billing/events";
 import { keyIdFor, loadEd25519PublicKey } from "@/lib/companyOs/publisherKeys";
@@ -308,6 +308,66 @@ describe("ST1: a subscription by order (billed by invoice)", () => {
     // an end date still ahead keeps the grant active and is shown to the box
     const second = await grantSubscriptionByOrder(holder.pool, { tenantId, instanceId: appliance.instanceId, bundleId: BUNDLE, startsOn: today(), endsOn: "2099-12-31", administrator: ADMIN });
     expect((await catalogBundle()).subscription).toMatchObject({ subscriptionId: second.subscriptionId, state: "active", endsAt: "2099-12-31T00:00:00.000Z" });
+    expect(calls).toEqual([]);
+  });
+
+  async function sandboxSubscription() {
+    answers.push(jsonResponse(polarFixture("api/checkout.created", values({ FAIVR_SUBSCRIPTION_ID: "pending" })), 201));
+    const checkoutBody = envelope(appliance, { bundleId: BUNDLE });
+    const checkout = await bodyOf(await storeCheckoutSessions(signedRequest(appliance, "POST", "/api/company-os/v1/store/checkout-sessions", checkoutBody, { idempotencyKey: checkoutBody.idempotencyKey as string })));
+    return checkout.subscriptionId as string;
+  }
+
+  it("Codex P1: an administrator's end committed while a Polar refresh is in flight is not overwritten", async () => {
+    const subscriptionId = await sandboxSubscription();
+    expect((await deliver("subscription.active", { FAIVR_SUBSCRIPTION_ID: subscriptionId })).body).toMatchObject({ action: "activated" });
+    expect((await deliver("subscription.canceled", { FAIVR_SUBSCRIPTION_ID: subscriptionId })).body).toMatchObject({ action: "cancel_scheduled" });
+    // the refresh reads the row, then the administrator's end commits, then the refresh writes
+    const adminEnd = new Date(Date.now() + 3 * DAY).toISOString();
+    const racing = {
+      query: async (sql: string, params?: unknown[]) => {
+        const result = await holder.pool.query(sql, params);
+        if (sql.startsWith("SELECT id,subscription_state FROM company_os_bundle_subscriptions")) {
+          await holder.pool.query("UPDATE company_os_bundle_subscriptions SET admin_ended_at=now(),admin_ended_by=$2,cancel_effective_at=$3 WHERE id=$1", [subscriptionId, ADMIN, adminEnd]);
+        }
+        return result;
+      },
+    };
+    await refreshBundleSubscription("polar", POLAR.subscription, { state: "active", periodEnd: "2030-01-01T00:00:00.000Z", providerCustomerId: null }, racing as never);
+    expect(new Date((await row(subscriptionId)).cancel_effective_at as string).toISOString()).toBe(adminEnd);
+  });
+
+  it("Codex P2: a Polar event does not record a customer on a subscription the administrator ended", async () => {
+    const subscriptionId = await sandboxSubscription();
+    expect((await deliver("subscription.active", { FAIVR_SUBSCRIPTION_ID: subscriptionId })).body).toMatchObject({ action: "activated" });
+    await holder.pool.query("UPDATE company_os_bundle_subscriptions SET provider_customer_id=NULL WHERE id=$1", [subscriptionId]);
+    await endSubscriptionByAdmin(holder.pool, { subscriptionId, graceDays: 7, administrator: ADMIN, confirmProviderNotTold: true });
+    await deliver("subscription.active", { FAIVR_SUBSCRIPTION_ID: subscriptionId });
+    expect((await row(subscriptionId)).provider_customer_id).toBeNull();
+  });
+
+  it("Codex P2: the earlier of an order end date and an administrator's grace is the stop date", async () => {
+    const start = new Date();
+    const granted = await grant({ endsOn: new Date(start.getTime() + 30 * DAY).toISOString(), now: start });
+    await endSubscriptionByAdmin(holder.pool, { subscriptionId: granted.subscriptionId, graceDays: 10, administrator: ADMIN, now: start });
+    // the store first runs after both dates
+    const swept = await applyDueSubscriptionDates(holder.pool, { now: new Date(start.getTime() + 40 * DAY) });
+    expect(swept.ended).toEqual([{ subscriptionId: granted.subscriptionId, reason: "admin_grace_over", stoppedAt: new Date(start.getTime() + 10 * DAY).toISOString() }]);
+  });
+
+  it("Codex P1: an agent uninstalled after its order ended gets the end on its mirror and a billing acknowledgement", async () => {
+    const granted = await grant();
+    const { installationId } = await installAndActivate();
+    await endSubscriptionByAdmin(holder.pool, { subscriptionId: granted.subscriptionId, graceDays: 0, administrator: ADMIN });
+    const stoppedAt = new Date((await row(granted.subscriptionId)).stopped_at as string).toISOString();
+    const receipt = await uninstallLast(installationId, granted.subscriptionId);
+    expect(receipt.status, JSON.stringify(receipt.body)).toBe(200);
+    expect(receipt.body).toMatchObject({ subscriptionState: "cancelled", effectiveAt: stoppedAt });
+    const installation = await holder.pool.query("SELECT subscription_state,billing_stopped_at FROM company_os_installations WHERE id=$1", [installationId]);
+    expect(installation.rows[0].subscription_state).toBe("cancelled");
+    expect(new Date(installation.rows[0].billing_stopped_at).toISOString()).toBe(stoppedAt);
+    const acknowledgement = await bodyOf(await billing(signedRequest(appliance, "GET", `/api/company-os/v1/billing?installationId=${installationId}`)));
+    expect(acknowledgement).toMatchObject({ messageType: "billing.stop_acknowledged", subscriptionState: "cancelled", effectiveAt: stoppedAt });
     expect(calls).toEqual([]);
   });
 
