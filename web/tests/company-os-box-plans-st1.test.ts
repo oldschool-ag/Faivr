@@ -223,6 +223,34 @@ describe("ST1 plans: what Old School invoices per box", () => {
     ]);
   });
 
+  it("Codex P2: a plan that a paid subscription joins does not rewrite the months before it", async () => {
+    await holder.pool.query("UPDATE company_os_function_bundles SET monthly_price_cents=5000 WHERE id='customers'");
+    await grantSubscriptionByOrder(holder.pool, { tenantId, instanceId: appliance.instanceId, bundleId: "customers", startsOn: "2026-11-01", administrator: ADMIN, now: NOW });
+    await assign(appliance.instanceId);
+    expect(summary(await invoiceLines(holder.pool, { month: "2026-11" })).filter((line) => line[0] === "add_on" || line[0] === "subtotal")).toEqual([["add_on", "Customers", 5000, "add-on, list price"], ["subtotal", "Subtotal 2026-11, net", 5000, ""]]);
+    expect(summary(await invoiceLines(holder.pool, { month: "2026-12" })).filter((line) => line[2] === 0 && line[0] === "included_function").map((line) => line[1])).toEqual(["Customers", "Product management"]);
+    expect((await invoiceLines(holder.pool, { month: "2026-12" })).find((line) => line.line === "subtotal")?.amountCents).toBe(14900);
+  });
+
+  it("Codex P2: a plan ended before it started is not invoiced", async () => {
+    const assigned = await assign(appliance.instanceId, { startsOn: "2026-12-20" });
+    await endPlan(holder.pool, { boxPlanId: assigned.boxPlanId, graceDays: 0, administrator: ADMIN, now: new Date("2026-12-10T00:00:00.000Z") });
+    expect(await invoiceLines(holder.pool, { month: "2026-12" })).toEqual([]);
+  });
+
+  it("Codex P2: a month with a change of plan bills both plans, each with its own free months", async () => {
+    const old = await assign(appliance.instanceId, { startsOn: "2027-01-01" });
+    await grantSubscriptionByOrder(holder.pool, { tenantId, instanceId: appliance.instanceId, bundleId: "extra-workflow", startsOn: "2027-01-01", administrator: ADMIN, now: NOW });
+    await endPlan(holder.pool, { boxPlanId: old.boxPlanId, graceDays: 0, administrator: ADMIN, now: new Date("2027-01-10T00:00:00.000Z") });
+    await definePlan(holder.pool, { id: "next-plan", name: "Next plan", prices: "1=199", aiAllowanceChf: "30", freeMonths: 1, pricesExcludeVat: true, includes: INCLUDES, administrator: ADMIN });
+    await assignPlan(holder.pool, { tenantId, instanceId: appliance.instanceId, planId: "next-plan", startsOn: "2027-01-15", administrator: ADMIN, now: new Date("2027-01-12T00:00:00.000Z") });
+    const january = summary(await invoiceLines(holder.pool, { month: "2027-01" }));
+    expect(january.filter((line) => line[0] === "plan")).toEqual([["plan", `${PLAN_NAME}, monthly`, 14900, ""], ["plan", "Next plan, monthly", 0, "free month 1 of 1"]]);
+    // the add-on of the old plan is not waived by the new plan's free month
+    expect(january.filter((line) => line[0] === "add_on")).toEqual([["add_on", "Extra workflow", 9900, "add-on, list price"]]);
+    expect(january.find((line) => line[0] === "subtotal")?.[2]).toBe(24800);
+  });
+
   it("refuses plan data and invoice lines that would be wrong", async () => {
     const plan = (input: Record<string, unknown>) => definePlan(holder.pool, { id: "p", name: "P", prices: "1=10", aiAllowanceChf: "0", freeMonths: 0, pricesExcludeVat: true, includes: ["Support"], administrator: ADMIN, ...input } as Parameters<typeof definePlan>[1]);
     await expect(plan({ prices: "1=149.999" })).rejects.toThrow("prices_invalid");
