@@ -49,6 +49,28 @@ function monthsFrom(date, monthStart) {
   return (monthStart.getUTCFullYear() - d.getUTCFullYear()) * 12 + (monthStart.getUTCMonth() - d.getUTCMonth());
 }
 
+/** The start of a UTC calendar day, in ms. Periods are counted in whole days: a day belongs to a period from the day it starts, up to the day it ends (that day not included). */
+function dayStart(value) {
+  const date = new Date(value);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+/** Whole days of [start, stop) inside the month (stop null: open). */
+function daysWithin(month, start, stop) {
+  const from = Math.max(dayStart(start), month.start.getTime());
+  const to = Math.min(stop === null ? month.end.getTime() : dayStart(stop), month.end.getTime());
+  return Math.max(0, Math.round((to - from) / DAY_MS));
+}
+
+function daysInMonth(month) {
+  return Math.round((month.end.getTime() - month.start.getTime()) / DAY_MS);
+}
+
+/** A monthly price for some days of the month: price x days / days in the month, rounded to the cent. */
+function forDays(cents, days, total) {
+  return days >= total ? cents : Math.round((cents * days) / total);
+}
+
 function money(cents) {
   return (cents / 100).toFixed(2);
 }
@@ -153,7 +175,11 @@ async function boxMark(client, tenantId, instanceId) {
   return r.rows[0]?.mark ?? null;
 }
 
-/** The boxes that count as paying customers of a plan: every box that held it and carries no mark. */
+/**
+ * The boxes that count as paying customers of a plan: every box that held it and carries no
+ * mark, with its customer number. The next customer gets the highest of these numbers plus one,
+ * so a number is never given twice while its box counts (a box marked later leaves a gap).
+ */
 async function countingCustomers(client, planId) {
   const held = await client.query("SELECT tenant_id,instance_id,customer_number FROM company_os_box_plans WHERE plan_id=$1 AND customer_number IS NOT NULL", [planId]);
   const marks = await client.query("SELECT tenant_id,instance_id FROM company_os_box_marks");
@@ -165,6 +191,10 @@ async function countingCustomers(client, planId) {
     boxes.set(key, Math.min(boxes.get(key) ?? Infinity, Number(row.customer_number)));
   }
   return boxes;
+}
+
+function nextCustomerNumber(customers) {
+  return customers.size ? Math.max(...customers.values()) + 1 : 1;
 }
 
 /** Include a function in a plan at CHF 0, or take it out (for boxes that get the plan afterwards). */
@@ -209,10 +239,10 @@ export async function assignPlan(client, input) {
   const mark = await boxMark(client, input.tenantId, input.instanceId);
   const customers = await countingCustomers(client, plan.id);
   const key = `${input.tenantId}/${input.instanceId}`;
-  const customerNumber = mark ? null : (customers.get(key) ?? customers.size + 1);
+  const customerNumber = mark ? null : (customers.get(key) ?? nextCustomerNumber(customers));
   // a returning customer keeps the price it had with its number; only a new number takes today's steps
   const earlier = customerNumber === null ? null : (await client.query("SELECT monthly_price_cents FROM company_os_box_plans WHERE plan_id=$1 AND tenant_id=$2 AND instance_id=$3 AND customer_number=$4 ORDER BY created_at LIMIT 1", [plan.id, input.tenantId, input.instanceId, customerNumber])).rows[0];
-  const monthlyCents = earlier ? Number(earlier.monthly_price_cents) : priceFor(steps, customerNumber ?? customers.size + 1);
+  const monthlyCents = earlier ? Number(earlier.monthly_price_cents) : priceFor(steps, customerNumber ?? nextCustomerNumber(customers));
   const boxPlanId = randomUUID();
   await client.query(
     "INSERT INTO company_os_box_plans(id,tenant_id,instance_id,plan_id,plan_name,monthly_price_cents,currency,prices_exclude_vat,ai_allowance_cents,free_months,includes,customer_number,starts_at,ends_at,granted_by,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",
@@ -300,7 +330,7 @@ export async function planList(client) {
       id: plan.id, name: plan.name, currency: plan.currency, pricesExcludeVat: plan.prices_exclude_vat, aiAllowanceCents: plan.ai_allowance_cents, freeMonths: plan.free_months,
       includes: plan.includes, status: plan.status, workflows: functions.filter((row) => row.plan_id === plan.id).map((row) => row.bundle_id),
       prices: steps.map((row) => ({ fromCustomer: Number(row.from_customer), monthlyPriceCents: Number(row.monthly_price_cents) })),
-      payingCustomers: customers.size, nextCustomerPays: steps.length ? priceFor(steps, customers.size + 1) : null,
+      payingCustomers: customers.size, nextCustomerNumber: nextCustomerNumber(customers), nextCustomerPays: steps.length ? priceFor(steps, nextCustomerNumber(customers)) : null,
     });
   }
   return out;
@@ -325,9 +355,10 @@ function vatText(plan) {
  * What to invoice for one month, per box: the plan (or CHF 0 in a free month), what it includes,
  * the AI allowance, the functions included at CHF 0, add-ons at their price, one-time lines, and
  * then the net subtotal, the VAT at the rate in force on the month's first day, and the total. A
- * plan or subscription running on any day of the month counts for the whole month (no part
- * months). Free months (if a plan has any) count from the month the plan starts and cover the
- * whole box. Subscriptions billed by a provider (Polar) are not here: the provider invoices them.
+ * plan or subscription that runs only part of the month is billed for its days (price x days /
+ * days in the month, rounded to the cent); an add-on on a plan follows the plan's days. Free
+ * months (if a plan has any) count from the month the plan starts and cover that plan's add-ons.
+ * Subscriptions billed by a provider (Polar) are not here: the provider invoices them.
  * A box an administrator marked (test, Old School's own) is listed with `invoiced: false`.
  *
  * @param {{ query: Function }} client
@@ -337,18 +368,20 @@ export async function invoiceLines(client, input) {
   const month = parseMonth(input.month);
   const scope = [input.tenantId ?? null, input.instanceId ?? null];
   const scoped = "($1::uuid IS NULL OR tenant_id=$1::uuid) AND ($2::uuid IS NULL OR instance_id=$2::uuid)";
+  const total = daysInMonth(month);
+  // a plan counts with the whole days it ran in the month (none: a period that ended before it started)
   const plans = (await client.query(`SELECT * FROM company_os_box_plans WHERE ${scoped} ORDER BY created_at`, scope)).rows
-    // a period counts only if it is a real one (its end after its start) and touches the month
-    .filter((plan) => new Date(plan.starts_at) < month.end && (!plan.ends_at || (new Date(plan.ends_at) > month.start && new Date(plan.ends_at) > new Date(plan.starts_at))));
+    .map((plan) => ({ ...plan, days: daysWithin(month, plan.starts_at, plan.ends_at ?? null) }))
+    .filter((plan) => plan.days > 0);
   const subscriptions = (await client.query(
     `SELECT s.id,s.tenant_id,s.instance_id,s.bundle_id,s.copy_number,s.billing_description,s.subscription_state,s.billing_starts_at,s.entitled_at,s.billing_ends_at,s.cancel_effective_at,s.stopped_at,s.invoice_monthly_cents,s.pre_plan_monthly_cents,s.included_in_plan,s.box_plan_id,s.created_at,b.monthly_price_cents,b.currency FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.billing_provider='invoice' AND ($1::uuid IS NULL OR s.tenant_id=$1::uuid) AND ($2::uuid IS NULL OR s.instance_id=$2::uuid) ORDER BY s.created_at`,
     scope,
-  )).rows.filter((row) => {
-    const start = new Date(row.billing_starts_at ?? row.entitled_at ?? row.created_at);
+  )).rows.map((row) => {
+    const start = new Date(row.billing_starts_at ?? row.entitled_at ?? row.created_at).getTime();
     const stops = [row.stopped_at, row.subscription_state === "cancel_at_period_end" ? row.cancel_effective_at : null, row.billing_ends_at].filter(Boolean).map((value) => new Date(value).getTime());
     const stop = stops.length ? Math.min(...stops) : null;
-    return start < month.end && (stop === null || (stop > month.start.getTime() && stop > start.getTime()));
-  });
+    return { ...row, start, stop, days: daysWithin(month, start, stop) };
+  }).filter((row) => row.days > 0);
   const items = (await client.query(`SELECT * FROM company_os_invoice_items WHERE invoice_month=$3 AND ${scoped} ORDER BY created_at`, [...scope, month.start.toISOString().slice(0, 10)])).rows;
   const keys = (await client.query(`SELECT tenant_id,instance_id,label,enrolled_at FROM company_os_instance_keys WHERE ${scoped}`, scope)).rows;
   const marks = (await client.query(`SELECT tenant_id,instance_id,mark FROM company_os_box_marks WHERE ${scoped}`, scope)).rows;
@@ -368,8 +401,8 @@ export async function invoiceLines(client, input) {
 
   const lines = [];
   for (const box of boxes.values()) {
-    // every plan that ran in the month is invoiced (a change of plan bills both); free months are
-    // each plan's own and cover that plan's add-ons only
+    // every plan that ran in the month is invoiced for its days (a change of plan bills each for
+    // its days); free months are each plan's own and cover that plan's add-ons only
     const latest = box.plans.at(-1) ?? null;
     const currency = latest?.currency ?? box.subscriptions[0]?.currency ?? box.items[0]?.currency ?? "chf";
     const mark = markOf(box.tenantId, box.instanceId);
@@ -380,6 +413,7 @@ export async function invoiceLines(client, input) {
       const index = monthsFrom(plan.starts_at, month.start);
       if (index < Number(plan.free_months)) freeNoteOf.set(plan.id, `free month ${index + 1} of ${plan.free_months}`);
     }
+    const daysNote = (days) => (days < total ? `${days} of ${total} days` : "");
     // charges are summed by VAT basis: prices before VAT, and prices with VAT included
     const sums = { exclusive: 0, inclusive: 0 };
     const planById = new Map(box.plans.map((plan) => [plan.id, plan]));
@@ -389,33 +423,38 @@ export async function invoiceLines(client, input) {
       else sums.exclusive += cents;
     };
     if (!box.plans.length) add("no_plan", "No plan on this box", 0, "add-ons only");
+    // a plan is billed for the days it ran: a first or last month, or a change of plan, is a part month
     for (const plan of box.plans) {
       const free = freeNoteOf.get(plan.id);
-      const price = free ? 0 : Number(plan.monthly_price_cents);
+      const price = free ? 0 : forDays(Number(plan.monthly_price_cents), plan.days, total);
       charge(price, plan.id);
-      add("plan", `${plan.plan_name}, monthly`, price, free ?? "");
+      add("plan", `${plan.plan_name}, monthly`, price, free ?? daysNote(plan.days));
       const includes = Array.isArray(plan.includes) ? plan.includes : [];
       if (includes.length) add("plan_includes", `Includes: ${includes.join("; ")}`, 0, "included in your plan");
       if (Number(plan.ai_allowance_cents) > 0) add("ai_allowance", `AI use up to ${currency.toUpperCase()} ${money(Number(plan.ai_allowance_cents))} per month`, 0, "included in your plan");
     }
-    const planIds = new Set(box.plans.map((plan) => plan.id));
+    // a subscription's days in the month split into the days its plan ran (the plan's terms) and
+    // the days outside it (the price it had without the plan, never "included")
     const included = [];
     const addOns = [];
     for (const row of box.subscriptions) {
-      if (row.box_plan_id && planIds.has(row.box_plan_id)) {
+      const plan = row.box_plan_id ? planById.get(row.box_plan_id) : null;
+      const onPlan = plan ? daysWithin(month, Math.max(row.start, new Date(plan.starts_at).getTime()), plan.ends_at ? (row.stop === null ? new Date(plan.ends_at).getTime() : Math.min(row.stop, new Date(plan.ends_at).getTime())) : row.stop) : 0;
+      const offPlan = row.days - onPlan;
+      if (onPlan > 0) {
         if (row.included_in_plan) included.push(row);
-        else addOns.push({ row, cents: Number(row.invoice_monthly_cents ?? row.monthly_price_cents), free: freeNoteOf.get(row.box_plan_id), planId: row.box_plan_id });
-      } else {
-        // a month outside its plan: the price it had without the plan (never "included")
+        else addOns.push({ row, cents: Number(row.invoice_monthly_cents ?? row.monthly_price_cents), days: onPlan, free: freeNoteOf.get(plan.id), planId: plan.id });
+      }
+      if (offPlan > 0) {
         const cents = row.pre_plan_monthly_cents ?? (row.included_in_plan ? row.monthly_price_cents : (row.invoice_monthly_cents ?? row.monthly_price_cents));
-        addOns.push({ row, cents: Number(cents), free: undefined, planId: null });
+        addOns.push({ row, cents: Number(cents), days: offPlan, free: undefined, planId: null });
       }
     }
     for (const row of included) add("included_function", row.billing_description, 0, "included in your plan");
-    for (const { row, cents, free, planId } of addOns) {
-      const price = free ? 0 : cents;
+    for (const { row, cents, days, free, planId } of addOns) {
+      const price = free ? 0 : forDays(cents, days, total);
       charge(price, planId);
-      add("add_on", row.billing_description, price, free ?? "add-on, list price");
+      add("add_on", row.billing_description, price, free ?? (days < total ? `add-on, list price, ${daysNote(days)}` : "add-on, list price"));
     }
     for (const item of box.items) {
       // a one-time line follows the VAT basis of the plan it was added under
@@ -457,7 +496,15 @@ export async function boxPlanView(client, input) {
   const now = input.now ?? new Date();
   const month = input.month ?? currentMonth(now);
   const plan = await liveBoxPlan(client, input.tenantId, input.instanceId, now);
-  const lines = (await invoiceLines(client, { month, tenantId: input.tenantId, instanceId: input.instanceId })).map(({ tenantId: _tenant, instanceId: _instance, ...line }) => line);
+  let lines = [];
+  let ready = true;
+  try {
+    lines = (await invoiceLines(client, { month, tenantId: input.tenantId, instanceId: input.instanceId })).map(({ tenantId: _tenant, instanceId: _instance, ...line }) => line);
+  } catch (error) {
+    // no VAT rate for the month yet: the box is told in plain words, not with an error code
+    if (!(error instanceof OrderError) || !error.code.startsWith("vat_rate_missing_for:")) throw error;
+    ready = false;
+  }
   const workflows = plan ? (await client.query("SELECT f.bundle_id,b.name FROM company_os_plan_functions f JOIN company_os_function_bundles b ON b.id=f.bundle_id WHERE f.plan_id=$1 ORDER BY b.name", [plan.plan_id])).rows.map((row) => ({ bundleId: row.bundle_id, name: row.name })) : [];
   return {
     month,
@@ -470,6 +517,8 @@ export async function boxPlanView(client, input) {
         }
       : null,
     lines,
+    ready,
+    message: ready ? null : "The costs for this month are not ready yet. Old School is preparing them.",
     netCents: lines.find((line) => line.line === "subtotal")?.amountCents ?? 0,
     vatCents: lines.find((line) => line.line === "vat")?.amountCents ?? 0,
     totalCents: lines.find((line) => line.line === "total")?.amountCents ?? 0,

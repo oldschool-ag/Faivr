@@ -191,13 +191,13 @@ describe("ST1 plans: what Old School invoices per box", () => {
     expect(body.plan).toEqual({ planId: PLAN, name: PLAN_NAME, monthlyPriceCents: 14900, currency: "chf", pricesExcludeVat: true, aiAllowanceCents: 3000, freeMonths: 0, includes: INCLUDES, startsAt: "2026-12-01T00:00:00.000Z", endsAt: null, workflows: [{ bundleId: "customers", name: "Customers" }, { bundleId: "product-management", name: "Product management" }] });
     const invoiced = (await invoiceLines(holder.pool, { month: "2027-01", tenantId, instanceId: appliance.instanceId })).map(({ tenantId: _t, instanceId: _i, ...line }) => line);
     expect(body.lines).toEqual(invoiced);
-    expect([body.netCents, body.vatCents, body.totalCents]).toEqual([24800, 2009, 26809]);
+    expect([body.ready, body.message, body.netCents, body.vatCents, body.totalCents]).toEqual([true, null, 24800, 2009, 26809]);
     expect(JSON.stringify(body)).not.toContain(tenantId);
     expect(JSON.stringify(body)).not.toContain("customer 1");
     expect((await storePlan(signedRequest(appliance, "GET", "/api/company-os/v1/store/plan?month=2027-13"))).status).toBe(400);
   });
 
-  it("ends a plan with its subscriptions after the grace; the last month is invoiced whole, nothing after", async () => {
+  it("ends a plan with its subscriptions after the grace; the last month is billed by its days, nothing after", async () => {
     const { assigned } = await officeBox();
     const endAt = new Date("2027-02-10T00:00:00.000Z");
     const ended = await endPlan(holder.pool, { boxPlanId: assigned.boxPlanId, graceDays: 14, administrator: ADMIN, reason: "contract ends", now: new Date(endAt.getTime() - 14 * DAY) });
@@ -206,7 +206,12 @@ describe("ST1 plans: what Old School invoices per box", () => {
     await applyDueSubscriptionDates(holder.pool, { now: new Date(endAt.getTime() + 1000) });
     const states = await holder.pool.query("SELECT subscription_state FROM company_os_bundle_subscriptions");
     expect(states.rows.every((row) => row.subscription_state === "cancelled")).toBe(true);
-    expect((await invoiceLines(holder.pool, { month: "2027-02" })).find((line) => line.line === "subtotal")?.amountCents).toBe(24800);
+    // 1 to 9 February: 9 of 28 days of CHF 149 (47.89) and of the add-on's CHF 99 (31.82)
+    expect(summary(await invoiceLines(holder.pool, { month: "2027-02" })).filter((line) => ["plan", "add_on", "subtotal"].includes(line[0] as string))).toEqual([
+      ["plan", `${PLAN_NAME}, monthly`, 4789, "9 of 28 days"],
+      ["add_on", "Extra workflow", 3182, "add-on, list price, 9 of 28 days"],
+      ["subtotal", "Subtotal 2027-02, net", 7971, ""],
+    ]);
     expect(await invoiceLines(holder.pool, { month: "2027-03" })).toEqual([]);
   });
 
@@ -245,10 +250,10 @@ describe("ST1 plans: what Old School invoices per box", () => {
     await definePlan(holder.pool, { id: "next-plan", name: "Next plan", prices: "1=199", aiAllowanceChf: "30", freeMonths: 1, pricesExcludeVat: true, includes: INCLUDES, administrator: ADMIN });
     await assignPlan(holder.pool, { tenantId, instanceId: appliance.instanceId, planId: "next-plan", startsOn: "2027-01-15", administrator: ADMIN, now: new Date("2027-01-12T00:00:00.000Z") });
     const january = summary(await invoiceLines(holder.pool, { month: "2027-01" }));
-    expect(january.filter((line) => line[0] === "plan")).toEqual([["plan", `${PLAN_NAME}, monthly`, 14900, ""], ["plan", "Next plan, monthly", 0, "free month 1 of 1"]]);
-    // the add-on of the old plan is not waived by the new plan's free month
-    expect(january.filter((line) => line[0] === "add_on")).toEqual([["add_on", "Extra workflow", 9900, "add-on, list price"]]);
-    expect(january.find((line) => line[0] === "subtotal")?.[2]).toBe(24800);
+    expect(january.filter((line) => line[0] === "plan")).toEqual([["plan", `${PLAN_NAME}, monthly`, 4326, "9 of 31 days"], ["plan", "Next plan, monthly", 0, "free month 1 of 1"]]);
+    // the add-on of the old plan (its 9 days) is not waived by the new plan's free month
+    expect(january.filter((line) => line[0] === "add_on")).toEqual([["add_on", "Extra workflow", 2874, "add-on, list price, 9 of 31 days"]]);
+    expect(january.find((line) => line[0] === "subtotal")?.[2]).toBe(7200);
   });
 
   it("Codex P2: a customer who returns after a price change keeps its number and its price", async () => {
@@ -268,7 +273,70 @@ describe("ST1 plans: what Old School invoices per box", () => {
     await endPlan(holder.pool, { boxPlanId: old.boxPlanId, graceDays: 0, administrator: ADMIN, now: new Date("2027-01-10T00:00:00.000Z") });
     await assignPlan(holder.pool, { tenantId, instanceId: appliance.instanceId, planId: "gross-plan", startsOn: "2027-01-15", administrator: ADMIN, now: new Date("2027-01-12T00:00:00.000Z") });
     const january = await invoiceLines(holder.pool, { month: "2027-01" });
-    expect(["subtotal", "vat", "total"].map((name) => january.find((line) => line.line === name)?.amountCents)).toEqual([20000, 1620, 21620]);
+    // 1 to 9 Jan of CHF 100 before VAT (29.03, VAT 2.35 on top); 15 to 31 Jan of CHF 108.10 with VAT (59.28, of which VAT 4.44)
+    expect(["subtotal", "vat", "total"].map((name) => january.find((line) => line.line === name)?.amountCents)).toEqual([2903 + 5484, 235 + 444, 2903 + 5928 + 235]);
+  });
+
+  it("supervisor: a plan starting on 2 Dec bills 30 of 31 days in December, its add-on the same days", async () => {
+    await assign(appliance.instanceId, { startsOn: "2026-12-02" });
+    await grantSubscriptionByOrder(holder.pool, { tenantId, instanceId: appliance.instanceId, bundleId: "extra-workflow", startsOn: "2026-12-02", administrator: ADMIN, now: NOW });
+    expect(summary(await invoiceLines(holder.pool, { month: "2026-12" })).filter((line) => ["plan", "add_on", "subtotal"].includes(line[0] as string))).toEqual([
+      ["plan", `${PLAN_NAME}, monthly`, 14419, "30 of 31 days"],
+      ["add_on", "Extra workflow", 9581, "add-on, list price, 30 of 31 days"],
+      ["subtotal", "Subtotal 2026-12, net", 24000, ""],
+    ]);
+    expect((await invoiceLines(holder.pool, { month: "2027-01" })).find((line) => line.line === "plan")).toMatchObject({ amountCents: 14900, note: "" });
+  });
+
+  it("supervisor: a plan ending on 10 Jan bills 9 of 31 days in January", async () => {
+    const assigned = await assign(appliance.instanceId);
+    await endPlan(holder.pool, { boxPlanId: assigned.boxPlanId, graceDays: 0, administrator: ADMIN, now: new Date("2027-01-10T00:00:00.000Z") });
+    expect((await invoiceLines(holder.pool, { month: "2027-01" })).find((line) => line.line === "plan")).toMatchObject({ amountCents: 4326, note: "9 of 31 days" });
+  });
+
+  it("supervisor: a change of plan on 15 Jan bills each plan for its own days, never two full prices", async () => {
+    const old = await assign(appliance.instanceId);
+    await endPlan(holder.pool, { boxPlanId: old.boxPlanId, graceDays: 0, administrator: ADMIN, now: new Date("2027-01-15T00:00:00.000Z") });
+    await definePlan(holder.pool, { id: "bigger-plan", name: "Bigger plan", prices: "1=249", aiAllowanceChf: "30", freeMonths: 0, pricesExcludeVat: true, includes: INCLUDES, administrator: ADMIN });
+    await assignPlan(holder.pool, { tenantId, instanceId: appliance.instanceId, planId: "bigger-plan", startsOn: "2027-01-15", administrator: ADMIN, now: new Date("2027-01-15T00:00:00.000Z") });
+    const plans = summary(await invoiceLines(holder.pool, { month: "2027-01" })).filter((line) => line[0] === "plan");
+    // 1 to 14 Jan at 149 (67.29), 15 to 31 Jan at 249 (136.55)
+    expect(plans).toEqual([["plan", `${PLAN_NAME}, monthly`, 6729, "14 of 31 days"], ["plan", "Bigger plan, monthly", 13655, "17 of 31 days"]]);
+  });
+
+  it("supervisor: end-plan then assign-plan of the same plan in one month bills only the days held, same number and price", async () => {
+    const first = await assign(appliance.instanceId);
+    await endPlan(holder.pool, { boxPlanId: first.boxPlanId, graceDays: 0, administrator: ADMIN, now: new Date("2027-01-10T00:00:00.000Z") });
+    const again = await assign(appliance.instanceId, { startsOn: "2027-01-20", now: new Date("2027-01-12T00:00:00.000Z") });
+    expect([again.customerNumber, again.monthlyPriceCents]).toEqual([first.customerNumber, 14900]);
+    const lines = await invoiceLines(holder.pool, { month: "2027-01" });
+    // 9 days (1 to 9 Jan) and 12 days (20 to 31 Jan): 43.26 + 57.68, not 2 x 149
+    expect(summary(lines).filter((line) => line[0] === "plan")).toEqual([["plan", `${PLAN_NAME}, monthly`, 4326, "9 of 31 days"], ["plan", `${PLAN_NAME}, monthly`, 5768, "12 of 31 days"]]);
+    expect(lines.find((line) => line.line === "subtotal")?.amountCents).toBe(10094);
+  });
+
+  it("supervisor: the next customer number is the highest counting number plus one, also after a box is marked later", async () => {
+    await definePlan(holder.pool, { id: PLAN, name: PLAN_NAME, prices: "1=149|6=249", aiAllowanceChf: "30", freeMonths: 0, pricesExcludeVat: true, includes: INCLUDES, administrator: ADMIN });
+    const boxes = [appliance.instanceId, await newBox(), await newBox(), await newBox(), await newBox()];
+    for (const box of boxes) await assign(box);
+    // box 3 turns out to be a test box
+    await markBox(holder.pool, { tenantId, instanceId: boxes[2], as: "test", administrator: ADMIN });
+    const sixth = await assign(await newBox());
+    expect([sixth.customerNumber, sixth.monthlyPriceCents]).toEqual([6, 24900]);
+    const numbers = (await holder.pool.query("SELECT customer_number FROM company_os_box_plans WHERE customer_number IS NOT NULL ORDER BY customer_number")).rows.map((row) => row.customer_number);
+    expect(numbers).toEqual([1, 2, 3, 4, 5, 6]);
+    expect((await planList(holder.pool)).find((plan: { id: string }) => plan.id === PLAN)).toMatchObject({ payingCustomers: 5, nextCustomerNumber: 7, nextCustomerPays: 24900 });
+  });
+
+  it("supervisor: without a VAT rate the box is told plainly that the month's costs are not ready", async () => {
+    await officeBox();
+    await holder.pool.query("DELETE FROM company_os_vat_rates");
+    const response = await storePlan(signedRequest(appliance, "GET", "/api/company-os/v1/store/plan?month=2027-01"));
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ ready: false, message: "The costs for this month are not ready yet. Old School is preparing them.", lines: [], plan: { planId: PLAN } });
+    // Old School's CSV still refuses, so no invoice goes out without VAT
+    await expect(invoiceLines(holder.pool, { month: "2027-01" })).rejects.toThrow("vat_rate_missing_for:2027-01");
   });
 
   it("refuses plan data and invoice lines that would be wrong", async () => {

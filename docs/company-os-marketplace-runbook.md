@@ -214,13 +214,14 @@ What the box sees: the catalog's `subscription` and the subscription view carry 
 What Old School invoices per box is a plan, not only agents. Every value is data entered with the store admin command: the store's code holds no price and no VAT rate. The box's Plan and costs page reads the same lines from the store (`GET /api/company-os/v1/store/plan?month=YYYY-MM`, signed by the box), so the page and the invoice always agree.
 
 - A plan: name, its workflows (the functions it includes at CHF 0), its monthly price by customer number (price steps), currency, whether its prices are before VAT, the monthly AI allowance (included in the price), free months, and what it includes (a list of lines). More workflows come later as their own plans.
-- Customer numbers: a box that gets a plan becomes that plan's next customer and keeps the price of its number, also when the plan's prices change later (a box that held the plan before gets its old number back). Customers are counted per plan.
-- Boxes that never count: an administrator marks a test box or one of Old School's own boxes (`mark-box`; no box request can). A marked box gets no customer number, is shown the price the next customer would pay, and is left out of `invoice-csv` (`--include-not-invoiced` shows it). Mark a box before it gets a plan.
-- VAT: the Swiss rate is data by the day it applies from (`set-vat-rate`); a month uses the rate in force on its first day, and a month without one is refused. Each box gets a net subtotal, the VAT (on the net subtotal, rounded to the cent) and the total.
-- Billing starts with the first month: a plan or subscription running on any day of a month is invoiced for that whole month (no part months). Free months stay possible as data (0 for the plan below).
+- Customer numbers: a box that gets a plan gets the highest customer number of the boxes that count plus one, and keeps the price of its number, also when the plan's prices change later (a box that held the plan before gets its old number and price back). Customers are counted per plan and per box.
+- Boxes that never count: an administrator marks a test box or one of Old School's own boxes (`mark-box`; no box request can). A marked box gets no customer number, is shown the price the next customer would pay, and is left out of `invoice-csv` (`--include-not-invoiced` shows it). Set the mark before `assign-plan`: the customer number is given at that moment. A box marked later stops counting and is no longer invoiced, and its number is not given again.
+- VAT: the Swiss rate is data by the day it applies from (`set-vat-rate`, the first command below); a month uses the rate in force on its first day. Without one, `invoice-csv` refuses the month and the box's Plan and costs page says that the month's costs are not ready yet. Each box gets a net subtotal, the VAT (on the net subtotal, rounded to the cent) and the total.
+- Billing starts with the first month and is counted in days: a month a plan or add-on runs only in part (the first month, the last month, a change of plan, an end and a new start) is billed as price x days it ran / days in the month, rounded to the cent. A day counts from the day a plan starts up to the day it ends (that day not included). The line's note says "30 of 31 days". Free months stay possible as data (0 for the plan below).
+- An add-on billed by invoice keeps billing after the client uninstalls it, until Old School ends it: when a client uninstalls an add-on, end it the same day with `end-subscription --subscription <id> --grace-days 0 --by "<your name>"`.
 - Functions the plan includes are granted at CHF 0 ("included in your plan"); any other function granted by order is an add-on at its list price (the catalog entry's monthly price). AI top-ups are one-time lines for a box and a month.
 
-The commands with the CEO's numbers of 26 Nov 2026 (the CEO confirms them before the first box gets the plan; the workflow ids are the catalog's):
+The commands with the CEO's numbers of 26 Nov 2026, in this order (the CEO confirms them before the first box gets the plan; the workflow ids are the catalog's). The VAT rate comes first: without it no month can be invoiced. Every command runs in one transaction: it is done completely or not at all.
 
 ```
 node scripts/company-os-store-admin.mjs set-vat-rate --from 2024-01-01 --percent 8.1 --by "<your name>"
@@ -235,7 +236,7 @@ node scripts/company-os-store-admin.mjs invoice-csv --month 2026-12 > invoices-2
 node scripts/company-os-store-admin.mjs plans
 ```
 
-`invoice-csv` writes one row per line (plan, what it includes, AI allowance, workflows, add-ons, one-time lines, net subtotal, VAT, total) with the box's name. Subscriptions billed by Polar are not in it: Polar invoices them. `plans` shows each plan's price steps, the paying customers so far and what the next one pays. `end-plan --box-plan <id> --grace-days 14 --by "<your name>"` ends a box's plan and every invoice subscription on it after the grace; the month it ends in is still invoiced whole. What happens to the box itself at the end of a contract is not decided yet and is not modelled.
+`invoice-csv` writes one row per line (plan, what it includes, AI allowance, workflows, add-ons, one-time lines, net subtotal, VAT, total) with the box's name. Subscriptions billed by Polar are not in it: Polar invoices them. `plans` shows each plan's price steps, the paying customers so far and what the next one pays. `end-plan --box-plan <id> --grace-days 14 --by "<your name>"` ends a box's plan and every invoice subscription on it after the grace; the month it ends in is billed for its days. What happens to the box itself at the end of a contract is not decided yet and is not modelled.
 
 ### Cancellation and refunds
 
