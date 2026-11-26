@@ -237,10 +237,12 @@ export async function storeSubscriptionCancel(req: NextRequest) {
 }
 
 /**
- * GET /api/company-os/v1/store/plan[?month=YYYY-MM] (ST1): the box's plan (what it includes, the
- * AI allowance, free months, VAT basis) and the month's lines: the plan, the functions included at
- * CHF 0, add-ons at their price, one-time lines and the total. The same lines Old School invoices
- * from (store admin `invoice-csv`), so the box's Plan and costs page and the invoice agree.
+ * GET /api/company-os/v1/store/plan[?month=YYYY-MM] (ST1): the box's plan (box price or own
+ * hardware, early bird, what it includes, its workflows, VAT basis) and the month's lines: the box,
+ * each workflow and single agent at its price, the early-bird discount, one-time lines, net, VAT
+ * and total, all in CHF. `aiAllowance` is what the box enforces this month (USD, never shown) and
+ * the top-ups bought (CHF). The same lines Old School invoices from (store admin `invoice-csv`), so
+ * the box's Plan and costs page and the invoice agree.
  */
 export async function storePlan(req: NextRequest) {
   const auth = await authenticatedJson(req);

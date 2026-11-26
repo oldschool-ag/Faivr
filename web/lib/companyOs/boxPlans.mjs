@@ -1,13 +1,16 @@
 // ST1 plans: what Old School invoices per box, and what the box shows on its Plan and costs
-// page. The invoice sells workflows, not boxes. Per box and month, all plus VAT:
-//   - the Truchsess box line: its monthly price by customer number (for example free, "Free, early
-//     bird", for customers 1 to 50 and CHF 100 from customer 51), with what it includes;
-//   - one line per workflow at its list price (the catalog entry's monthly price);
-//   - the AI credits line: the CHF price of the monthly credits, which buy an AI provider
-//     allowance in USD that the box enforces; one-time top-ups add allowance at the same rate.
-// Every value is data the CEO enters; the Swiss VAT rate is data by the day it applies from. A
-// box keeps the price, terms and workflows its plan had when it got the plan; only boxes an
-// administrator has not marked (test boxes, Old School's own) count as customers.
+// page. The CEO's final structure; every price is data. Per box and month, all plus VAT:
+//   - the box line (the plan's box price); a customer on own hardware (device or server) has none;
+//   - each workflow at its list price, each with the AI provider allowance in USD it includes
+//     (the allowances of a box's workflows add up); a box always has at least one workflow;
+//   - each single agent at its list price, with no allowance of its own (it uses the box's pool);
+//     an agent's price never exceeds a workflow's;
+//   - for the first customers by customer number (early bird), a discount line on the first
+//     workflow, kept for as long as the customer stays;
+//   - one-time top-ups in CHF that add USD allowance at the plan's rate.
+// Nothing is priced per person: a workflow or agent is priced per box, whatever the number of users.
+// A box keeps the prices, terms and workflows it was given; only boxes an administrator has not
+// marked (test boxes, Old School's own) count as customers.
 //
 // One function (invoiceLines) builds a month's lines; the admin command prints them as CSV and the
 // store answers the box with the same lines, so both always agree.
@@ -21,7 +24,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const ITEM_KINDS = { "ai-top-up": "ai_top_up", "ai-use-above-allowance": "ai_use_above_allowance" };
-const ITEM_TEXT = { ai_top_up: "AI credits top-up", ai_use_above_allowance: "AI use above the allowance" };
+const ITEM_TEXT = { ai_top_up: "AI top-up", ai_use_above_allowance: "AI use above the allowance" };
 const MARKS = { test: "test", "old-school": "old_school" };
 const MARK_TEXT = { test: "test box", old_school: "Old School's own box" };
 
@@ -85,47 +88,39 @@ async function planAudit(client, action, admin, detail, ids = {}, at = new Date(
   );
 }
 
-/**
- * "1=0:Free, early bird|51=100" (from customer 1 CHF 0 with that note on the invoice, from
- * customer 51 CHF 100) into price steps; the first starts at customer 1.
- */
-export function parsePriceSteps(value) {
-  const steps = String(value ?? "").split("|").map((part) => part.trim()).filter(Boolean).map((part) => {
-    const match = /^(\d{1,6})=([^:]+)(?::(.*))?$/.exec(part);
-    if (!match || Number(match[1]) < 1) throw new OrderError("prices_invalid", 400);
-    const note = match[3] !== undefined ? match[3].trim() : null;
-    if (note !== null && (!note || note.length > 60)) throw new OrderError("prices_invalid", 400);
-    return { fromCustomer: Number(match[1]), monthlyPriceCents: parseChf(match[2].trim(), "prices"), note };
-  }).sort((a, b) => a.fromCustomer - b.fromCustomer);
-  if (!steps.length || steps[0].fromCustomer !== 1 || new Set(steps.map((step) => step.fromCustomer)).size !== steps.length || steps.length > 20) throw new OrderError("prices_invalid", 400);
-  return steps;
-}
-
-/** The box's monthly price (and its note) for a customer number: the last step that starts at or before it. */
-function priceFor(steps, customerNumber) {
-  let found = null;
-  for (const step of [...steps].sort((a, b) => Number(a.from_customer) - Number(b.from_customer))) if (Number(step.from_customer) <= customerNumber) found = step;
-  if (!found) throw new OrderError("plan_has_no_price", 409);
-  return { cents: Number(found.monthly_price_cents), note: found.note ?? null };
+/** A percentage as typed ("50", "12.5") into basis points (5000, 1250), 0 to 100. */
+function parsePercent(value, field) {
+  const text = String(value ?? "").trim();
+  if (!/^\d{1,3}(?:\.\d{1,2})?$/.test(text)) throw new OrderError(`${field}_invalid`, 400);
+  const [whole, fraction = ""] = text.split(".");
+  const basisPoints = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+  if (basisPoints > 10000) throw new OrderError(`${field}_invalid`, 400);
+  return basisPoints;
 }
 
 /**
  * Define a plan, or change it (for boxes that get it afterwards). Every value is given: nothing
- * is assumed by code. The plan's name is the box line's name ("Truchsess box"); its prices are the
- * box's monthly price by customer number; the AI credits are their CHF price per month and the
- * USD allowance they buy.
+ * is assumed by code. The plan's name is the box line's name ("Truchsess box"); `boxChf` is the box
+ * price; the early bird is a discount (percent) on the first workflow for customers 1 to
+ * `earlyBirdCustomers`; `topUpUsdPerChf` is the USD allowance one CHF of a top-up buys.
  *
  * @param {{ query: Function }} client
- * @param {{ id: string; name: string; prices: string; currency?: string; pricesExcludeVat: boolean; aiCreditsChf: string; aiAllowanceUsd: string; freeMonths: number; includes: string[]; administrator: string }} input
+ * @param {{ id: string; name: string; boxChf: string; earlyBirdCustomers: number; earlyBirdPercent: string; earlyBirdNote?: string | null; topUpUsdPerChf: string; currency?: string; pricesExcludeVat: boolean; freeMonths: number; includes: string[]; administrator: string }} input
  */
 export async function definePlan(client, input) {
   const admin = administrator(input.administrator);
   if (!SLUG.test(String(input.id ?? ""))) throw new OrderError("plan_id_invalid", 400);
   const name = String(input.name ?? "").trim();
   if (!name || name.length > 120) throw new OrderError("plan_name_invalid", 400);
-  const steps = parsePriceSteps(input.prices);
-  const credits = parseChf(input.aiCreditsChf, "ai_credits");
-  const allowanceUsd = parseChf(input.aiAllowanceUsd, "ai_allowance_usd");
+  const boxCents = parseChf(input.boxChf, "box_price");
+  const earlyBirdCustomers = Number(input.earlyBirdCustomers);
+  if (!Number.isInteger(earlyBirdCustomers) || earlyBirdCustomers < 0 || earlyBirdCustomers > 100000) throw new OrderError("early_bird_customers_invalid", 400);
+  const earlyBirdBp = parsePercent(input.earlyBirdPercent, "early_bird_percent");
+  const earlyBirdNote = typeof input.earlyBirdNote === "string" && input.earlyBirdNote.trim() ? input.earlyBirdNote.trim() : null;
+  if (earlyBirdNote !== null && earlyBirdNote.length > 60) throw new OrderError("early_bird_note_invalid", 400);
+  if (earlyBirdCustomers > 0 && earlyBirdBp > 0 && earlyBirdNote === null) throw new OrderError("early_bird_note_required", 400);
+  // USD cents per CHF 1.00, e.g. "1" (USD 1.00 per CHF 1.00)
+  const topUpRate = parseChf(input.topUpUsdPerChf, "top_up_usd_per_chf");
   const currency = String(input.currency ?? "chf").trim().toLowerCase();
   if (!/^[a-z]{3}$/.test(currency)) throw new OrderError("currency_invalid", 400);
   if (typeof input.pricesExcludeVat !== "boolean") throw new OrderError("prices_exclude_vat_required", 400);
@@ -134,14 +129,42 @@ export async function definePlan(client, input) {
   const includes = (input.includes ?? []).map((item) => String(item).trim()).filter(Boolean);
   if (!includes.length || includes.length > 20 || includes.some((item) => item.length > 200)) throw new OrderError("includes_invalid", 400);
   await client.query(
-    "INSERT INTO company_os_plans(id,name,currency,prices_exclude_vat,ai_credits_cents,ai_allowance_usd_cents,free_months,includes,status,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'active',$9) ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,currency=EXCLUDED.currency,prices_exclude_vat=EXCLUDED.prices_exclude_vat,ai_credits_cents=EXCLUDED.ai_credits_cents,ai_allowance_usd_cents=EXCLUDED.ai_allowance_usd_cents,free_months=EXCLUDED.free_months,includes=EXCLUDED.includes,status='active',updated_by=EXCLUDED.updated_by,updated_at=now()",
-    [input.id, name, currency, input.pricesExcludeVat, credits, allowanceUsd, freeMonths, JSON.stringify(includes), admin],
+    "INSERT INTO company_os_plans(id,name,currency,prices_exclude_vat,box_price_cents,early_bird_customers,early_bird_discount_bp,early_bird_note,top_up_usd_cents_per_chf,free_months,includes,status,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'active',$12) ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,currency=EXCLUDED.currency,prices_exclude_vat=EXCLUDED.prices_exclude_vat,box_price_cents=EXCLUDED.box_price_cents,early_bird_customers=EXCLUDED.early_bird_customers,early_bird_discount_bp=EXCLUDED.early_bird_discount_bp,early_bird_note=EXCLUDED.early_bird_note,top_up_usd_cents_per_chf=EXCLUDED.top_up_usd_cents_per_chf,free_months=EXCLUDED.free_months,includes=EXCLUDED.includes,status='active',updated_by=EXCLUDED.updated_by,updated_at=now()",
+    [input.id, name, currency, input.pricesExcludeVat, boxCents, earlyBirdCustomers, earlyBirdBp, earlyBirdNote, topUpRate, freeMonths, JSON.stringify(includes), admin],
   );
-  await client.query("DELETE FROM company_os_plan_prices WHERE plan_id=$1", [input.id]);
-  for (const step of steps) await client.query("INSERT INTO company_os_plan_prices(plan_id,from_customer,monthly_price_cents,note) VALUES($1,$2,$3,$4)", [input.id, step.fromCustomer, step.monthlyPriceCents, step.note]);
-  const plan = { id: input.id, name, prices: steps, currency, pricesExcludeVat: input.pricesExcludeVat, aiCreditsCents: credits, aiAllowanceUsdCents: allowanceUsd, freeMonths, includes };
+  const plan = { id: input.id, name, boxPriceCents: boxCents, earlyBird: { customers: earlyBirdCustomers, discountBasisPoints: earlyBirdBp, note: earlyBirdNote }, topUpUsdCentsPerChf: topUpRate, currency, pricesExcludeVat: input.pricesExcludeVat, freeMonths, includes };
   await planAudit(client, "plan_defined", admin, plan, { planId: input.id });
   return plan;
+}
+
+/**
+ * A function bundle's kind: a workflow (with the USD AI allowance it includes) or a single agent
+ * (no allowance; it uses the box's pool). Checked with the whole catalog afterwards.
+ */
+export async function setBundleKind(client, input) {
+  const admin = administrator(input.administrator);
+  if (!["workflow", "agent"].includes(String(input.kind))) throw new OrderError("bundle_kind_invalid", 400);
+  const allowance = input.kind === "agent" ? 0 : parseChf(input.aiAllowanceUsd, "ai_allowance_usd");
+  if (input.kind === "agent" && input.aiAllowanceUsd !== undefined && input.aiAllowanceUsd !== null && parseChf(input.aiAllowanceUsd, "ai_allowance_usd") > 0) throw new OrderError("agent_has_no_ai_allowance", 400);
+  const updated = await client.query("UPDATE company_os_function_bundles SET kind=$2,ai_allowance_usd_cents=$3,updated_at=now() WHERE id=$1 RETURNING id", [input.bundleId, input.kind, allowance]);
+  if (!updated.rowCount) throw new OrderError("bundle_not_found", 404);
+  await assertCatalogPrices(client);
+  await planAudit(client, "plan_function_changed", admin, { bundleId: input.bundleId, kind: input.kind, aiAllowanceUsdCents: allowance });
+  return { bundleId: input.bundleId, kind: input.kind, aiAllowanceUsdCents: allowance };
+}
+
+/**
+ * The catalog's price rules: an agent's price never exceeds a workflow's (the lowest active
+ * workflow price in the same currency), and an agent has no AI allowance of its own. Run after
+ * every change of a bundle's price or kind; the admin command's transaction undoes a breach.
+ */
+export async function assertCatalogPrices(client) {
+  const rows = (await client.query("SELECT id,kind,monthly_price_cents,currency,ai_allowance_usd_cents FROM company_os_function_bundles WHERE status='active'")).rows;
+  for (const agent of rows.filter((row) => row.kind === "agent")) {
+    if (Number(agent.ai_allowance_usd_cents) > 0) throw new OrderError(`agent_has_no_ai_allowance:${agent.id}`, 409);
+    const workflows = rows.filter((row) => row.kind === "workflow" && row.currency === agent.currency).map((row) => Number(row.monthly_price_cents));
+    if (workflows.length && Number(agent.monthly_price_cents) > Math.min(...workflows)) throw new OrderError(`agent_price_above_workflow_price:${agent.id}:${agent.monthly_price_cents}:${Math.min(...workflows)}`, 409);
+  }
 }
 
 /** The Swiss VAT rate (in percent, e.g. "7.7") from a day on; an invoice month uses the rate in force on its first day. */
@@ -226,11 +249,14 @@ export async function setPlanFunction(client, input) {
 }
 
 /**
- * Give a box a plan. A box that counts (no administrator's mark) gets the next customer number of
- * the plan and the box price of that number, and keeps both (a box that held the plan before gets
- * its old number and price back). A marked box gets no number: it is shown the price the next
- * customer would pay and is never invoiced. The plan's workflows are granted by order at their
- * list price; invoice subscriptions the box already has join the plan at the price they have.
+ * Give a box a plan. A box that counts (no administrator's mark; boxes and own-hardware customers
+ * alike) gets the next customer number of the plan; the first `early_bird_customers` numbers get
+ * the early-bird discount on the first workflow. The box keeps its box price, discount and terms
+ * (a box that held the plan before gets its old number and terms back). A marked box gets no
+ * number: it is shown the terms the next customer would get and is never invoiced. On own
+ * hardware there is no box line. The plan's workflows are granted by order at their list price;
+ * invoice subscriptions the box already has join the plan at the price they have. A box always
+ * has at least one workflow.
  */
 export async function assignPlan(client, input) {
   const now = input.now ?? new Date();
@@ -241,6 +267,7 @@ export async function assignPlan(client, input) {
   if (Math.abs(startsAt.getTime() - now.getTime()) > 366 * DAY_MS) throw new OrderError("start_more_than_a_year_away", 400);
   const endsAt = parseOrderDate(input.endsOn, "end");
   if (endsAt && (endsAt.getTime() <= now.getTime() || endsAt.getTime() <= startsAt.getTime())) throw new OrderError("end_not_after_start_and_now", 400);
+  const ownHardware = input.ownHardware === true;
   const box = await client.query("SELECT 1 FROM company_os_instance_keys WHERE tenant_id=$1 AND instance_id=$2 AND revoked_at IS NULL", [input.tenantId, input.instanceId]);
   if (!box.rowCount) throw new OrderError("box_not_enrolled", 404);
   // the plan row is locked while customers are counted, so two boxes cannot get the same number
@@ -256,34 +283,38 @@ export async function assignPlan(client, input) {
     [input.tenantId, input.instanceId, plan.currency],
   );
   if (otherCurrency.rowCount) throw new OrderError(`box_currency_differs_from_plan:${otherCurrency.rows[0].currency}:${plan.currency}`);
-  const steps = (await client.query("SELECT from_customer,monthly_price_cents,note FROM company_os_plan_prices WHERE plan_id=$1", [plan.id])).rows;
   const mark = await boxMark(client, input.tenantId, input.instanceId);
   const customers = await countingCustomers(client, plan.id);
   const key = `${input.tenantId}/${input.instanceId}`;
   const customerNumber = mark ? null : (customers.get(key) ?? nextCustomerNumber(customers));
-  // a returning customer keeps the price it had with its number; only a new number takes today's steps
-  const earlier = customerNumber === null ? null : (await client.query("SELECT monthly_price_cents,price_note FROM company_os_box_plans WHERE plan_id=$1 AND tenant_id=$2 AND instance_id=$3 AND customer_number=$4 ORDER BY created_at LIMIT 1", [plan.id, input.tenantId, input.instanceId, customerNumber])).rows[0];
-  const price = earlier ? { cents: Number(earlier.monthly_price_cents), note: earlier.price_note ?? null } : priceFor(steps, customerNumber ?? nextCustomerNumber(customers));
-  const monthlyCents = price.cents;
+  // a returning customer keeps the terms it had with its number; only a new number takes today's
+  const earlier = customerNumber === null ? null : (await client.query("SELECT monthly_price_cents,own_hardware,early_bird_discount_bp,early_bird_note FROM company_os_box_plans WHERE plan_id=$1 AND tenant_id=$2 AND instance_id=$3 AND customer_number=$4 ORDER BY created_at LIMIT 1", [plan.id, input.tenantId, input.instanceId, customerNumber])).rows[0];
+  const number = customerNumber ?? nextCustomerNumber(customers);
+  const earlyBird = earlier ? Number(earlier.early_bird_discount_bp) > 0 : number <= Number(plan.early_bird_customers) && Number(plan.early_bird_discount_bp) > 0;
+  const discountBp = earlier ? Number(earlier.early_bird_discount_bp) : (earlyBird ? Number(plan.early_bird_discount_bp) : 0);
+  const discountNote = earlier ? (earlier.early_bird_note ?? null) : (earlyBird ? plan.early_bird_note : null);
+  const boxCents = ownHardware ? 0 : (earlier && !earlier.own_hardware ? Number(earlier.monthly_price_cents) : Number(plan.box_price_cents));
   const boxPlanId = randomUUID();
-  // the workflows the plan grants today are this box's, kept like its price
-  const grantedBundles = (await client.query("SELECT bundle_id FROM company_os_plan_functions WHERE plan_id=$1 ORDER BY bundle_id", [plan.id])).rows.map((row) => row.bundle_id);
+  // the workflows the plan grants today are this box's, kept like its terms
+  // workflows first: an agent rides on a box's workflows
+  const grantedBundles = (await client.query("SELECT f.bundle_id,b.kind FROM company_os_plan_functions f JOIN company_os_function_bundles b ON b.id=f.bundle_id WHERE f.plan_id=$1", [plan.id])).rows
+    .sort((a, b) => (a.kind === "workflow" ? 0 : 1) - (b.kind === "workflow" ? 0 : 1) || String(a.bundle_id).localeCompare(String(b.bundle_id))).map((row) => row.bundle_id);
   await client.query(
-    "INSERT INTO company_os_box_plans(id,tenant_id,instance_id,plan_id,plan_name,monthly_price_cents,price_note,currency,prices_exclude_vat,ai_credits_cents,ai_allowance_usd_cents,free_months,includes,customer_number,starts_at,ends_at,granted_by,created_at,included_bundles) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)",
-    [boxPlanId, input.tenantId, input.instanceId, plan.id, plan.name, monthlyCents, price.note, plan.currency, plan.prices_exclude_vat, plan.ai_credits_cents, plan.ai_allowance_usd_cents, plan.free_months, JSON.stringify(plan.includes), customerNumber, startsAt.toISOString(), endsAt ? endsAt.toISOString() : null, admin, now.toISOString(), JSON.stringify(grantedBundles)],
+    "INSERT INTO company_os_box_plans(id,tenant_id,instance_id,plan_id,plan_name,monthly_price_cents,own_hardware,early_bird_discount_bp,early_bird_note,top_up_usd_cents_per_chf,currency,prices_exclude_vat,free_months,includes,customer_number,starts_at,ends_at,granted_by,created_at,included_bundles) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)",
+    [boxPlanId, input.tenantId, input.instanceId, plan.id, plan.name, boxCents, ownHardware, discountBp, discountNote, plan.top_up_usd_cents_per_chf, plan.currency, plan.prices_exclude_vat, plan.free_months, JSON.stringify(plan.includes), customerNumber, startsAt.toISOString(), endsAt ? endsAt.toISOString() : null, admin, now.toISOString(), JSON.stringify(grantedBundles)],
   );
   // invoice subscriptions the box already has join the plan
   const existing = await client.query(
-    "SELECT s.id,s.bundle_id,s.copy_number,s.invoice_monthly_cents,b.monthly_price_cents FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.tenant_id=$1 AND s.instance_id=$2 AND s.billing_provider=$3 AND s.subscription_state<>'cancelled' AND s.box_plan_id IS NULL",
+    "SELECT s.id,s.bundle_id,s.copy_number,s.invoice_monthly_cents,s.invoice_kind,s.invoice_allowance_usd_cents,b.monthly_price_cents,b.kind,b.ai_allowance_usd_cents FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.tenant_id=$1 AND s.instance_id=$2 AND s.billing_provider=$3 AND s.subscription_state<>'cancelled' AND s.box_plan_id IS NULL",
     [input.tenantId, input.instanceId, INVOICE],
   );
   const joined = [];
   for (const row of existing.rows) {
-    // it keeps the price it has (also for the months before the plan) and never outlives the
-    // plan's planned end; an earlier end of its own stays
+    // it keeps the price, kind and allowance it has (also for the months before the plan) and never
+    // outlives the plan's planned end; an earlier end of its own stays
     const cents = Number(row.invoice_monthly_cents ?? row.monthly_price_cents);
-    await client.query("UPDATE company_os_bundle_subscriptions SET box_plan_id=$2,included_in_plan=false,invoice_monthly_cents=$3,pre_plan_monthly_cents=$3,invoice_currency=COALESCE(invoice_currency,$6),billing_ends_at=CASE WHEN $4::timestamptz IS NULL THEN billing_ends_at WHEN billing_ends_at IS NULL OR billing_ends_at>$4::timestamptz THEN $4::timestamptz ELSE billing_ends_at END,updated_at=$5 WHERE id=$1", [row.id, boxPlanId, cents, endsAt ? endsAt.toISOString() : null, now.toISOString(), plan.currency]);
-    joined.push({ subscriptionId: row.id, bundleId: row.bundle_id, copyNumber: Number(row.copy_number), monthlyPriceCents: cents });
+    await client.query("UPDATE company_os_bundle_subscriptions SET box_plan_id=$2,included_in_plan=false,invoice_monthly_cents=$3,pre_plan_monthly_cents=$3,invoice_currency=COALESCE(invoice_currency,$6),invoice_kind=COALESCE(invoice_kind,$7),invoice_allowance_usd_cents=COALESCE(invoice_allowance_usd_cents,$8),billing_ends_at=CASE WHEN $4::timestamptz IS NULL THEN billing_ends_at WHEN billing_ends_at IS NULL OR billing_ends_at>$4::timestamptz THEN $4::timestamptz ELSE billing_ends_at END,updated_at=$5 WHERE id=$1", [row.id, boxPlanId, cents, endsAt ? endsAt.toISOString() : null, now.toISOString(), plan.currency, row.kind, row.kind === "agent" ? 0 : Number(row.ai_allowance_usd_cents)]);
+    joined.push({ subscriptionId: row.id, bundleId: row.bundle_id, copyNumber: Number(row.copy_number), kind: row.invoice_kind ?? row.kind, monthlyPriceCents: cents });
   }
   // every workflow the plan grants that the box does not hold yet: granted by order at its list price
   const granted = [];
@@ -291,8 +322,10 @@ export async function assignPlan(client, input) {
     if (joined.some((item) => item.bundleId === bundleId && item.copyNumber === 1)) continue;
     granted.push(await grantSubscriptionByOrder(client, { tenantId: input.tenantId, instanceId: input.instanceId, bundleId, startsOn: input.startsOn, endsOn: input.endsOn ?? null, administrator: admin, note: `granted with plan ${plan.id}`, now }));
   }
-  const result = { boxPlanId, planId: plan.id, planName: plan.name, customerNumber, mark, monthlyPriceCents: monthlyCents, priceNote: price.note, startsAt: startsAt.toISOString(), endsAt: endsAt ? endsAt.toISOString() : null, granted, joined, grantedBy: admin };
-  await planAudit(client, "plan_assigned", admin, { tenantId: input.tenantId, instanceId: input.instanceId, planId: plan.id, customerNumber, mark, monthlyPriceCents: monthlyCents, startsAt: result.startsAt, endsAt: result.endsAt, granted: granted.map((item) => item.bundleId), joined: joined.map((item) => item.bundleId), note: input.note ?? null }, { planId: plan.id, boxPlanId }, now);
+  // a box always has at least one workflow
+  if (![...joined, ...granted].some((item) => (item.kind ?? "workflow") === "workflow")) throw new OrderError("box_needs_a_workflow", 409);
+  const result = { boxPlanId, planId: plan.id, planName: plan.name, customerNumber, mark, ownHardware, boxPriceCents: boxCents, earlyBird: discountBp > 0 ? { discountBasisPoints: discountBp, note: discountNote } : null, startsAt: startsAt.toISOString(), endsAt: endsAt ? endsAt.toISOString() : null, granted, joined, grantedBy: admin };
+  await planAudit(client, "plan_assigned", admin, { tenantId: input.tenantId, instanceId: input.instanceId, planId: plan.id, customerNumber, mark, ownHardware, boxPriceCents: boxCents, earlyBirdDiscountBp: discountBp, startsAt: result.startsAt, endsAt: result.endsAt, granted: granted.map((item) => item.bundleId), joined: joined.map((item) => item.bundleId), note: input.note ?? null }, { planId: plan.id, boxPlanId }, now);
   return result;
 }
 
@@ -314,7 +347,7 @@ export async function endPlan(client, input) {
   // the subscriptions end at the plan's exact deadline, not at a rounded number of days; they are
   // ended before the plan's own end is written, so the date sweep (which also follows a plan's end)
   // cannot end them while this loop still works through them
-  for (const row of subscriptions.rows) ended.push(await endSubscriptionByAdmin(client, { subscriptionId: row.id, graceDays, effectiveAt: effective, administrator: admin, reason: reason ?? `plan ${plan.plan_id} ended`, now }));
+  for (const row of subscriptions.rows) ended.push(await endSubscriptionByAdmin(client, { subscriptionId: row.id, graceDays, effectiveAt: effective, administrator: admin, reason: reason ?? `plan ${plan.plan_id} ended`, now, withPlan: true }));
   await client.query("UPDATE company_os_box_plans SET ends_at=$2,ended_by=$3,end_reason=$4 WHERE id=$1", [plan.id, effective.toISOString(), admin, reason]);
   // a subscription an administrator already ended later than the plan now ends with the plan; an earlier end stays
   const later = await client.query("SELECT id FROM company_os_bundle_subscriptions WHERE box_plan_id=$1 AND billing_provider=$2 AND subscription_state='cancel_at_period_end' AND admin_ended_at IS NOT NULL AND cancel_effective_at>$3", [plan.id, INVOICE, effective.toISOString()]);
@@ -329,9 +362,8 @@ export async function endPlan(client, input) {
 }
 
 /**
- * A one-time invoice line for one box and month in CHF: an AI credits top-up, which adds AI
- * allowance at the rate of the box's plan (its monthly credits' USD allowance per CHF), or AI use
- * above the allowance (no allowance).
+ * A one-time invoice line for one box and month in CHF: an AI top-up, which adds USD allowance at
+ * the top-up rate of the box's plan, or AI use above the allowance (no allowance).
  */
 export async function addInvoiceLine(client, input) {
   const now = input.now ?? new Date();
@@ -348,9 +380,9 @@ export async function addInvoiceLine(client, input) {
   if (!plan) throw new OrderError(held.length ? "box_has_no_plan_in_month" : "box_has_no_plan", 404);
   let allowanceUsd = null;
   if (kind === "ai_top_up") {
-    // the same rate as the monthly credits: USD allowance per CHF, both data on the box's plan
-    if (!(Number(plan.ai_credits_cents) > 0)) throw new OrderError("plan_has_no_ai_credits_rate", 409);
-    allowanceUsd = Math.round((amount * Number(plan.ai_allowance_usd_cents)) / Number(plan.ai_credits_cents));
+    // the top-up rate of the box's plan: USD cents of allowance per CHF 1.00
+    if (!(Number(plan.top_up_usd_cents_per_chf) > 0)) throw new OrderError("plan_has_no_top_up_rate", 409);
+    allowanceUsd = Math.round((amount * Number(plan.top_up_usd_cents_per_chf)) / 100);
   }
   const description = typeof input.description === "string" && input.description.trim() ? input.description.trim().slice(0, 200) : ITEM_TEXT[kind];
   const id = randomUUID();
@@ -362,20 +394,20 @@ export async function addInvoiceLine(client, input) {
   return { invoiceLineId: id, month: month.label, kind, description, amountCents: amount, currency: plan.currency, allowanceUsdCents: allowanceUsd };
 }
 
-/** The plans with their box price steps, workflows, AI credits, and how many customers count (and what the next one's box costs). */
+/** The plans with their box price, early bird, top-up rate, workflows, and how many customers count. */
 export async function planList(client) {
   const plans = (await client.query("SELECT * FROM company_os_plans ORDER BY id")).rows;
   const functions = (await client.query("SELECT plan_id,bundle_id FROM company_os_plan_functions ORDER BY bundle_id")).rows;
-  const prices = (await client.query("SELECT plan_id,from_customer,monthly_price_cents,note FROM company_os_plan_prices ORDER BY from_customer")).rows;
   const out = [];
   for (const plan of plans) {
-    const steps = prices.filter((row) => row.plan_id === plan.id);
     const customers = await countingCustomers(client, plan.id);
+    const next = nextCustomerNumber(customers);
     out.push({
-      id: plan.id, name: plan.name, currency: plan.currency, pricesExcludeVat: plan.prices_exclude_vat, aiCreditsCents: plan.ai_credits_cents, aiAllowanceUsdCents: plan.ai_allowance_usd_cents, freeMonths: plan.free_months,
-      includes: plan.includes, status: plan.status, workflows: functions.filter((row) => row.plan_id === plan.id).map((row) => row.bundle_id),
-      prices: steps.map((row) => ({ fromCustomer: Number(row.from_customer), monthlyPriceCents: Number(row.monthly_price_cents), note: row.note ?? null })),
-      payingCustomers: customers.size, nextCustomerNumber: nextCustomerNumber(customers), nextCustomerPays: steps.length ? priceFor(steps, nextCustomerNumber(customers)).cents : null,
+      id: plan.id, name: plan.name, currency: plan.currency, pricesExcludeVat: plan.prices_exclude_vat, boxPriceCents: Number(plan.box_price_cents), freeMonths: plan.free_months,
+      earlyBird: { customers: Number(plan.early_bird_customers), discountBasisPoints: Number(plan.early_bird_discount_bp), note: plan.early_bird_note ?? null },
+      topUpUsdCentsPerChf: Number(plan.top_up_usd_cents_per_chf), includes: plan.includes, status: plan.status,
+      workflows: functions.filter((row) => row.plan_id === plan.id).map((row) => row.bundle_id),
+      payingCustomers: customers.size, nextCustomerNumber: next, nextCustomerGetsEarlyBird: next <= Number(plan.early_bird_customers) && Number(plan.early_bird_discount_bp) > 0,
     });
   }
   return out;
@@ -398,16 +430,15 @@ function vatText(plan) {
 
 /**
  * What to invoice for one month, per box, all plus VAT (or with VAT included, as the plan says):
- * the Truchsess box line (its price by customer number, with its note such as "Free, early bird",
- * and what it includes), the AI credits line, one line per workflow at its price, one-time lines,
- * then the net subtotal, the VAT at the rate in force on the month's first day, and the total.
- * Every monthly line is billed for the days it ran when that is only part of the month (price x
- * days / days in the month, rounded to the cent); a workflow on a plan follows the plan's days and
- * stops with it. Free months (if a plan has any) count from the month the plan starts and cover
- * that plan's lines. The AI credits and top-ups also carry the USD allowance they buy
- * (`allowanceUsdCents`, for the box to enforce; never shown). Subscriptions billed by a provider
- * (Polar) are not here. A box an administrator marked (test, Old School's own) is listed with
- * `invoiced: false`.
+ * the box line (none on own hardware) with what it includes, each workflow and each single agent
+ * at its price, the early-bird discount on the first workflow, one-time lines, then the net
+ * subtotal, the VAT at the rate in force on the month's first day, and the total. Every monthly
+ * line is billed for the days it ran when that is only part of the month (price x days / days in
+ * the month, rounded to the cent); a workflow or agent on a plan follows the plan's days and stops
+ * with it. Free months (if a plan has any) count from the month the plan starts and cover that
+ * plan's lines. Workflows and top-ups carry the USD allowance they give (`allowanceUsdCents`, for
+ * the box to enforce; never shown or printed). Subscriptions billed by a provider (Polar) are not
+ * here. A box an administrator marked (test, Old School's own) is listed with `invoiced: false`.
  *
  * @param {{ query: Function }} client
  * @param {{ month: string; tenantId?: string | null; instanceId?: string | null; withoutTotals?: boolean }} input
@@ -424,7 +455,7 @@ export async function invoiceLines(client, input) {
     .map((plan) => ({ ...plan, days: daysWithin(month, plan.starts_at, plan.ends_at ?? null) }))
     .filter((plan) => plan.days > 0);
   const subscriptions = (await client.query(
-    `SELECT s.id,s.tenant_id,s.instance_id,s.bundle_id,s.copy_number,s.billing_description,s.subscription_state,s.billing_starts_at,s.entitled_at,s.billing_ends_at,s.cancel_effective_at,s.stopped_at,s.invoice_monthly_cents,s.pre_plan_monthly_cents,s.included_in_plan,s.box_plan_id,s.created_at,b.monthly_price_cents,COALESCE(s.invoice_currency,b.currency) AS currency FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.billing_provider='invoice' AND ($1::uuid IS NULL OR s.tenant_id=$1::uuid) AND ($2::uuid IS NULL OR s.instance_id=$2::uuid) ORDER BY s.created_at`,
+    `SELECT s.id,s.tenant_id,s.instance_id,s.bundle_id,s.copy_number,s.billing_description,s.subscription_state,s.billing_starts_at,s.entitled_at,s.billing_ends_at,s.cancel_effective_at,s.stopped_at,s.invoice_monthly_cents,s.pre_plan_monthly_cents,s.included_in_plan,s.box_plan_id,s.created_at,b.monthly_price_cents,COALESCE(s.invoice_currency,b.currency) AS currency,COALESCE(s.invoice_kind,b.kind) AS kind,COALESCE(s.invoice_allowance_usd_cents,CASE WHEN b.kind='agent' THEN 0 ELSE b.ai_allowance_usd_cents END) AS allowance_usd_cents FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.billing_provider='invoice' AND ($1::uuid IS NULL OR s.tenant_id=$1::uuid) AND ($2::uuid IS NULL OR s.instance_id=$2::uuid) ORDER BY s.created_at`,
     scope,
   )).rows.map((row) => {
     const start = new Date(row.billing_starts_at ?? row.entitled_at ?? row.created_at).getTime();
@@ -477,43 +508,62 @@ export async function invoiceLines(client, input) {
       if (plan && plan.prices_exclude_vat === false) sums.inclusive += cents;
       else sums.exclusive += cents;
     };
-    if (!box.plans.length) add("no_plan", "No plan on this box", 0, "workflows only");
+    if (!box.plans.length) add("no_plan", "No plan on this box", 0, "workflows and agents only");
     for (const plan of box.plans) {
+      // the box, for the days it ran; none on own hardware
+      if (plan.own_hardware) continue;
       const free = freeNoteOf.get(plan.id);
-      // the box: its price by customer number (and that price's note), for the days it ran
       const boxPrice = free ? 0 : forDays(Number(plan.monthly_price_cents), plan.days, total);
       charge(boxPrice, plan.id);
-      add("box", `${plan.plan_name}, monthly`, boxPrice, notes(free ?? plan.price_note, daysNote(plan.days)));
+      add("box", `${plan.plan_name}, monthly`, boxPrice, notes(free, daysNote(plan.days)));
       const includes = Array.isArray(plan.includes) ? plan.includes : [];
       if (includes.length) add("box_includes", `Includes: ${includes.join("; ")}`, 0, "included with the box");
-      // the AI credits: a priced line; the USD allowance they buy goes with it for the box to enforce
-      if (Number(plan.ai_credits_cents) > 0 || Number(plan.ai_allowance_usd_cents) > 0) {
-        const credits = free ? 0 : forDays(Number(plan.ai_credits_cents), plan.days, total);
-        charge(credits, plan.id);
-        add("ai_credits", "AI credits, monthly", credits, notes(free, daysNote(plan.days)), { allowanceUsdCents: forDays(Number(plan.ai_allowance_usd_cents), plan.days, total) });
-      }
     }
-    // a workflow's days in the month split into the days before its plan started (the price it
-    // had then), the days its plan ran, and the days after its plan ended (not billed: the plan's
-    // end ends what rides on it)
-    // workflow lines in a fixed order: by name, then by start
-    const ordered = [...box.subscriptions].sort((a, b) => String(a.billing_description).localeCompare(String(b.billing_description)) || a.start - b.start || String(a.id).localeCompare(String(b.id)));
+    // a subscription's days split into the days before its plan started (the price it had then),
+    // the days its plan ran, and the days after its plan ended (not billed: the plan's end ends what
+    // rides on it); workflows first, then agents, each by name
+    const segments = [];
+    const ordered = [...box.subscriptions].sort((a, b) => (a.kind === "workflow" ? 0 : 1) - (b.kind === "workflow" ? 0 : 1) || String(a.billing_description).localeCompare(String(b.billing_description)) || a.start - b.start || String(a.id).localeCompare(String(b.id)));
     for (const row of ordered) {
       const linked = row.box_plan_id ? anyPlanById.get(row.box_plan_id) : null;
       const plan = linked && planById.has(linked.id) ? linked : null;
       const planStart = linked ? new Date(linked.starts_at).getTime() : null;
-      const onPlan = plan ? daysWithin(month, Math.max(row.start, planStart), row.stop) : 0;
-      const offPlan = linked ? daysWithin(month, row.start, row.stop === null ? planStart : Math.min(row.stop, planStart)) : row.days;
+      const onFrom = plan ? Math.max(row.start, planStart) : null;
+      const onPlan = plan ? daysWithin(month, onFrom, row.stop) : 0;
+      const offTo = linked ? (row.stop === null ? planStart : Math.min(row.stop, planStart)) : row.stop;
+      const offPlan = linked ? daysWithin(month, row.start, offTo) : row.days;
+      const allowance = row.kind === "agent" ? 0 : Number(row.allowance_usd_cents ?? 0);
       if (onPlan > 0) {
         const free = freeNoteOf.get(plan.id);
         const price = free ? 0 : forDays(Number(row.invoice_monthly_cents ?? row.monthly_price_cents), onPlan, total);
         charge(price, plan.id);
-        add("workflow", row.billing_description, price, notes(free, daysNote(onPlan)));
+        add(row.kind, row.billing_description, price, notes(free, daysNote(onPlan)), row.kind === "workflow" ? { allowanceUsdCents: forDays(allowance, onPlan, total) } : {});
+        segments.push({ row, plan, from: onFrom, stop: row.stop, free });
       }
       if (offPlan > 0) {
         const price = forDays(Number(row.pre_plan_monthly_cents ?? row.invoice_monthly_cents ?? row.monthly_price_cents), offPlan, total);
         charge(price, null);
-        add("workflow", row.billing_description, price, daysNote(offPlan));
+        add(row.kind, row.billing_description, price, daysNote(offPlan), row.kind === "workflow" ? { allowanceUsdCents: forDays(allowance, offPlan, total) } : {});
+      }
+    }
+    // the early bird: each day, the discount goes to the first workflow on the plan that runs that
+    // day (the earliest started), for the days it is first; kept for as long as the customer stays
+    for (const plan of box.plans) {
+      const bp = Number(plan.early_bird_discount_bp ?? 0);
+      if (!(bp > 0)) continue;
+      const own = segments.filter((segment) => segment.plan.id === plan.id && segment.row.kind === "workflow")
+        .sort((a, b) => a.row.start - b.row.start || new Date(a.row.created_at).getTime() - new Date(b.row.created_at).getTime() || String(a.row.billing_description).localeCompare(String(b.row.billing_description)) || String(a.row.id).localeCompare(String(b.row.id)));
+      const firstDays = new Map();
+      for (let day = 0; day < total; day += 1) {
+        const at = month.start.getTime() + day * DAY_MS;
+        const first = own.find((segment) => dayStart(segment.from) <= at && (segment.stop === null || at < dayStart(segment.stop)));
+        if (first) firstDays.set(first, (firstDays.get(first) ?? 0) + 1);
+      }
+      for (const [segment, days] of firstDays) {
+        const monthly = Math.round((Number(segment.row.invoice_monthly_cents ?? segment.row.monthly_price_cents) * bp) / 10000);
+        const discount = segment.free ? 0 : -forDays(monthly, days, total);
+        charge(discount, plan.id);
+        add("discount", `${plan.early_bird_note ?? "Discount"}: ${segment.row.billing_description} ${bp / 100}% off`, discount, notes(segment.free, daysNote(days)));
       }
     }
     // one currency per box: refuse loudly rather than add up francs and another currency
@@ -554,15 +604,19 @@ function csvCell(value) {
 /** The lines as CSV, one row per line, amounts in francs with two decimals; marked boxes only when asked. */
 export function invoiceCsv(lines, options = {}) {
   const rows = [CSV_COLUMNS.join(",")];
-  for (const line of lines.filter((item) => item.invoiced || options.includeNotInvoiced)) rows.push([line.month, line.box, line.tenantId, line.instanceId, line.plan, line.line, line.description, money(line.amountCents), line.currency.toUpperCase(), line.vat, line.note].map(csvCell).join(","));
+  for (const line of lines.filter((item) => item.invoiced || options.includeNotInvoiced)) {
+    // text cells are guarded against spreadsheet formulas; the amount is a number (a discount is negative)
+    const cells = [line.month, line.box, line.tenantId, line.instanceId, line.plan, line.line, line.description].map(csvCell);
+    rows.push([...cells, money(line.amountCents), ...[line.currency.toUpperCase(), line.vat, line.note].map(csvCell)].join(","));
+  }
   return `${rows.join("\n")}\n`;
 }
 
 /**
  * What the box shows on its Plan and costs page: its plan's terms and the month's lines (the same
- * ones Old School invoices), and the AI allowance the box enforces this month. Amounts the box
- * shows are in CHF; the allowance in USD is for enforcing only (the box pauses AI work when it is
- * used up) and is never shown.
+ * ones Old School invoices), and the AI allowance the box enforces this month: the USD allowance of
+ * its workflows for their days plus top-ups. Amounts the box shows are in CHF; the USD allowance is
+ * for enforcing only (the box pauses AI work when it is used up) and is never shown.
  */
 export async function boxPlanView(client, input) {
   const now = input.now ?? new Date();
@@ -581,26 +635,26 @@ export async function boxPlanView(client, input) {
     ready = false;
     allowanceLines = await invoiceLines(client, { month, tenantId: input.tenantId, instanceId: input.instanceId, withoutTotals: true });
   }
-  const aiLines = allowanceLines.filter((line) => line.allowanceUsdCents !== undefined);
   const aiAllowance = {
-    usdCents: aiLines.reduce((sum, line) => sum + Number(line.allowanceUsdCents), 0),
-    chfCents: aiLines.reduce((sum, line) => sum + Number(line.amountCents), 0),
+    usdCents: allowanceLines.reduce((sum, line) => sum + Number(line.allowanceUsdCents ?? 0), 0),
+    topUpChfCents: allowanceLines.filter((line) => line.line === "ai_top_up").reduce((sum, line) => sum + Number(line.amountCents), 0),
   };
   const shown = lines.map(({ tenantId: _tenant, instanceId: _instance, allowanceUsdCents: _usd, ...line }) => line);
   const workflowIds = plan ? (Array.isArray(plan.included_bundles) ? plan.included_bundles : (await client.query("SELECT bundle_id FROM company_os_plan_functions WHERE plan_id=$1", [plan.plan_id])).rows.map((row) => row.bundle_id)) : [];
-  const workflows = workflowIds.length ? (await client.query("SELECT id,name,monthly_price_cents FROM company_os_function_bundles ORDER BY name")).rows.filter((row) => workflowIds.includes(row.id)).map((row) => ({ bundleId: row.id, name: row.name })) : [];
+  const workflows = workflowIds.length ? (await client.query("SELECT id,name,kind FROM company_os_function_bundles ORDER BY name")).rows.filter((row) => workflowIds.includes(row.id)).map((row) => ({ bundleId: row.id, name: row.name, kind: row.kind })) : [];
   return {
     month,
     plan: plan
       ? {
-          planId: plan.plan_id, name: plan.plan_name, boxMonthlyCents: Number(plan.monthly_price_cents), boxPriceNote: plan.price_note ?? null, aiCreditsCents: Number(plan.ai_credits_cents),
+          planId: plan.plan_id, name: plan.plan_name, ownHardware: plan.own_hardware === true, boxMonthlyCents: Number(plan.monthly_price_cents),
+          earlyBird: Number(plan.early_bird_discount_bp) > 0 ? { note: plan.early_bird_note ?? null, percent: Number(plan.early_bird_discount_bp) / 100 } : null,
           currency: plan.currency, pricesExcludeVat: plan.prices_exclude_vat, freeMonths: Number(plan.free_months), includes: plan.includes,
           startsAt: new Date(plan.starts_at).toISOString(), endsAt: plan.ends_at ? new Date(plan.ends_at).toISOString() : null,
           workflows,
         }
       : null,
     lines: shown,
-    // the allowance the box enforces this month (USD, never shown) and what it cost (CHF, shown)
+    // the allowance the box enforces this month (USD, never shown) and the top-ups bought (CHF, shown)
     aiAllowance,
     ready,
     message: ready ? null : "The costs for this month are not ready yet. Old School is preparing them.",

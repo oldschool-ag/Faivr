@@ -35,9 +35,10 @@ describe.skipIf(!url)("ST1 plans on Postgres: one transaction per admin command"
     for (const box of boxes) await admin.query("INSERT INTO company_os_instance_keys(tenant_id,instance_id,key_id,public_key,label,enrolled_at) VALUES($1,$2,'k','pem','box',now())", [tenantId, box]);
     await admin.query("INSERT INTO company_os_function_bundles(id,name,description,monthly_price_cents) VALUES('customers','Customers','CRM',0),('retired-workflow','Retired','gone',0)");
     await admin.query("UPDATE company_os_function_bundles SET status='retired' WHERE id='retired-workflow'");
-    await definePlan(admin, { id: PLAN, name: "Customers and Product management", prices: "1=149|2=249", aiCreditsChf: "30", aiAllowanceUsd: "30", freeMonths: 0, pricesExcludeVat: true, includes: ["Support"], administrator: ADMIN });
+    const terms = { boxChf: "100", earlyBirdPercent: "50", earlyBirdNote: "Early bird", topUpUsdPerChf: "1", freeMonths: 0, pricesExcludeVat: true, includes: ["Support"], administrator: ADMIN };
+    await definePlan(admin, { id: PLAN, name: "Truchsess box", earlyBirdCustomers: 1, ...terms });
     await setPlanFunction(admin, { planId: PLAN, bundleId: "customers", granted: true, administrator: ADMIN });
-    await definePlan(admin, { id: "broken-plan", name: "Broken", prices: "1=10", aiCreditsChf: "0", aiAllowanceUsd: "0", freeMonths: 0, pricesExcludeVat: true, includes: ["Support"], administrator: ADMIN });
+    await definePlan(admin, { id: "broken-plan", name: "Broken", earlyBirdCustomers: 0, ...terms });
     await setPlanFunction(admin, { planId: "broken-plan", bundleId: "retired-workflow", granted: true, administrator: ADMIN });
   });
 
@@ -70,8 +71,9 @@ describe.skipIf(!url)("ST1 plans on Postgres: one transaction per admin command"
       expect(waited).toBe("waiting");
       await a.query("COMMIT");
       const done = await second;
-      expect([first.customerNumber, first.monthlyPriceCents]).toEqual([1, 14900]);
-      expect([done.customerNumber, done.monthlyPriceCents]).toEqual([2, 24900]);
+      // customer 1 is the plan's only early bird here; customer 2 is not
+      expect([first.customerNumber, first.earlyBird?.discountBasisPoints]).toEqual([1, 5000]);
+      expect([done.customerNumber, done.earlyBird]).toEqual([2, null]);
     } finally {
       await a.end();
       await b.end();

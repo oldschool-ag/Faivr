@@ -211,53 +211,68 @@ What the box sees: the catalog's `subscription` and the subscription view carry 
 
 ### Plans and invoices (ST1)
 
-The invoice sells workflows, not boxes. Every value is data entered with the store admin command: the store's code holds no price, allowance or VAT rate. The box's Plan and costs page reads the same lines from the store (`GET /api/company-os/v1/store/plan?month=YYYY-MM`, signed by the box), so the page and the invoice always agree.
+The CEO's final price structure of 26 Nov 2026. Every value is data entered with the store admin command: the store's code holds no price, allowance, discount, rate or VAT rate. The box's Plan and costs page reads the same lines from the store (`GET /api/company-os/v1/store/plan?month=YYYY-MM`, signed by the box), so the page and the invoice always agree.
 
 Per box and month, all plus VAT:
-- **Truchsess box:** the plan's line. Its monthly price goes by customer number, and each price step can carry a note for the invoice. Today: CHF 0 with "Free, early bird" for customers 1 to 50, CHF 100 from customer 51. What the box includes is listed under it.
-- **One line per workflow** at its list price (the catalog entry's monthly price, today CHF 59.50). The plan's workflows (today Customers and Product management) are granted by order when the box gets the plan; later workflows are added per box with `grant-by-order`. No minimum number of workflows is set.
-- **AI credits:** a priced line (today CHF 30). The credits buy an AI provider allowance in USD (today USD 30) that the box enforces: it pauses AI work when the allowance is used up. Top-ups are one-time CHF lines, each adding allowance at the same rate (the plan's USD allowance per CHF of credits). The box shows credits in CHF only, never USD.
+- **Box:** the plan's box price (today CHF 100), with what the box includes listed under it. Optional: a customer on its own hardware (a device or a server) has no box line (`assign-plan --own-hardware`).
+- **Workflow:** one line per workflow at its list price (today CHF 179 each). Each workflow includes an AI provider allowance in USD (today USD 30 per month); the allowances of a box's workflows add up (two workflows: USD 60). A box always has at least one workflow. The developer workflow (internal name Bob) is a workflow like the others.
+- **Single agent:** one line per agent at its list price (today CHF 59 to 149). An agent has no AI allowance of its own: it uses the box's pool. An agent's price may never be above a workflow's: the store refuses it (`agent_price_above_workflow_price`) when a price or kind is set and when an agent is granted.
+- **Early bird:** customers 1 to 50 by customer number (box and own-hardware customers count alike; marked boxes never count) get the first workflow at 50 percent, as its own discount line ("Early bird: Customers 50% off", CHF -89.50). It is kept for as long as the customer stays, also when the plan changes later. Further workflows are at full price.
+- **Top-ups:** one-time CHF lines that add USD allowance at the plan's top-up rate (today USD 1 per CHF 1).
+- **Never per person:** a workflow or agent is priced per box, whatever the number of users.
 
-Result today: customers 1 to 50 with both workflows CHF 149.00 net, from customer 51 CHF 249.00 net.
+Results today (net, before VAT):
+
+| Customer | Normal | Early bird (customers 1 to 50) |
+| --- | ---: | ---: |
+| Box and one workflow | CHF 279.00 | CHF 189.50 |
+| Own hardware and one workflow | CHF 179.00 | CHF 89.50 |
 
 Rules:
-- **What a granted workflow keeps.** A workflow granted by order keeps the price and currency it was granted at. A later change to the catalog entry applies only to later grants.
-- **Customer numbers.** A box that gets a plan gets the highest customer number of the boxes that count plus one, and keeps the box price (and note) of its number, also when the plan's prices change later. A box that held the plan before gets its old number and price back. Customers are counted per plan and per box. A box also keeps the workflows its plan granted when it got the plan.
-- **Boxes that never count.** An administrator marks a test box or one of Old School's own boxes (`mark-box`; no box request can). A marked box gets no customer number, is shown the price the next customer would pay, and is left out of `invoice-csv` (`--include-not-invoiced` shows it). Set the mark before `assign-plan`: the customer number is given at that moment. A box marked later stops counting and is no longer invoiced, and its number is not given again.
+- **What a box keeps.** A workflow or agent granted by order keeps the price, currency, kind and AI allowance it was granted with; a later change to the catalog entry applies only to later grants. A box keeps its box price, its early bird and the workflows its plan granted when it got the plan.
+- **Customer numbers.** A box that gets a plan gets the highest customer number of the boxes that count plus one. A box that held the plan before gets its old number, box price and early bird back. Customers are counted per plan and per box.
+- **Boxes that never count.** An administrator marks a test box or one of Old School's own boxes (`mark-box`; no box request can). A marked box gets no customer number, is shown the terms the next customer would get, and is left out of `invoice-csv` (`--include-not-invoiced` shows it). Set the mark before `assign-plan`: the customer number is given at that moment. A box marked later stops counting and is no longer invoiced, and its number is not given again.
+- **At least one workflow.** A plan that grants no workflow cannot be assigned (`box_needs_a_workflow`); an agent needs a workflow on the box (`agent_needs_a_workflow_on_the_box`); the last workflow of a running plan is not ended alone (`last_workflow_end_the_plan_instead`): end the plan with `end-plan`.
 - **VAT.** The Swiss rate is data by the day it applies from (`set-vat-rate`, the first command below); a month uses the rate in force on its first day. Without one, `invoice-csv` refuses the month, and the box's Plan and costs page says that the month's costs are not ready yet. The box still gets its AI allowance. Each box gets a net subtotal, the VAT (on the net subtotal, rounded to the cent) and the total.
-- **Billing by days.** Billing starts with the first month and is counted in days. Every monthly line that runs only part of a month (box, workflow, AI credits; the first month, the last month, a change of plan, an end and a new start) is billed as price x days it ran / days in the month, rounded to the cent; the USD allowance follows the same days. A day counts from the day a line starts up to the day it ends (that day not included). The note says "30 of 31 days". A workflow on a plan stops with the plan. Free months stay possible as data (0 below).
-- **Uninstalled workflows.** A workflow billed by invoice keeps billing after the client uninstalls it, until Old School ends it. When a client uninstalls one, end it the same day with `end-subscription --subscription <id> --grace-days 0 --by "<your name>"`.
+- **Billing by days.** Billing starts with the first month and is counted in days. Every monthly line that runs only part of a month (box, workflow, agent, early-bird discount; the first month, the last month, a change of plan, an end and a new start) is billed as price x days it ran / days in the month, rounded to the cent; the USD allowance follows the same days, and so do the workflows and agents on a plan. A day counts from the day a line starts up to the day it ends (that day not included). The note says "30 of 31 days". Free months stay possible as data (0 below).
+- **Uninstalled workflows and agents.** One billed by invoice keeps billing after the client uninstalls it, until Old School ends it. When a client uninstalls one, end it the same day with `end-subscription --subscription <id> --grace-days 0 --by "<your name>"` (the last workflow: `end-plan`).
 
-The commands with the CEO's numbers of 26 Nov 2026, in this order (the CEO confirms them before the first box gets the plan; the workflow ids are the catalog's). The VAT rate comes first: without it no month can be invoiced. Every command runs in one transaction: it is done completely or not at all.
+The commands with the CEO's numbers, in this order (the CEO confirms them before the first box gets the plan; the ids are the catalog's). The VAT rate comes first: without it no month can be invoiced. Every command runs in one transaction: it is done completely or not at all. The function bundles' list prices from the store of 8 Oct are data too: set each to its new value with `set-price --amount-cents` and `set-bundle-kind` (a bundle is a workflow until told otherwise).
 
 ```
 node scripts/company-os-store-admin.mjs set-vat-rate --from 2024-01-01 --percent 8.1 --by "<your name>"
-node scripts/company-os-store-admin.mjs create-bundle --id <Customers workflow id> --name "Customers" --description "..." --amount-cents 5950
-node scripts/company-os-store-admin.mjs create-bundle --id <Product management workflow id> --name "Product management" --description "..." --amount-cents 5950
-node scripts/company-os-store-admin.mjs define-plan --id truchsess-box --name "Truchsess box" --prices "1=0:Free, early bird|51=100" --ai-credits-chf 30 --ai-allowance-usd 30 --free-months 0 --prices-exclude-vat yes --includes "Setup in our office|Updates of agents, system and AI|Safety copies|Support|2 years warranty on the box" --by "<your name>"
-node scripts/company-os-store-admin.mjs plan-function --plan truchsess-box --bundle <Customers workflow id> --granted yes --by "<your name>"
-node scripts/company-os-store-admin.mjs plan-function --plan truchsess-box --bundle <Product management workflow id> --granted yes --by "<your name>"
+node scripts/company-os-store-admin.mjs create-bundle --id <Customers id> --name "Customers" --description "..." --amount-cents 17900 --kind workflow --ai-allowance-usd 30 --by "<your name>"
+node scripts/company-os-store-admin.mjs create-bundle --id <Product management id> --name "Product management" --description "..." --amount-cents 17900 --kind workflow --ai-allowance-usd 30 --by "<your name>"
+node scripts/company-os-store-admin.mjs create-bundle --id <developer workflow id> --name "Developer" --description "..." --amount-cents 17900 --kind workflow --ai-allowance-usd 30 --by "<your name>"
+node scripts/company-os-store-admin.mjs create-bundle --id <agent id> --name "<agent>" --description "..." --amount-cents 5900 --kind agent --by "<your name>"
+node scripts/company-os-store-admin.mjs set-price --id <existing bundle id> --amount-cents 17900
+node scripts/company-os-store-admin.mjs set-bundle-kind --id <existing bundle id> --kind workflow --ai-allowance-usd 30 --by "<your name>"
+node scripts/company-os-store-admin.mjs define-plan --id truchsess --name "Truchsess box" --box-chf 100 --early-bird-customers 50 --early-bird-percent 50 --early-bird-note "Early bird" --top-up-usd-per-chf 1 --free-months 0 --prices-exclude-vat yes --includes "Setup in our office|Updates of agents, system and AI|Safety copies|Support|2 years warranty on the box" --by "<your name>"
+node scripts/company-os-store-admin.mjs plan-function --plan truchsess --bundle <Customers id> --granted yes --by "<your name>"
 node scripts/company-os-store-admin.mjs mark-box --tenant <tenant id> --instance <box 1 id> --as old-school --note "box 1" --by "<your name>"
 node scripts/company-os-store-admin.mjs mark-box --tenant <tenant id> --instance <test box id> --as test --by "<your name>"
-node scripts/company-os-store-admin.mjs assign-plan --tenant <tenant id> --instance <box id> --plan truchsess-box --start 2026-12-01 --by "<your name>"
+node scripts/company-os-store-admin.mjs assign-plan --tenant <tenant id> --instance <box id> --plan truchsess --start 2026-12-01 --by "<your name>"
+node scripts/company-os-store-admin.mjs assign-plan --tenant <tenant id> --instance <own server id> --plan truchsess --start 2026-12-01 --own-hardware --by "<your name>"
+node scripts/company-os-store-admin.mjs grant-by-order --tenant <tenant id> --instance <box id> --bundle <Product management id> --start 2026-12-01 --by "<your name>"
 node scripts/company-os-store-admin.mjs add-invoice-line --tenant <tenant id> --instance <box id> --month 2027-01 --kind ai-top-up --amount-chf 20 --by "<your name>"
 node scripts/company-os-store-admin.mjs invoice-csv --month 2026-12 > invoices-2026-12.csv
 node scripts/company-os-store-admin.mjs plans
 ```
 
-For customer 1 in December this gives:
+For customer 1 with a box and the Customers workflow, December gives:
 
 | Line | CHF |
 | --- | ---: |
-| Truchsess box, monthly (Free, early bird) | 0.00 |
-| AI credits, monthly | 30.00 |
-| Customers | 59.50 |
-| Product management | 59.50 |
-| Subtotal, net | 149.00 |
-| VAT 8.1% | 12.07 |
-| Total | 161.07 |
+| Truchsess box, monthly | 100.00 |
+| Customers (USD 30 AI allowance) | 179.00 |
+| Early bird: Customers 50% off | -89.50 |
+| Subtotal, net | 189.50 |
+| VAT 8.1% | 15.35 |
+| Total | 204.85 |
 
-`invoice-csv` writes one row per line with the box's name. Subscriptions billed by Polar are not in it: Polar invoices them. `plans` shows each plan's box price steps, AI credits and allowance, workflows, the paying customers so far, and what the next one's box costs. `end-plan --box-plan <id> --grace-days 14 --by "<your name>"` ends a box's plan and every invoice subscription on it after the grace. The month it ends in is billed for its days. What happens to the box itself at the end of a contract is not decided yet and is not modelled.
+With Product management (CHF 179) and one agent (CHF 59) added, the same box is CHF 427.50 net, VAT CHF 34.63, total CHF 462.13, and its AI allowance is USD 60 (two workflows; the agent adds none). A CHF 20 top-up in January adds USD 20.
+
+`invoice-csv` writes one row per line with the box's name; the discount is a negative amount. Subscriptions billed by Polar are not in it: Polar invoices them. `plans` shows each plan's box price, early bird, top-up rate, workflows, the paying customers so far, and whether the next one gets the early bird. `end-plan --box-plan <id> --grace-days 14 --by "<your name>"` ends a box's plan and every invoice subscription on it after the grace. The month it ends in is billed for its days. What happens to the box itself at the end of a contract is not decided yet and is not modelled.
 
 ### Cancellation and refunds
 

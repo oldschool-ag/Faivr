@@ -98,7 +98,7 @@ export async function grantSubscriptionByOrder(client, input) {
 
   const box = await client.query("SELECT 1 FROM company_os_instance_keys WHERE tenant_id=$1 AND instance_id=$2 AND revoked_at IS NULL", [input.tenantId, input.instanceId]);
   if (!box.rowCount) throw new OrderError("box_not_enrolled", 404);
-  const bundle = await client.query("SELECT id,name,status,monthly_price_cents,currency FROM company_os_function_bundles WHERE id=$1", [input.bundleId]);
+  const bundle = await client.query("SELECT id,name,status,monthly_price_cents,currency,kind,ai_allowance_usd_cents FROM company_os_function_bundles WHERE id=$1", [input.bundleId]);
   if (!bundle.rowCount) throw new OrderError("bundle_not_found", 404);
   if (bundle.rows[0].status !== "active") throw new OrderError("bundle_not_active");
   const live = await client.query(
@@ -115,6 +115,16 @@ export async function grantSubscriptionByOrder(client, input) {
   const otherCurrency = await client.query("SELECT COALESCE(s.invoice_currency,b.currency) AS currency FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.tenant_id=$1 AND s.instance_id=$2 AND s.billing_provider=$3 AND COALESCE(s.invoice_currency,b.currency)<>$4 LIMIT 1", [input.tenantId, input.instanceId, INVOICE, bundle.rows[0].currency]);
   if (otherCurrency.rowCount) throw new OrderError(`box_currency_differs:${otherCurrency.rows[0].currency}:${bundle.rows[0].currency}`);
   const monthlyCents = Number(bundle.rows[0].monthly_price_cents);
+  // ST1 final structure: a workflow brings its USD AI allowance; a single agent has none (it uses the
+  // box's pool), never costs more than a workflow, and rides on a workflow the box holds
+  const kind = bundle.rows[0].kind === "agent" ? "agent" : "workflow";
+  const allowanceUsd = kind === "agent" ? 0 : Number(bundle.rows[0].ai_allowance_usd_cents ?? 0);
+  if (kind === "agent") {
+    const cheapest = await client.query("SELECT min(monthly_price_cents) AS cents FROM company_os_function_bundles WHERE kind='workflow' AND status='active' AND currency=$1", [bundle.rows[0].currency]);
+    if (cheapest.rows[0]?.cents !== null && cheapest.rows[0]?.cents !== undefined && monthlyCents > Number(cheapest.rows[0].cents)) throw new OrderError(`agent_price_above_workflow_price:${input.bundleId}:${monthlyCents}:${cheapest.rows[0].cents}`);
+    const workflow = await client.query("SELECT 1 FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.tenant_id=$1 AND s.instance_id=$2 AND s.billing_provider=$3 AND s.subscription_state='active' AND COALESCE(s.invoice_kind,b.kind)='workflow'", [input.tenantId, input.instanceId, INVOICE]);
+    if (!workflow.rowCount) throw new OrderError("agent_needs_a_workflow_on_the_box");
+  }
   // a workflow on a plan with an end date ends with the plan unless it was given an earlier end
   const planEnd = plan?.ends_at ? new Date(plan.ends_at) : null;
   const ends = endsAt && planEnd ? (endsAt.getTime() < planEnd.getTime() ? endsAt : planEnd) : (endsAt ?? planEnd);
@@ -122,11 +132,11 @@ export async function grantSubscriptionByOrder(client, input) {
   const id = randomUUID();
   const description = copyDescription(String(bundle.rows[0].name), copyNumber);
   await client.query(
-    "INSERT INTO company_os_bundle_subscriptions(id,tenant_id,instance_id,bundle_id,copy_number,billing_description,billing_provider,subscription_state,entitled_at,billing_starts_at,billing_ends_at,granted_by,box_plan_id,invoice_monthly_cents,included_in_plan,invoice_currency,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,'active',$8,$9,$10,$11,$12,$13,$14,$15,$8,$8)",
-    [id, input.tenantId, input.instanceId, input.bundleId, copyNumber, description, INVOICE, now.toISOString(), startsAt.toISOString(), ends ? ends.toISOString() : null, admin, plan?.id ?? null, monthlyCents, false, String(bundle.rows[0].currency).toLowerCase()],
+    "INSERT INTO company_os_bundle_subscriptions(id,tenant_id,instance_id,bundle_id,copy_number,billing_description,billing_provider,subscription_state,entitled_at,billing_starts_at,billing_ends_at,granted_by,box_plan_id,invoice_monthly_cents,included_in_plan,invoice_currency,invoice_kind,invoice_allowance_usd_cents,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,'active',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$8,$8)",
+    [id, input.tenantId, input.instanceId, input.bundleId, copyNumber, description, INVOICE, now.toISOString(), startsAt.toISOString(), ends ? ends.toISOString() : null, admin, plan?.id ?? null, monthlyCents, false, String(bundle.rows[0].currency).toLowerCase(), kind, allowanceUsd],
   );
-  await audit(client, id, "granted_by_order", admin, { bundleId: input.bundleId, copyNumber, startsAt: startsAt.toISOString(), endsAt: ends ? ends.toISOString() : null, boxPlanId: plan?.id ?? null, monthlyCents, note }, now);
-  return { subscriptionId: id, tenantId: input.tenantId, instanceId: input.instanceId, bundleId: input.bundleId, copyNumber, description, billing: INVOICE, subscriptionState: "active", startsAt: startsAt.toISOString(), endsAt: ends ? ends.toISOString() : null, grantedBy: admin, boxPlanId: plan?.id ?? null, monthlyPriceCents: monthlyCents };
+  await audit(client, id, "granted_by_order", admin, { bundleId: input.bundleId, copyNumber, startsAt: startsAt.toISOString(), endsAt: ends ? ends.toISOString() : null, boxPlanId: plan?.id ?? null, kind, monthlyCents, allowanceUsdCents: allowanceUsd, note }, now);
+  return { subscriptionId: id, tenantId: input.tenantId, instanceId: input.instanceId, bundleId: input.bundleId, copyNumber, description, billing: INVOICE, subscriptionState: "active", startsAt: startsAt.toISOString(), endsAt: ends ? ends.toISOString() : null, grantedBy: admin, boxPlanId: plan?.id ?? null, kind, monthlyPriceCents: monthlyCents, allowanceUsdCents: allowanceUsd };
 }
 
 /**
@@ -150,9 +160,17 @@ export async function endSubscriptionByAdmin(client, input) {
   const graceDays = Number(input.graceDays);
   if (!Number.isInteger(graceDays) || graceDays < 0 || graceDays > 366) throw new OrderError("grace_days_invalid", 400);
   // the row is locked: a provider event in flight waits, then finds the administrator's end
-  const found = await client.query("SELECT id,subscription_state,billing_provider,billing_ends_at,admin_ended_at,cancel_effective_at FROM company_os_bundle_subscriptions WHERE id=$1 FOR UPDATE", [input.subscriptionId]);
+  const found = await client.query("SELECT id,subscription_state,billing_provider,billing_ends_at,admin_ended_at,cancel_effective_at,box_plan_id,bundle_id,invoice_kind FROM company_os_bundle_subscriptions WHERE id=$1 FOR UPDATE", [input.subscriptionId]);
   const row = found.rows[0];
   if (!row) throw new OrderError("subscription_not_found", 404);
+  row.kind = row.invoice_kind ?? (await client.query("SELECT kind FROM company_os_function_bundles WHERE id=$1", [row.bundle_id])).rows[0]?.kind ?? "workflow";
+  // ST1: a box always has at least one workflow; its last one ends with its plan (end-plan)
+  if (!input.withPlan && row.billing_provider === INVOICE && row.kind === "workflow" && row.box_plan_id) {
+    const plan = await client.query("SELECT ends_at FROM company_os_box_plans WHERE id=$1", [row.box_plan_id]);
+    const planRuns = plan.rows[0] && (!plan.rows[0].ends_at || new Date(plan.rows[0].ends_at).getTime() > now.getTime());
+    const others = await client.query("SELECT 1 FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.box_plan_id=$1 AND s.id<>$2 AND s.subscription_state='active' AND s.admin_ended_at IS NULL AND COALESCE(s.invoice_kind,b.kind)='workflow'", [row.box_plan_id, row.id]);
+    if (planRuns && !others.rowCount) throw new OrderError("last_workflow_end_the_plan_instead");
+  }
   if (row.admin_ended_at) throw new OrderError(`subscription_already_ended_by_admin:${new Date(row.cancel_effective_at).toISOString()}`);
   if (row.billing_provider === "stripe") throw new OrderError("stripe_subscription_end_at_stripe");
   if (row.billing_provider !== INVOICE && !input.confirmProviderNotTold) throw new OrderError("provider_subscription_needs_confirmation_the_provider_is_not_told");
