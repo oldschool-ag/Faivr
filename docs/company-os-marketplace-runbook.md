@@ -251,7 +251,6 @@ node scripts/company-os-store-admin.mjs set-vat-rate --from 2024-01-01 --percent
 
 ```
 node scripts/company-os-store-admin.mjs create-bundle --id customers --name "Customers" --description "..." --amount-cents 17900 --kind workflow --ai-allowance-usd 30 --by "<your name>"
-node scripts/company-os-store-admin.mjs create-bundle --id product-management --name "Product management" --description "..." --amount-cents 17900 --kind workflow --ai-allowance-usd 30 --by "<your name>"
 node scripts/company-os-store-admin.mjs set-price --id software-delivery --amount-cents 17900
 node scripts/company-os-store-admin.mjs set-bundle-kind --id software-delivery --kind workflow --ai-allowance-usd 30 --by "<your name>"
 ```
@@ -315,11 +314,12 @@ node scripts/company-os-store-admin.mjs plans
 node scripts/company-os-store-admin.mjs list
 node scripts/company-os-store-admin.mjs assign-plan --tenant <tenant id> --instance <box id> --plan truchsess --start 2026-12-01 --by "<your name>"
 node scripts/company-os-store-admin.mjs assign-plan --tenant <tenant id> --instance <own server id> --plan truchsess --start 2026-12-01 --own-hardware --by "<your name>"
-node scripts/company-os-store-admin.mjs grant-by-order --tenant <tenant id> --instance <box id> --bundle product-management --start 2026-12-01 --by "<your name>"
-node scripts/company-os-store-admin.mjs grant-by-order --tenant <tenant id> --instance <box id> --bundle company-mail --start 2026-12-01 --by "<your name>"
+node scripts/company-os-store-admin.mjs grant-by-order --tenant <tenant id> --instance <box id> --bundle pricing-and-business-models --start 2026-12-01 --by "<your name>"
 node scripts/company-os-store-admin.mjs add-invoice-line --tenant <tenant id> --instance <box id> --month 2027-01 --kind ai-top-up --amount-chf 20 --by "<your name>"
 node scripts/company-os-store-admin.mjs invoice-csv --month 2026-12 > invoices-2026-12.csv
 ```
+
+**Until ST2: no agent twice, and order only.** Never grant a function whose agent is already on the box in another function (Company mail on a box with Customers puts Penn on it twice and bills him twice; the store does not refuse it until ST2). And every function stays sold by order, no checkout, on client boxes until Polar goes live: `sell-by-order --id <function> --by-order yes` for each function in `list`. The Product workflow (Alden with Bob and Otto) comes with ST2; until then a client box gets Customers, Developer and single agents only.
 
 **Office prep: the box's AI budget by hand.** Until the box reads `aiAllowance` from the store (box task ST1d, Plan and costs), the box does not know its allowance. For each box, set its AI budget by hand to the store's allowance for that box: USD 30 for each workflow it holds, plus the USD of the month's top-ups (`add-invoice-line` prints them as `allowanceUsdCents`). Two places:
 1. The box's OpenRouter key: its limit in USD is the hard stop. Set it on openrouter.ai under Keys (the key labelled `appliance-...`), or with `services/workflow-spine/scripts/openrouter_appliance_keys.py set-limit --appliance <box id> --limit-usd <amount>` in the truchsess repository for a key made with that script. The key from activation has no monthly reset: raise its limit by the month's allowance at the start of each month.
@@ -340,7 +340,7 @@ For customer 1 with a box and the Customers workflow, December gives:
 | VAT 8.1% | 15.35 |
 | Total | 204.85 |
 
-With Product management (CHF 179) and the Pricing and business models agent (CHF 59) added, the same box is CHF 427.50 net, VAT CHF 34.63, total CHF 462.13, and its AI allowance is USD 60 (two workflows; the agent adds none). A CHF 20 top-up in January adds USD 20.
+With the Pricing and business models agent (CHF 59) added, the same box is CHF 248.50 net, VAT CHF 20.13, total CHF 268.63, and its AI allowance stays USD 30 (one workflow; the agent adds none). A CHF 20 top-up in January adds USD 20.
 
 `invoice-csv` writes one row per line with the box's name; the discount is a negative amount. Subscriptions billed by Polar are not in it: Polar invoices them. `plans` shows each plan's box price, early bird, top-up rate, workflows, the paying customers so far, and whether the next one gets the early bird. `end-plan --box-plan <id> --grace-days 14 --by "<your name>"` ends a box's plan and every invoice subscription on it after the grace. The month it ends in is billed for its days. What happens to the box itself at the end of a contract is not decided yet and is not modelled.
 
