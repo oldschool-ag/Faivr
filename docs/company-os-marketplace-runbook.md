@@ -211,32 +211,52 @@ What the box sees: the catalog's `subscription` and the subscription view carry 
 
 ### Plans and invoices (ST1)
 
-What Old School invoices per box is a plan, not only agents. Every value is data entered with the store admin command: the store's code holds no price and no VAT rate. The box's Plan and costs page reads the same lines from the store (`GET /api/company-os/v1/store/plan?month=YYYY-MM`, signed by the box), so the page and the invoice always agree.
+The invoice sells workflows, not boxes. Every value is data entered with the store admin command: the store's code holds no price, allowance or VAT rate. The box's Plan and costs page reads the same lines from the store (`GET /api/company-os/v1/store/plan?month=YYYY-MM`, signed by the box), so the page and the invoice always agree.
 
-- A plan: name, its workflows (the functions it includes at CHF 0), its monthly price by customer number (price steps), currency, whether its prices are before VAT, the monthly AI allowance (included in the price), free months, and what it includes (a list of lines). More workflows come later as their own plans.
-- Customer numbers: a box that gets a plan gets the highest customer number of the boxes that count plus one, and keeps the price of its number, also when the plan's prices change later (a box that held the plan before gets its old number and price back). Customers are counted per plan and per box.
-- Boxes that never count: an administrator marks a test box or one of Old School's own boxes (`mark-box`; no box request can). A marked box gets no customer number, is shown the price the next customer would pay, and is left out of `invoice-csv` (`--include-not-invoiced` shows it). Set the mark before `assign-plan`: the customer number is given at that moment. A box marked later stops counting and is no longer invoiced, and its number is not given again.
-- VAT: the Swiss rate is data by the day it applies from (`set-vat-rate`, the first command below); a month uses the rate in force on its first day. Without one, `invoice-csv` refuses the month and the box's Plan and costs page says that the month's costs are not ready yet. Each box gets a net subtotal, the VAT (on the net subtotal, rounded to the cent) and the total.
-- Billing starts with the first month and is counted in days: a month a plan or add-on runs only in part (the first month, the last month, a change of plan, an end and a new start) is billed as price x days it ran / days in the month, rounded to the cent. A day counts from the day a plan starts up to the day it ends (that day not included). The line's note says "30 of 31 days". Free months stay possible as data (0 for the plan below).
-- An add-on billed by invoice keeps billing after the client uninstalls it, until Old School ends it: when a client uninstalls an add-on, end it the same day with `end-subscription --subscription <id> --grace-days 0 --by "<your name>"`.
-- Functions the plan includes are granted at CHF 0 ("included in your plan"); any other function granted by order is an add-on at its list price (the catalog entry's monthly price). AI top-ups are one-time lines for a box and a month.
+Per box and month, all plus VAT:
+- **Truchsess box:** the plan's line. Its monthly price goes by customer number, and each price step can carry a note for the invoice. Today: CHF 0 with "Free, early bird" for customers 1 to 50, CHF 100 from customer 51. What the box includes is listed under it.
+- **One line per workflow** at its list price (the catalog entry's monthly price, today CHF 59.50). The plan's workflows (today Customers and Product management) are granted by order when the box gets the plan; later workflows are added per box with `grant-by-order`. No minimum number of workflows is set.
+- **AI credits:** a priced line (today CHF 30). The credits buy an AI provider allowance in USD (today USD 30) that the box enforces: it pauses AI work when the allowance is used up. Top-ups are one-time CHF lines, each adding allowance at the same rate (the plan's USD allowance per CHF of credits). The box shows credits in CHF only, never USD.
+
+Result today: customers 1 to 50 with both workflows CHF 149.00 net, from customer 51 CHF 249.00 net.
+
+Rules:
+- **Customer numbers.** A box that gets a plan gets the highest customer number of the boxes that count plus one, and keeps the box price (and note) of its number, also when the plan's prices change later. A box that held the plan before gets its old number and price back. Customers are counted per plan and per box. A box also keeps the workflows its plan granted when it got the plan.
+- **Boxes that never count.** An administrator marks a test box or one of Old School's own boxes (`mark-box`; no box request can). A marked box gets no customer number, is shown the price the next customer would pay, and is left out of `invoice-csv` (`--include-not-invoiced` shows it). Set the mark before `assign-plan`: the customer number is given at that moment. A box marked later stops counting and is no longer invoiced, and its number is not given again.
+- **VAT.** The Swiss rate is data by the day it applies from (`set-vat-rate`, the first command below); a month uses the rate in force on its first day. Without one, `invoice-csv` refuses the month, and the box's Plan and costs page says that the month's costs are not ready yet. The box still gets its AI allowance. Each box gets a net subtotal, the VAT (on the net subtotal, rounded to the cent) and the total.
+- **Billing by days.** Billing starts with the first month and is counted in days. Every monthly line that runs only part of a month (box, workflow, AI credits; the first month, the last month, a change of plan, an end and a new start) is billed as price x days it ran / days in the month, rounded to the cent; the USD allowance follows the same days. A day counts from the day a line starts up to the day it ends (that day not included). The note says "30 of 31 days". A workflow on a plan stops with the plan. Free months stay possible as data (0 below).
+- **Uninstalled workflows.** A workflow billed by invoice keeps billing after the client uninstalls it, until Old School ends it. When a client uninstalls one, end it the same day with `end-subscription --subscription <id> --grace-days 0 --by "<your name>"`.
 
 The commands with the CEO's numbers of 26 Nov 2026, in this order (the CEO confirms them before the first box gets the plan; the workflow ids are the catalog's). The VAT rate comes first: without it no month can be invoiced. Every command runs in one transaction: it is done completely or not at all.
 
 ```
 node scripts/company-os-store-admin.mjs set-vat-rate --from 2024-01-01 --percent 8.1 --by "<your name>"
-node scripts/company-os-store-admin.mjs define-plan --id customers-and-product-management --name "Customers and Product management" --prices "1=149|51=249" --ai-allowance-chf 30 --free-months 0 --prices-exclude-vat yes --includes "Setup in our office|Updates of agents, system and AI|Safety copies|Support|2 years warranty on the box" --by "<your name>"
-node scripts/company-os-store-admin.mjs plan-function --plan customers-and-product-management --bundle <Customers workflow id> --included yes --by "<your name>"
-node scripts/company-os-store-admin.mjs plan-function --plan customers-and-product-management --bundle <Product management workflow id> --included yes --by "<your name>"
+node scripts/company-os-store-admin.mjs create-bundle --id <Customers workflow id> --name "Customers" --description "..." --amount-cents 5950
+node scripts/company-os-store-admin.mjs create-bundle --id <Product management workflow id> --name "Product management" --description "..." --amount-cents 5950
+node scripts/company-os-store-admin.mjs define-plan --id truchsess-box --name "Truchsess box" --prices "1=0:Free, early bird|51=100" --ai-credits-chf 30 --ai-allowance-usd 30 --free-months 0 --prices-exclude-vat yes --includes "Setup in our office|Updates of agents, system and AI|Safety copies|Support|2 years warranty on the box" --by "<your name>"
+node scripts/company-os-store-admin.mjs plan-function --plan truchsess-box --bundle <Customers workflow id> --granted yes --by "<your name>"
+node scripts/company-os-store-admin.mjs plan-function --plan truchsess-box --bundle <Product management workflow id> --granted yes --by "<your name>"
 node scripts/company-os-store-admin.mjs mark-box --tenant <tenant id> --instance <box 1 id> --as old-school --note "box 1" --by "<your name>"
 node scripts/company-os-store-admin.mjs mark-box --tenant <tenant id> --instance <test box id> --as test --by "<your name>"
-node scripts/company-os-store-admin.mjs assign-plan --tenant <tenant id> --instance <box id> --plan customers-and-product-management --start 2026-12-01 --by "<your name>"
+node scripts/company-os-store-admin.mjs assign-plan --tenant <tenant id> --instance <box id> --plan truchsess-box --start 2026-12-01 --by "<your name>"
 node scripts/company-os-store-admin.mjs add-invoice-line --tenant <tenant id> --instance <box id> --month 2027-01 --kind ai-top-up --amount-chf 20 --by "<your name>"
 node scripts/company-os-store-admin.mjs invoice-csv --month 2026-12 > invoices-2026-12.csv
 node scripts/company-os-store-admin.mjs plans
 ```
 
-`invoice-csv` writes one row per line (plan, what it includes, AI allowance, workflows, add-ons, one-time lines, net subtotal, VAT, total) with the box's name. Subscriptions billed by Polar are not in it: Polar invoices them. `plans` shows each plan's price steps, the paying customers so far and what the next one pays. `end-plan --box-plan <id> --grace-days 14 --by "<your name>"` ends a box's plan and every invoice subscription on it after the grace; the month it ends in is billed for its days. What happens to the box itself at the end of a contract is not decided yet and is not modelled.
+For customer 1 in December this gives:
+
+| Line | CHF |
+| --- | ---: |
+| Truchsess box, monthly (Free, early bird) | 0.00 |
+| AI credits, monthly | 30.00 |
+| Customers | 59.50 |
+| Product management | 59.50 |
+| Subtotal, net | 149.00 |
+| VAT 8.1% | 12.07 |
+| Total | 161.07 |
+
+`invoice-csv` writes one row per line with the box's name. Subscriptions billed by Polar are not in it: Polar invoices them. `plans` shows each plan's box price steps, AI credits and allowance, workflows, the paying customers so far, and what the next one's box costs. `end-plan --box-plan <id> --grace-days 14 --by "<your name>"` ends a box's plan and every invoice subscription on it after the grace. The month it ends in is billed for its days. What happens to the box itself at the end of a contract is not decided yet and is not modelled.
 
 ### Cancellation and refunds
 

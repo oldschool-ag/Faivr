@@ -58,18 +58,6 @@ export async function liveBoxPlan(client, tenantId, instanceId, at) {
   return r.rows[0] ?? null;
 }
 
-/**
- * Whether a function is included (at CHF 0) in a box's plan; only the function's first copy is.
- * The box's plan keeps the workflows it was given (`included_bundles`); a plan row from before
- * that was kept reads the plan's current list.
- */
-export async function includedInPlan(client, boxPlan, bundleId, copyNumber) {
-  if (copyNumber !== 1) return false;
-  if (Array.isArray(boxPlan.included_bundles)) return boxPlan.included_bundles.includes(bundleId);
-  const r = await client.query("SELECT 1 FROM company_os_plan_functions WHERE plan_id=$1 AND bundle_id=$2", [boxPlan.plan_id, bundleId]);
-  return Boolean(r.rowCount);
-}
-
 async function audit(client, subscriptionId, action, admin, detail, at) {
   await client.query(
     "INSERT INTO company_os_subscription_audit(id,subscription_id,action,administrator,detail,created_at) VALUES($1,$2,$3,$4,$5,$6)",
@@ -119,16 +107,15 @@ export async function grantSubscriptionByOrder(client, input) {
   );
   if (live.rowCount) throw new OrderError(`subscription_exists:${live.rows[0].id}:${live.rows[0].subscription_state}:${live.rows[0].billing_provider ?? "none"}`);
 
-  // ST1 plans: a function the box's plan includes costs CHF 0 ("included in your plan"); any
-  // other is an add-on at the function's list price (the catalog entry's monthly price)
+  // ST1 plans: every workflow is billed at its list price (the catalog entry's monthly price),
+  // kept with the grant; a grant on a box with a plan rides on that plan
   const plan = await liveBoxPlan(client, input.tenantId, input.instanceId, now);
-  const included = plan ? await includedInPlan(client, plan, input.bundleId, copyNumber) : false;
-  if (plan && String(bundle.rows[0].currency) !== String(plan.currency)) throw new OrderError(`${included ? "included_workflow" : "add_on"}_currency_differs_from_plan:${bundle.rows[0].currency}:${plan.currency}`);
+  if (plan && String(bundle.rows[0].currency) !== String(plan.currency)) throw new OrderError(`workflow_currency_differs_from_plan:${bundle.rows[0].currency}:${plan.currency}`);
   // one currency per box, also without a plan
   const otherCurrency = await client.query("SELECT b.currency FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.tenant_id=$1 AND s.instance_id=$2 AND s.billing_provider=$3 AND b.currency<>$4 LIMIT 1", [input.tenantId, input.instanceId, INVOICE, bundle.rows[0].currency]);
   if (otherCurrency.rowCount) throw new OrderError(`box_currency_differs:${otherCurrency.rows[0].currency}:${bundle.rows[0].currency}`);
-  const monthlyCents = included ? 0 : Number(bundle.rows[0].monthly_price_cents);
-  // an add-on to a plan with an end date ends with the plan unless it was given its own end
+  const monthlyCents = Number(bundle.rows[0].monthly_price_cents);
+  // a workflow on a plan with an end date ends with the plan unless it was given an earlier end
   const planEnd = plan?.ends_at ? new Date(plan.ends_at) : null;
   const ends = endsAt && planEnd ? (endsAt.getTime() < planEnd.getTime() ? endsAt : planEnd) : (endsAt ?? planEnd);
 
@@ -136,10 +123,10 @@ export async function grantSubscriptionByOrder(client, input) {
   const description = copyDescription(String(bundle.rows[0].name), copyNumber);
   await client.query(
     "INSERT INTO company_os_bundle_subscriptions(id,tenant_id,instance_id,bundle_id,copy_number,billing_description,billing_provider,subscription_state,entitled_at,billing_starts_at,billing_ends_at,granted_by,box_plan_id,invoice_monthly_cents,included_in_plan,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,'active',$8,$9,$10,$11,$12,$13,$14,$8,$8)",
-    [id, input.tenantId, input.instanceId, input.bundleId, copyNumber, description, INVOICE, now.toISOString(), startsAt.toISOString(), ends ? ends.toISOString() : null, admin, plan?.id ?? null, monthlyCents, included],
+    [id, input.tenantId, input.instanceId, input.bundleId, copyNumber, description, INVOICE, now.toISOString(), startsAt.toISOString(), ends ? ends.toISOString() : null, admin, plan?.id ?? null, monthlyCents, false],
   );
-  await audit(client, id, "granted_by_order", admin, { bundleId: input.bundleId, copyNumber, startsAt: startsAt.toISOString(), endsAt: ends ? ends.toISOString() : null, boxPlanId: plan?.id ?? null, includedInPlan: included, monthlyCents, note }, now);
-  return { subscriptionId: id, tenantId: input.tenantId, instanceId: input.instanceId, bundleId: input.bundleId, copyNumber, description, billing: INVOICE, subscriptionState: "active", startsAt: startsAt.toISOString(), endsAt: ends ? ends.toISOString() : null, grantedBy: admin, boxPlanId: plan?.id ?? null, includedInPlan: included, monthlyPriceCents: monthlyCents };
+  await audit(client, id, "granted_by_order", admin, { bundleId: input.bundleId, copyNumber, startsAt: startsAt.toISOString(), endsAt: ends ? ends.toISOString() : null, boxPlanId: plan?.id ?? null, monthlyCents, note }, now);
+  return { subscriptionId: id, tenantId: input.tenantId, instanceId: input.instanceId, bundleId: input.bundleId, copyNumber, description, billing: INVOICE, subscriptionState: "active", startsAt: startsAt.toISOString(), endsAt: ends ? ends.toISOString() : null, grantedBy: admin, boxPlanId: plan?.id ?? null, monthlyPriceCents: monthlyCents };
 }
 
 /**

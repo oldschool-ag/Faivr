@@ -35,10 +35,10 @@ describe.skipIf(!url)("ST1 plans on Postgres: one transaction per admin command"
     for (const box of boxes) await admin.query("INSERT INTO company_os_instance_keys(tenant_id,instance_id,key_id,public_key,label,enrolled_at) VALUES($1,$2,'k','pem','box',now())", [tenantId, box]);
     await admin.query("INSERT INTO company_os_function_bundles(id,name,description,monthly_price_cents) VALUES('customers','Customers','CRM',0),('retired-workflow','Retired','gone',0)");
     await admin.query("UPDATE company_os_function_bundles SET status='retired' WHERE id='retired-workflow'");
-    await definePlan(admin, { id: PLAN, name: "Customers and Product management", prices: "1=149|2=249", aiAllowanceChf: "30", freeMonths: 0, pricesExcludeVat: true, includes: ["Support"], administrator: ADMIN });
-    await setPlanFunction(admin, { planId: PLAN, bundleId: "customers", included: true, administrator: ADMIN });
-    await definePlan(admin, { id: "broken-plan", name: "Broken", prices: "1=10", aiAllowanceChf: "0", freeMonths: 0, pricesExcludeVat: true, includes: ["Support"], administrator: ADMIN });
-    await setPlanFunction(admin, { planId: "broken-plan", bundleId: "retired-workflow", included: true, administrator: ADMIN });
+    await definePlan(admin, { id: PLAN, name: "Customers and Product management", prices: "1=149|2=249", aiCreditsChf: "30", aiAllowanceUsd: "30", freeMonths: 0, pricesExcludeVat: true, includes: ["Support"], administrator: ADMIN });
+    await setPlanFunction(admin, { planId: PLAN, bundleId: "customers", granted: true, administrator: ADMIN });
+    await definePlan(admin, { id: "broken-plan", name: "Broken", prices: "1=10", aiCreditsChf: "0", aiAllowanceUsd: "0", freeMonths: 0, pricesExcludeVat: true, includes: ["Support"], administrator: ADMIN });
+    await setPlanFunction(admin, { planId: "broken-plan", bundleId: "retired-workflow", granted: true, administrator: ADMIN });
   });
 
   afterAll(async () => {

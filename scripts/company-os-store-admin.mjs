@@ -29,13 +29,15 @@
 //                     yes: the box cannot buy the function itself (the catalog says buyable:false, purchase:"order")
 //   orders            the subscriptions by order and the ones an administrator ended, with their audit lines
 //
-//   ST1 plans: what Old School invoices per box (every value is data; nothing is priced in code):
-//   define-plan       --id customers-and-product-management --name "Customers and Product management" --prices "1=149|51=249"
-//                     --ai-allowance-chf 30 --free-months 0 --prices-exclude-vat yes --includes "Setup in our office|..." [--currency chf] --by <admin>
-//                     defines or changes a plan; --prices are the monthly prices by customer number (customers 1 to 50
-//                     CHF 149, from customer 51 CHF 249). Boxes that already hold the plan keep the price and terms they got
-//   plan-function     --plan <plan> --bundle <workflow> --included yes|no --by <admin>
-//                     a workflow (function) the plan includes at CHF 0 ("included in your plan")
+//   ST1 plans: what Old School invoices per box (every value is data; nothing is priced in code). The invoice sells
+//   workflows, not boxes: per box and month the Truchsess box line, one line per workflow, and the AI credits line.
+//   define-plan       --id truchsess-box --name "Truchsess box" --prices "1=0:Free, early bird|51=100" --ai-credits-chf 30
+//                     --ai-allowance-usd 30 --free-months 0 --prices-exclude-vat yes --includes "Setup in our office|..." [--currency chf] --by <admin>
+//                     defines or changes a plan; --prices are the box's monthly price by customer number, with an optional
+//                     note after ":" for the invoice line; --ai-credits-chf is what the monthly AI credits cost, --ai-allowance-usd
+//                     the AI provider allowance they buy, which the box enforces. Boxes that already hold the plan keep their terms
+//   plan-function     --plan <plan> --bundle <workflow> --granted yes|no --by <admin>
+//                     a workflow granted with the plan, by order, billed at its list price (the catalog entry's monthly price)
 //   mark-box          --tenant <uuid> --instance <uuid> --as test|old-school|client --by <admin> [--note "box 1"]
 //                     a test box or Old School's own box never counts as a customer and is never invoiced; client removes the mark.
 //                     Mark a box before it gets a plan (its customer number is set then)
@@ -210,13 +212,13 @@ try {
     };
     const plan = await definePlan(client, {
       id: need("id"), name: need("name"), prices: need("prices"), currency: options.currency ?? "chf", pricesExcludeVat: yesNo("prices-exclude-vat"),
-      aiAllowanceChf: need("ai-allowance-chf"), freeMonths: Number.parseInt(need("free-months"), 10), includes: need("includes").split("|"), administrator: need("by"),
+      aiCreditsChf: need("ai-credits-chf"), aiAllowanceUsd: need("ai-allowance-usd"), freeMonths: Number.parseInt(need("free-months"), 10), includes: need("includes").split("|"), administrator: need("by"),
     });
     console.log(JSON.stringify({ plan }));
   } else if (command === "plan-function") {
-    const value = need("included");
-    if (!["yes", "no"].includes(value)) throw new Error("--included is yes or no");
-    console.log(JSON.stringify({ planFunction: await setPlanFunction(client, { planId: need("plan"), bundleId: need("bundle"), included: value === "yes", administrator: need("by") }) }));
+    const value = need("granted");
+    if (!["yes", "no"].includes(value)) throw new Error("--granted is yes or no");
+    console.log(JSON.stringify({ planFunction: await setPlanFunction(client, { planId: need("plan"), bundleId: need("bundle"), granted: value === "yes", administrator: need("by") }) }));
   } else if (command === "mark-box") {
     console.log(JSON.stringify({ box: await markBox(client, { tenantId: need("tenant"), instanceId: need("instance"), as: need("as"), note: options.note ?? null, administrator: need("by") }) }));
   } else if (command === "set-vat-rate") {
