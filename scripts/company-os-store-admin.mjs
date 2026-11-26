@@ -30,21 +30,25 @@
 //   orders            the subscriptions by order and the ones an administrator ended, with their audit lines
 //
 //   ST1 plans: what Old School invoices per box (every value is data; nothing is priced in code):
-//   define-plan       --id early-bird --name "Early bird" --monthly-chf 149 --ai-allowance-chf 30 --free-months 1
-//                     --prices-exclude-vat yes|no --includes "Box on loan, 2 years warranty|Setup in our office|..."
-//                     [--currency chf] [--early-bird yes --box-limit 50] --by <admin>
-//                     defines or changes a plan; boxes that already hold it keep the terms they were given
-//   plan-function     --plan early-bird --bundle client-follow-up --included yes|no --by <admin>
-//                     a function the plan includes at CHF 0 ("included in your plan")
-//   assign-plan       --tenant <uuid> --instance <uuid> --plan early-bird --start 2026-12-01 [--end ...] --by <admin> [--note "..."]
-//                     gives the box the plan and grants every function it includes by order; refused once an
-//                     early-bird plan has reached its box limit
+//   define-plan       --id customers-and-product-management --name "Customers and Product management" --prices "1=149|51=249"
+//                     --ai-allowance-chf 30 --free-months 0 --prices-exclude-vat yes --includes "Setup in our office|..." [--currency chf] --by <admin>
+//                     defines or changes a plan; --prices are the monthly prices by customer number (customers 1 to 50
+//                     CHF 149, from customer 51 CHF 249). Boxes that already hold the plan keep the price and terms they got
+//   plan-function     --plan <plan> --bundle <workflow> --included yes|no --by <admin>
+//                     a workflow (function) the plan includes at CHF 0 ("included in your plan")
+//   mark-box          --tenant <uuid> --instance <uuid> --as test|old-school|client --by <admin> [--note "box 1"]
+//                     a test box or Old School's own box never counts as a customer and is never invoiced; client removes the mark.
+//                     Mark a box before it gets a plan (its customer number is set then)
+//   set-vat-rate      --from 2024-01-01 --percent 8.1 --by <admin>
+//                     the Swiss VAT rate from that day; an invoice month uses the rate in force on its first day
+//   assign-plan       --tenant <uuid> --instance <uuid> --plan <plan> --start 2026-12-01 [--end ...] --by <admin> [--note "..."]
+//                     gives the box the plan (the next customer number and its price, kept) and grants its workflows by order
 //   end-plan          --box-plan <uuid> --grace-days 14 --by <admin> [--reason "..."]
 //                     ends the box's plan and every invoice subscription on it after the grace
 //   add-invoice-line  --tenant <uuid> --instance <uuid> --month 2027-01 --kind ai-top-up|ai-use-above-allowance --amount-chf 20 --by <admin> [--description "..."]
-//   invoice-csv       --month 2027-01 [--tenant <uuid> --instance <uuid>]
-//                     per box what to invoice for the month (plan, included functions, add-ons, one-time lines, total), as CSV
-//   plans             the plans, their included functions and how many boxes hold each (early-bird places left)
+//   invoice-csv       --month 2027-01 [--tenant <uuid> --instance <uuid>] [--include-not-invoiced]
+//                     per box what to invoice for the month (plan, workflows, add-ons, one-time lines, net, VAT, total), as CSV
+//   plans             the plans, their workflows, price steps, paying customers so far and what the next one pays
 //
 // Nothing here touches Polar or Stripe: the CEO creates the product (Polar, sandbox first) or the price (Stripe) in the provider's dashboard
 // and pastes its id. Nothing here touches the chain.
@@ -53,7 +57,7 @@ import { readFile } from "node:fs/promises";
 import pg from "../web/node_modules/pg/lib/index.js";
 import { assertFunctionLeadAvailable, latestVersionIsFunctionLead } from "./company-os-function-leads.mjs";
 import { endSubscriptionByAdmin, grantSubscriptionByOrder, orderSubscriptions } from "../web/lib/companyOs/subscriptionOrders.mjs";
-import { addInvoiceLine, assignPlan, definePlan, endPlan, invoiceCsv, invoiceLines, planList, setPlanFunction } from "../web/lib/companyOs/boxPlans.mjs";
+import { addInvoiceLine, assignPlan, definePlan, endPlan, invoiceCsv, invoiceLines, markBox, planList, setPlanFunction, setVatRate } from "../web/lib/companyOs/boxPlans.mjs";
 
 const [command, ...rest] = process.argv.slice(2);
 const options = {};
@@ -93,7 +97,7 @@ function enrolmentCode() {
 }
 
 if (!command || !process.env.DATABASE_URL) {
-  console.error("Usage: DATABASE_URL=... node scripts/company-os-store-admin.mjs enrol-publisher|create-bundle|set-price|add-package|remove-package|issue-code|list|grant-by-order|end-subscription|sell-by-order|orders|define-plan|plan-function|assign-plan|end-plan|add-invoice-line|invoice-csv|plans [options]");
+  console.error("Usage: DATABASE_URL=... node scripts/company-os-store-admin.mjs enrol-publisher|create-bundle|set-price|add-package|remove-package|issue-code|list|grant-by-order|end-subscription|sell-by-order|orders|define-plan|plan-function|mark-box|set-vat-rate|assign-plan|end-plan|add-invoice-line|invoice-csv|plans [options]");
   process.exit(2);
 }
 
@@ -204,17 +208,19 @@ try {
       if (!["yes", "no"].includes(value)) throw new Error(`--${name} is yes or no`);
       return value === "yes";
     };
-    const earlyBird = options["early-bird"] === undefined ? false : yesNo("early-bird");
     const plan = await definePlan(client, {
-      id: need("id"), name: need("name"), monthlyChf: need("monthly-chf"), currency: options.currency ?? "chf", pricesExcludeVat: yesNo("prices-exclude-vat"),
-      aiAllowanceChf: need("ai-allowance-chf"), freeMonths: Number.parseInt(need("free-months"), 10), includes: need("includes").split("|"),
-      earlyBird, boxLimit: options["box-limit"] !== undefined ? Number.parseInt(options["box-limit"], 10) : null, administrator: need("by"),
+      id: need("id"), name: need("name"), prices: need("prices"), currency: options.currency ?? "chf", pricesExcludeVat: yesNo("prices-exclude-vat"),
+      aiAllowanceChf: need("ai-allowance-chf"), freeMonths: Number.parseInt(need("free-months"), 10), includes: need("includes").split("|"), administrator: need("by"),
     });
     console.log(JSON.stringify({ plan }));
   } else if (command === "plan-function") {
     const value = need("included");
     if (!["yes", "no"].includes(value)) throw new Error("--included is yes or no");
     console.log(JSON.stringify({ planFunction: await setPlanFunction(client, { planId: need("plan"), bundleId: need("bundle"), included: value === "yes", administrator: need("by") }) }));
+  } else if (command === "mark-box") {
+    console.log(JSON.stringify({ box: await markBox(client, { tenantId: need("tenant"), instanceId: need("instance"), as: need("as"), note: options.note ?? null, administrator: need("by") }) }));
+  } else if (command === "set-vat-rate") {
+    console.log(JSON.stringify({ vat: await setVatRate(client, { from: need("from"), percent: need("percent"), administrator: need("by") }) }));
   } else if (command === "assign-plan") {
     console.log(JSON.stringify({ assigned: await assignPlan(client, { tenantId: need("tenant"), instanceId: need("instance"), planId: need("plan"), startsOn: need("start"), endsOn: options.end ?? null, administrator: need("by"), note: options.note ?? null }) }));
   } else if (command === "end-plan") {
@@ -222,7 +228,7 @@ try {
   } else if (command === "add-invoice-line") {
     console.log(JSON.stringify({ invoiceLine: await addInvoiceLine(client, { tenantId: need("tenant"), instanceId: need("instance"), month: need("month"), kind: need("kind"), amountChf: need("amount-chf"), description: options.description ?? null, administrator: need("by") }) }));
   } else if (command === "invoice-csv") {
-    process.stdout.write(invoiceCsv(await invoiceLines(client, { month: need("month"), tenantId: options.tenant ?? null, instanceId: options.instance ?? null })));
+    process.stdout.write(invoiceCsv(await invoiceLines(client, { month: need("month"), tenantId: options.tenant ?? null, instanceId: options.instance ?? null }), { includeNotInvoiced: options["include-not-invoiced"] === "true" }));
   } else if (command === "plans") {
     console.log(JSON.stringify({ plans: await planList(client) }, null, 2));
   } else {

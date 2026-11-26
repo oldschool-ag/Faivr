@@ -1,8 +1,10 @@
 // ST1 plans: what Old School invoices per box, and what the box shows on its Plan and costs
-// page. A plan is data the CEO enters (name, monthly price, what it includes, the AI allowance,
-// free months, prices with or without VAT, the functions it includes at CHF 0, and for an early-
-// bird plan how many boxes may hold it). A box's plan keeps the terms it was given; a later change
-// of the plan applies to boxes that get it afterwards.
+// page. A plan is data the CEO enters: its name, its workflows (the functions it includes at
+// CHF 0), its monthly price by customer number (for example customers 1 to 50 one price, from
+// customer 51 another), the AI allowance included in that price, free months, what it includes,
+// and whether its prices are before VAT. The Swiss VAT rate is data too, by the day it applies
+// from. A box keeps the price and terms it was given; only boxes an administrator has not marked
+// (test boxes, Old School's own) count as customers.
 //
 // One function (invoiceLines) builds a month's lines; the admin command prints them as CSV and the
 // store answers the box with the same lines, so both always agree.
@@ -17,6 +19,8 @@ const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const ITEM_KINDS = { "ai-top-up": "ai_top_up", "ai-use-above-allowance": "ai_use_above_allowance" };
 const ITEM_TEXT = { ai_top_up: "AI top-up", ai_use_above_allowance: "AI use above the included allowance" };
+const MARKS = { test: "test", "old-school": "old_school" };
+const MARK_TEXT = { test: "test box", old_school: "Old School's own box" };
 
 /** An amount in francs as typed ("12", "12.50") into minor units; never more than two decimals. */
 export function parseChf(value, field) {
@@ -56,19 +60,38 @@ async function planAudit(client, action, admin, detail, ids = {}, at = new Date(
   );
 }
 
+/** "1=12|51=20" (from customer 1 CHF 12, from customer 51 CHF 20) into price steps; the first starts at customer 1. */
+export function parsePriceSteps(value) {
+  const steps = String(value ?? "").split("|").map((part) => part.trim()).filter(Boolean).map((part) => {
+    const match = /^(\d{1,6})=(.+)$/.exec(part);
+    if (!match || Number(match[1]) < 1) throw new OrderError("prices_invalid", 400);
+    return { fromCustomer: Number(match[1]), monthlyPriceCents: parseChf(match[2], "prices") };
+  }).sort((a, b) => a.fromCustomer - b.fromCustomer);
+  if (!steps.length || steps[0].fromCustomer !== 1 || new Set(steps.map((step) => step.fromCustomer)).size !== steps.length || steps.length > 20) throw new OrderError("prices_invalid", 400);
+  return steps;
+}
+
+/** The monthly price for a customer number: the last step that starts at or before it. */
+function priceFor(steps, customerNumber) {
+  let price = null;
+  for (const step of [...steps].sort((a, b) => Number(a.from_customer) - Number(b.from_customer))) if (Number(step.from_customer) <= customerNumber) price = Number(step.monthly_price_cents);
+  if (price === null) throw new OrderError("plan_has_no_price", 409);
+  return price;
+}
+
 /**
  * Define a plan, or change it (for boxes that get it afterwards). Every value is given: nothing
  * is assumed by code.
  *
  * @param {{ query: Function }} client
- * @param {{ id: string; name: string; monthlyChf: string; currency?: string; pricesExcludeVat: boolean; aiAllowanceChf: string; freeMonths: number; includes: string[]; earlyBird: boolean; boxLimit?: number | null; administrator: string }} input
+ * @param {{ id: string; name: string; prices: string; currency?: string; pricesExcludeVat: boolean; aiAllowanceChf: string; freeMonths: number; includes: string[]; administrator: string }} input
  */
 export async function definePlan(client, input) {
   const admin = administrator(input.administrator);
   if (!SLUG.test(String(input.id ?? ""))) throw new OrderError("plan_id_invalid", 400);
   const name = String(input.name ?? "").trim();
   if (!name || name.length > 120) throw new OrderError("plan_name_invalid", 400);
-  const monthly = parseChf(input.monthlyChf, "monthly_price");
+  const steps = parsePriceSteps(input.prices);
   const allowance = parseChf(input.aiAllowanceChf, "ai_allowance");
   const currency = String(input.currency ?? "chf").trim().toLowerCase();
   if (!/^[a-z]{3}$/.test(currency)) throw new OrderError("currency_invalid", 400);
@@ -77,16 +100,71 @@ export async function definePlan(client, input) {
   if (!Number.isInteger(freeMonths) || freeMonths < 0 || freeMonths > 24) throw new OrderError("free_months_invalid", 400);
   const includes = (input.includes ?? []).map((item) => String(item).trim()).filter(Boolean);
   if (!includes.length || includes.length > 20 || includes.some((item) => item.length > 200)) throw new OrderError("includes_invalid", 400);
-  const boxLimit = input.boxLimit === undefined || input.boxLimit === null ? null : Number(input.boxLimit);
-  if (boxLimit !== null && (!Number.isInteger(boxLimit) || boxLimit < 1)) throw new OrderError("box_limit_invalid", 400);
-  if (input.earlyBird && boxLimit === null) throw new OrderError("early_bird_needs_box_limit", 400);
   await client.query(
-    "INSERT INTO company_os_plans(id,name,monthly_price_cents,currency,prices_exclude_vat,ai_allowance_cents,free_months,includes,early_bird,box_limit,status,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11) ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,monthly_price_cents=EXCLUDED.monthly_price_cents,currency=EXCLUDED.currency,prices_exclude_vat=EXCLUDED.prices_exclude_vat,ai_allowance_cents=EXCLUDED.ai_allowance_cents,free_months=EXCLUDED.free_months,includes=EXCLUDED.includes,early_bird=EXCLUDED.early_bird,box_limit=EXCLUDED.box_limit,status='active',updated_by=EXCLUDED.updated_by,updated_at=now()",
-    [input.id, name, monthly, currency, input.pricesExcludeVat, allowance, freeMonths, JSON.stringify(includes), Boolean(input.earlyBird), boxLimit, admin],
+    "INSERT INTO company_os_plans(id,name,currency,prices_exclude_vat,ai_allowance_cents,free_months,includes,status,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,'active',$8) ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,currency=EXCLUDED.currency,prices_exclude_vat=EXCLUDED.prices_exclude_vat,ai_allowance_cents=EXCLUDED.ai_allowance_cents,free_months=EXCLUDED.free_months,includes=EXCLUDED.includes,status='active',updated_by=EXCLUDED.updated_by,updated_at=now()",
+    [input.id, name, currency, input.pricesExcludeVat, allowance, freeMonths, JSON.stringify(includes), admin],
   );
-  const plan = { id: input.id, name, monthlyPriceCents: monthly, currency, pricesExcludeVat: input.pricesExcludeVat, aiAllowanceCents: allowance, freeMonths, includes, earlyBird: Boolean(input.earlyBird), boxLimit };
+  await client.query("DELETE FROM company_os_plan_prices WHERE plan_id=$1", [input.id]);
+  for (const step of steps) await client.query("INSERT INTO company_os_plan_prices(plan_id,from_customer,monthly_price_cents) VALUES($1,$2,$3)", [input.id, step.fromCustomer, step.monthlyPriceCents]);
+  const plan = { id: input.id, name, prices: steps, currency, pricesExcludeVat: input.pricesExcludeVat, aiAllowanceCents: allowance, freeMonths, includes };
   await planAudit(client, "plan_defined", admin, plan, { planId: input.id });
   return plan;
+}
+
+/** The Swiss VAT rate (in percent, e.g. "7.7") from a day on; an invoice month uses the rate in force on its first day. */
+export async function setVatRate(client, input) {
+  const admin = administrator(input.administrator);
+  const from = parseOrderDate(input.from, "vat_from");
+  if (!from || !/^\d{4}-\d{2}-\d{2}$/.test(String(input.from).trim())) throw new OrderError("vat_from_invalid", 400);
+  const text = String(input.percent ?? "").trim();
+  if (!/^\d{1,2}(?:\.\d{1,2})?$/.test(text)) throw new OrderError("vat_percent_invalid", 400);
+  const [whole, fraction = ""] = text.split(".");
+  const basisPoints = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+  const day = from.toISOString().slice(0, 10);
+  await client.query("INSERT INTO company_os_vat_rates(effective_from,rate_basis_points,set_by) VALUES($1,$2,$3) ON CONFLICT(effective_from) DO UPDATE SET rate_basis_points=EXCLUDED.rate_basis_points,set_by=EXCLUDED.set_by,created_at=now()", [day, basisPoints, admin]);
+  await planAudit(client, "vat_rate_set", admin, { from: day, basisPoints });
+  return { from: day, ratePercent: basisPoints / 100 };
+}
+
+/**
+ * An administrator's mark on a box that never counts as a paying customer: a test box or one of
+ * Old School's own boxes. Only the store admin command sets it; no box request can. "client"
+ * removes the mark. Mark a box before it gets a plan: its customer number is set then.
+ */
+export async function markBox(client, input) {
+  const admin = administrator(input.administrator);
+  if (!UUID.test(String(input.tenantId ?? "")) || !UUID.test(String(input.instanceId ?? ""))) throw new OrderError("box_id_invalid", 400);
+  const box = await client.query("SELECT 1 FROM company_os_instance_keys WHERE tenant_id=$1 AND instance_id=$2", [input.tenantId, input.instanceId]);
+  if (!box.rowCount) throw new OrderError("box_not_enrolled", 404);
+  const note = typeof input.note === "string" && input.note.trim() ? input.note.trim().slice(0, 200) : null;
+  if (input.as === "client") {
+    await client.query("DELETE FROM company_os_box_marks WHERE tenant_id=$1 AND instance_id=$2", [input.tenantId, input.instanceId]);
+  } else {
+    const mark = MARKS[String(input.as ?? "")];
+    if (!mark) throw new OrderError("mark_invalid", 400);
+    await client.query("INSERT INTO company_os_box_marks(tenant_id,instance_id,mark,note,set_by) VALUES($1,$2,$3,$4,$5) ON CONFLICT(tenant_id,instance_id) DO UPDATE SET mark=EXCLUDED.mark,note=EXCLUDED.note,set_by=EXCLUDED.set_by,created_at=now()", [input.tenantId, input.instanceId, mark, note, admin]);
+  }
+  await planAudit(client, "box_marked", admin, { tenantId: input.tenantId, instanceId: input.instanceId, as: input.as, note });
+  return { tenantId: input.tenantId, instanceId: input.instanceId, mark: input.as === "client" ? null : MARKS[input.as] };
+}
+
+async function boxMark(client, tenantId, instanceId) {
+  const r = await client.query("SELECT mark FROM company_os_box_marks WHERE tenant_id=$1 AND instance_id=$2", [tenantId, instanceId]);
+  return r.rows[0]?.mark ?? null;
+}
+
+/** The boxes that count as paying customers of a plan: every box that held it and carries no mark. */
+async function countingCustomers(client, planId) {
+  const held = await client.query("SELECT tenant_id,instance_id,customer_number FROM company_os_box_plans WHERE plan_id=$1 AND customer_number IS NOT NULL", [planId]);
+  const marks = await client.query("SELECT tenant_id,instance_id FROM company_os_box_marks");
+  const marked = new Set(marks.rows.map((row) => `${row.tenant_id}/${row.instance_id}`));
+  const boxes = new Map();
+  for (const row of held.rows) {
+    const key = `${row.tenant_id}/${row.instance_id}`;
+    if (marked.has(key)) continue;
+    boxes.set(key, Math.min(boxes.get(key) ?? Infinity, Number(row.customer_number)));
+  }
+  return boxes;
 }
 
 /** Include a function in a plan at CHF 0, or take it out (for boxes that get the plan afterwards). */
@@ -103,10 +181,11 @@ export async function setPlanFunction(client, input) {
 }
 
 /**
- * Give a box a plan: the plan's terms are kept on the box, every function the plan includes is
- * granted by order at CHF 0 ("included in your plan"), and invoice subscriptions the box already
- * has join the plan (included ones at CHF 0, others as add-ons at their price). An early-bird
- * plan is refused once as many boxes have held it as its limit allows.
+ * Give a box a plan. A box that counts (no administrator's mark) gets the next customer number of
+ * the plan and the price of that number, and keeps both (a box that held the plan before gets its
+ * old number back). A marked box gets no number: it is shown the price the next customer would
+ * pay and is never invoiced. Every function the plan includes is granted by order at CHF 0
+ * ("included in your plan"); invoice subscriptions the box already has join the plan.
  */
 export async function assignPlan(client, input) {
   const now = input.now ?? new Date();
@@ -119,22 +198,23 @@ export async function assignPlan(client, input) {
   if (endsAt && (endsAt.getTime() <= now.getTime() || endsAt.getTime() <= startsAt.getTime())) throw new OrderError("end_not_after_start_and_now", 400);
   const box = await client.query("SELECT 1 FROM company_os_instance_keys WHERE tenant_id=$1 AND instance_id=$2 AND revoked_at IS NULL", [input.tenantId, input.instanceId]);
   if (!box.rowCount) throw new OrderError("box_not_enrolled", 404);
-  // the plan row is locked while boxes are counted, so two grants cannot both take the last place
+  // the plan row is locked while customers are counted, so two boxes cannot get the same number
   const found = await client.query("SELECT * FROM company_os_plans WHERE id=$1 FOR UPDATE", [input.planId]);
   const plan = found.rows[0];
   if (!plan) throw new OrderError("plan_not_found", 404);
   if (plan.status !== "active") throw new OrderError("plan_retired");
   const live = await liveBoxPlan(client, input.tenantId, input.instanceId, now);
   if (live) throw new OrderError(`box_has_a_plan:${live.id}:${live.plan_id}`);
-  if (plan.box_limit !== null && plan.box_limit !== undefined) {
-    const held = await client.query("SELECT tenant_id,instance_id FROM company_os_box_plans WHERE plan_id=$1", [plan.id]);
-    const boxes = new Set(held.rows.map((row) => `${row.tenant_id}/${row.instance_id}`));
-    if (!boxes.has(`${input.tenantId}/${input.instanceId}`) && boxes.size >= Number(plan.box_limit)) throw new OrderError(`plan_limit_reached:${boxes.size}/${plan.box_limit}`);
-  }
+  const steps = (await client.query("SELECT from_customer,monthly_price_cents FROM company_os_plan_prices WHERE plan_id=$1", [plan.id])).rows;
+  const mark = await boxMark(client, input.tenantId, input.instanceId);
+  const customers = await countingCustomers(client, plan.id);
+  const key = `${input.tenantId}/${input.instanceId}`;
+  const customerNumber = mark ? null : (customers.get(key) ?? customers.size + 1);
+  const monthlyCents = priceFor(steps, customerNumber ?? customers.size + 1);
   const boxPlanId = randomUUID();
   await client.query(
-    "INSERT INTO company_os_box_plans(id,tenant_id,instance_id,plan_id,plan_name,monthly_price_cents,currency,prices_exclude_vat,ai_allowance_cents,free_months,includes,early_bird,starts_at,ends_at,granted_by,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",
-    [boxPlanId, input.tenantId, input.instanceId, plan.id, plan.name, plan.monthly_price_cents, plan.currency, plan.prices_exclude_vat, plan.ai_allowance_cents, plan.free_months, JSON.stringify(plan.includes), plan.early_bird, startsAt.toISOString(), endsAt ? endsAt.toISOString() : null, admin, now.toISOString()],
+    "INSERT INTO company_os_box_plans(id,tenant_id,instance_id,plan_id,plan_name,monthly_price_cents,currency,prices_exclude_vat,ai_allowance_cents,free_months,includes,customer_number,starts_at,ends_at,granted_by,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",
+    [boxPlanId, input.tenantId, input.instanceId, plan.id, plan.name, monthlyCents, plan.currency, plan.prices_exclude_vat, plan.ai_allowance_cents, plan.free_months, JSON.stringify(plan.includes), customerNumber, startsAt.toISOString(), endsAt ? endsAt.toISOString() : null, admin, now.toISOString()],
   );
   // invoice subscriptions the box already has join the plan
   const existing = await client.query(
@@ -155,8 +235,8 @@ export async function assignPlan(client, input) {
     if (joined.some((item) => item.bundleId === row.bundle_id && item.includedInPlan)) continue;
     granted.push(await grantSubscriptionByOrder(client, { tenantId: input.tenantId, instanceId: input.instanceId, bundleId: row.bundle_id, startsOn: input.startsOn, endsOn: input.endsOn ?? null, administrator: admin, note: `included in plan ${plan.id}`, now }));
   }
-  const result = { boxPlanId, planId: plan.id, planName: plan.name, earlyBird: plan.early_bird, startsAt: startsAt.toISOString(), endsAt: endsAt ? endsAt.toISOString() : null, granted, joined, grantedBy: admin };
-  await planAudit(client, "plan_assigned", admin, { tenantId: input.tenantId, instanceId: input.instanceId, planId: plan.id, startsAt: result.startsAt, endsAt: result.endsAt, granted: granted.map((item) => item.bundleId), joined: joined.map((item) => item.bundleId), note: input.note ?? null }, { planId: plan.id, boxPlanId }, now);
+  const result = { boxPlanId, planId: plan.id, planName: plan.name, customerNumber, mark, monthlyPriceCents: monthlyCents, startsAt: startsAt.toISOString(), endsAt: endsAt ? endsAt.toISOString() : null, granted, joined, grantedBy: admin };
+  await planAudit(client, "plan_assigned", admin, { tenantId: input.tenantId, instanceId: input.instanceId, planId: plan.id, customerNumber, mark, monthlyPriceCents: monthlyCents, startsAt: result.startsAt, endsAt: result.endsAt, granted: granted.map((item) => item.bundleId), joined: joined.map((item) => item.bundleId), note: input.note ?? null }, { planId: plan.id, boxPlanId }, now);
   return result;
 }
 
@@ -203,35 +283,48 @@ export async function addInvoiceLine(client, input) {
   return { invoiceLineId: id, month: month.label, kind, description, amountCents: amount, currency: plan.currency };
 }
 
-/** The plans with how many boxes hold one now and how many ever got it (the early-bird count). */
-export async function planList(client, now = new Date()) {
+/** The plans with their price steps, workflows, and how many customers count (and what the next one pays). */
+export async function planList(client) {
   const plans = (await client.query("SELECT * FROM company_os_plans ORDER BY id")).rows;
-  const held = (await client.query("SELECT plan_id,tenant_id,instance_id,ends_at FROM company_os_box_plans")).rows;
   const functions = (await client.query("SELECT plan_id,bundle_id FROM company_os_plan_functions ORDER BY bundle_id")).rows;
-  return plans.map((plan) => {
-    const rows = held.filter((row) => row.plan_id === plan.id);
-    const ever = new Set(rows.map((row) => `${row.tenant_id}/${row.instance_id}`)).size;
-    const holding = new Set(rows.filter((row) => !row.ends_at || new Date(row.ends_at) > now).map((row) => `${row.tenant_id}/${row.instance_id}`)).size;
-    return {
-      id: plan.id, name: plan.name, monthlyPriceCents: plan.monthly_price_cents, currency: plan.currency, pricesExcludeVat: plan.prices_exclude_vat,
-      aiAllowanceCents: plan.ai_allowance_cents, freeMonths: plan.free_months, includes: plan.includes, earlyBird: plan.early_bird, status: plan.status,
-      includedFunctions: functions.filter((row) => row.plan_id === plan.id).map((row) => row.bundle_id),
-      boxLimit: plan.box_limit ?? null, boxesHolding: holding, boxesEver: ever, placesLeft: plan.box_limit ? Math.max(0, Number(plan.box_limit) - ever) : null,
-    };
-  });
+  const prices = (await client.query("SELECT plan_id,from_customer,monthly_price_cents FROM company_os_plan_prices ORDER BY from_customer")).rows;
+  const out = [];
+  for (const plan of plans) {
+    const steps = prices.filter((row) => row.plan_id === plan.id);
+    const customers = await countingCustomers(client, plan.id);
+    out.push({
+      id: plan.id, name: plan.name, currency: plan.currency, pricesExcludeVat: plan.prices_exclude_vat, aiAllowanceCents: plan.ai_allowance_cents, freeMonths: plan.free_months,
+      includes: plan.includes, status: plan.status, workflows: functions.filter((row) => row.plan_id === plan.id).map((row) => row.bundle_id),
+      prices: steps.map((row) => ({ fromCustomer: Number(row.from_customer), monthlyPriceCents: Number(row.monthly_price_cents) })),
+      payingCustomers: customers.size, nextCustomerPays: steps.length ? priceFor(steps, customers.size + 1) : null,
+    });
+  }
+  return out;
+}
+
+async function vatRateFor(client, monthStart) {
+  const r = await client.query("SELECT effective_from,rate_basis_points FROM company_os_vat_rates WHERE effective_from<=$1 ORDER BY effective_from DESC LIMIT 1", [monthStart.toISOString().slice(0, 10)]);
+  return r.rows[0] ? Number(r.rows[0].rate_basis_points) : null;
+}
+
+/** VAT in cents on an amount, rounded to the cent (half up). */
+function vatOn(netCents, basisPoints) {
+  return Math.round((netCents * basisPoints) / 10000);
 }
 
 function vatText(plan) {
-  if (!plan) return "";
-  return plan.prices_exclude_vat ? "excl. VAT" : "incl. VAT";
+  if (!plan) return "plus VAT";
+  return plan.prices_exclude_vat ? "plus VAT" : "VAT included";
 }
 
 /**
  * What to invoice for one month, per box: the plan (or CHF 0 in a free month), what it includes,
  * the AI allowance, the functions included at CHF 0, add-ons at their price, one-time lines, and
- * a total. A plan or subscription running on any day of the month counts for the whole month (no
- * part months). Free months count from the month the plan starts and cover the whole box.
- * Subscriptions billed by a provider (Polar) are not here: the provider invoices them.
+ * then the net subtotal, the VAT at the rate in force on the month's first day, and the total. A
+ * plan or subscription running on any day of the month counts for the whole month (no part
+ * months). Free months (if a plan has any) count from the month the plan starts and cover the
+ * whole box. Subscriptions billed by a provider (Polar) are not here: the provider invoices them.
+ * A box an administrator marked (test, Old School's own) is listed with `invoiced: false`.
  *
  * @param {{ query: Function }} client
  * @param {{ month: string; tenantId?: string | null; instanceId?: string | null }} input
@@ -253,6 +346,9 @@ export async function invoiceLines(client, input) {
   });
   const items = (await client.query(`SELECT * FROM company_os_invoice_items WHERE invoice_month=$3 AND ${scoped} ORDER BY created_at`, [...scope, month.start.toISOString().slice(0, 10)])).rows;
   const keys = (await client.query(`SELECT tenant_id,instance_id,label,enrolled_at FROM company_os_instance_keys WHERE ${scoped}`, scope)).rows;
+  const marks = (await client.query(`SELECT tenant_id,instance_id,mark FROM company_os_box_marks WHERE ${scoped}`, scope)).rows;
+  const markOf = (tenantId, instanceId) => marks.find((row) => row.tenant_id === tenantId && row.instance_id === instanceId)?.mark ?? null;
+  const vatBasisPoints = await vatRateFor(client, month.start);
   const boxLabel = (tenantId, instanceId) => keys.filter((key) => key.tenant_id === tenantId && key.instance_id === instanceId && key.label).sort((a, b) => new Date(b.enrolled_at ?? 0).getTime() - new Date(a.enrolled_at ?? 0).getTime())[0]?.label ?? "";
 
   const boxes = new Map();
@@ -271,14 +367,15 @@ export async function invoiceLines(client, input) {
     const index = plan ? monthsFrom(plan.starts_at, month.start) : null;
     const free = plan !== null && index !== null && index < Number(plan.free_months);
     const currency = plan?.currency ?? box.subscriptions[0]?.currency ?? box.items[0]?.currency ?? "chf";
-    const base = { month: month.label, tenantId: box.tenantId, instanceId: box.instanceId, box: boxLabel(box.tenantId, box.instanceId), plan: plan?.plan_name ?? "", currency, vat: vatText(plan) };
+    const mark = markOf(box.tenantId, box.instanceId);
+    const base = { month: month.label, tenantId: box.tenantId, instanceId: box.instanceId, box: boxLabel(box.tenantId, box.instanceId), plan: plan?.plan_name ?? "", currency, vat: vatText(plan), invoiced: !mark };
     const freeNote = free ? `free month ${index + 1} of ${plan.free_months}` : "";
     const add = (line, description, amountCents, note = "") => lines.push({ ...base, line, description, amountCents, note });
     let total = 0;
     if (plan) {
       const price = free ? 0 : Number(plan.monthly_price_cents);
       total += price;
-      add("plan", `${plan.plan_name}, monthly`, price, free ? freeNote : (plan.early_bird ? "early-bird price" : ""));
+      add("plan", `${plan.plan_name}, monthly`, price, free ? freeNote : "");
       const includes = Array.isArray(plan.includes) ? plan.includes : [];
       if (includes.length) add("plan_includes", `Includes: ${includes.join("; ")}`, 0, "included in your plan");
       if (Number(plan.ai_allowance_cents) > 0) add("ai_allowance", `AI use up to ${currency.toUpperCase()} ${money(Number(plan.ai_allowance_cents))} per month`, 0, "included in your plan");
@@ -296,7 +393,16 @@ export async function invoiceLines(client, input) {
       total += Number(item.amount_cents);
       add(item.kind, item.description, Number(item.amount_cents), "one-time");
     }
-    add("total", `Total ${month.label}`, total, base.vat);
+    // net, VAT and total: prices before VAT get the VAT on top; prices with VAT have it taken out
+    if (vatBasisPoints === null) throw new OrderError(`vat_rate_missing_for:${month.label}`, 409);
+    const rate = `${vatBasisPoints / 100}%`;
+    const exclusive = plan ? plan.prices_exclude_vat : true;
+    const vat = exclusive ? vatOn(total, vatBasisPoints) : total - Math.round((total * 10000) / (10000 + vatBasisPoints));
+    const net = exclusive ? total : total - vat;
+    const notInvoiced = mark ? `not invoiced: ${MARK_TEXT[mark]}` : "";
+    add("subtotal", `Subtotal ${month.label}, net`, net, notInvoiced);
+    add("vat", `VAT ${rate}`, vat, notInvoiced);
+    add("total", `Total ${month.label}`, net + vat, notInvoiced);
   }
   return lines;
 }
@@ -310,10 +416,10 @@ function csvCell(value) {
   return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
-/** The lines as CSV, one row per line, amounts in francs with two decimals. */
-export function invoiceCsv(lines) {
+/** The lines as CSV, one row per line, amounts in francs with two decimals; marked boxes only when asked. */
+export function invoiceCsv(lines, options = {}) {
   const rows = [CSV_COLUMNS.join(",")];
-  for (const line of lines) rows.push([line.month, line.box, line.tenantId, line.instanceId, line.plan, line.line, line.description, money(line.amountCents), line.currency.toUpperCase(), line.vat, line.note].map(csvCell).join(","));
+  for (const line of lines.filter((item) => item.invoiced || options.includeNotInvoiced)) rows.push([line.month, line.box, line.tenantId, line.instanceId, line.plan, line.line, line.description, money(line.amountCents), line.currency.toUpperCase(), line.vat, line.note].map(csvCell).join(","));
   return `${rows.join("\n")}\n`;
 }
 
@@ -323,16 +429,20 @@ export async function boxPlanView(client, input) {
   const month = input.month ?? currentMonth(now);
   const plan = await liveBoxPlan(client, input.tenantId, input.instanceId, now);
   const lines = (await invoiceLines(client, { month, tenantId: input.tenantId, instanceId: input.instanceId })).map(({ tenantId: _tenant, instanceId: _instance, ...line }) => line);
+  const workflows = plan ? (await client.query("SELECT f.bundle_id,b.name FROM company_os_plan_functions f JOIN company_os_function_bundles b ON b.id=f.bundle_id WHERE f.plan_id=$1 ORDER BY b.name", [plan.plan_id])).rows.map((row) => ({ bundleId: row.bundle_id, name: row.name })) : [];
   return {
     month,
     plan: plan
       ? {
           planId: plan.plan_id, name: plan.plan_name, monthlyPriceCents: Number(plan.monthly_price_cents), currency: plan.currency, pricesExcludeVat: plan.prices_exclude_vat,
-          aiAllowanceCents: Number(plan.ai_allowance_cents), freeMonths: Number(plan.free_months), includes: plan.includes, earlyBird: plan.early_bird,
+          aiAllowanceCents: Number(plan.ai_allowance_cents), freeMonths: Number(plan.free_months), includes: plan.includes,
           startsAt: new Date(plan.starts_at).toISOString(), endsAt: plan.ends_at ? new Date(plan.ends_at).toISOString() : null,
+          workflows,
         }
       : null,
     lines,
+    netCents: lines.find((line) => line.line === "subtotal")?.amountCents ?? 0,
+    vatCents: lines.find((line) => line.line === "vat")?.amountCents ?? 0,
     totalCents: lines.find((line) => line.line === "total")?.amountCents ?? 0,
   };
 }
