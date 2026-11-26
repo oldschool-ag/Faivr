@@ -12,7 +12,7 @@
 // Plain JavaScript on purpose: the admin command runs with node and no build step. No billing
 // provider is reached from here.
 import { randomUUID } from "node:crypto";
-import { administrator, endSubscriptionByAdmin, grantSubscriptionByOrder, includedInPlan, INVOICE, liveBoxPlan, OrderError, parseOrderDate } from "./subscriptionOrders.mjs";
+import { administrator, applyDueSubscriptionDates, endSubscriptionByAdmin, grantSubscriptionByOrder, includedInPlan, INVOICE, liveBoxPlan, OrderError, parseOrderDate } from "./subscriptionOrders.mjs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -235,6 +235,12 @@ export async function assignPlan(client, input) {
   if (plan.status !== "active") throw new OrderError("plan_retired");
   const live = await liveBoxPlan(client, input.tenantId, input.instanceId, now);
   if (live) throw new OrderError(`box_has_a_plan:${live.id}:${live.plan_id}`);
+  // one currency per box: invoices never add up amounts in different currencies
+  const otherCurrency = await client.query(
+    "SELECT currency FROM company_os_box_plans WHERE tenant_id=$1 AND instance_id=$2 AND currency<>$3 UNION ALL SELECT b.currency FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.tenant_id=$1 AND s.instance_id=$2 AND s.billing_provider='invoice' AND b.currency<>$3",
+    [input.tenantId, input.instanceId, plan.currency],
+  );
+  if (otherCurrency.rowCount) throw new OrderError(`box_currency_differs_from_plan:${otherCurrency.rows[0].currency}:${plan.currency}`);
   const steps = (await client.query("SELECT from_customer,monthly_price_cents FROM company_os_plan_prices WHERE plan_id=$1", [plan.id])).rows;
   const mark = await boxMark(client, input.tenantId, input.instanceId);
   const customers = await countingCustomers(client, plan.id);
@@ -292,6 +298,14 @@ export async function endPlan(client, input) {
   const ended = [];
   // the subscriptions end at the plan's exact deadline, not at a rounded number of days
   for (const row of subscriptions.rows) ended.push(await endSubscriptionByAdmin(client, { subscriptionId: row.id, graceDays, effectiveAt: effective, administrator: admin, reason: reason ?? `plan ${plan.plan_id} ended`, now }));
+  // a subscription an administrator already ended later than the plan now ends with the plan; an earlier end stays
+  const later = await client.query("SELECT id FROM company_os_bundle_subscriptions WHERE box_plan_id=$1 AND billing_provider=$2 AND subscription_state='cancel_at_period_end' AND admin_ended_at IS NOT NULL AND cancel_effective_at>$3", [plan.id, INVOICE, effective.toISOString()]);
+  for (const row of later.rows) {
+    await client.query("UPDATE company_os_bundle_subscriptions SET cancel_effective_at=$2,updated_at=$3 WHERE id=$1", [row.id, effective.toISOString(), now.toISOString()]);
+    await client.query("UPDATE company_os_installations SET billing_cancel_effective_at=$2,updated_at=$3 WHERE bundle_subscription_id=$1", [row.id, effective.toISOString(), now.toISOString()]);
+    ended.push({ subscriptionId: row.id, billing: INVOICE, subscriptionState: "cancel_at_period_end", effectiveAt: effective.toISOString(), endedBy: admin });
+  }
+  if (later.rowCount && effective.getTime() <= now.getTime()) await applyDueSubscriptionDates(client, { now });
   await planAudit(client, "plan_ended", admin, { effectiveAt: effective.toISOString(), graceDays, reason, subscriptions: ended.map((item) => item.subscriptionId) }, { planId: plan.plan_id, boxPlanId: plan.id }, now);
   return { boxPlanId: plan.id, endsAt: effective.toISOString(), endedBy: admin, subscriptions: ended };
 }
@@ -464,6 +478,9 @@ export async function invoiceLines(client, input) {
       charge(price, planId);
       add("add_on", row.billing_description, price, free ?? (days < total ? `add-on, list price, ${daysNote(days)}` : "add-on, list price"));
     }
+    // one currency per box: refuse loudly rather than add up francs and another currency
+    const currencies = new Set([...box.plans.map((plan) => plan.currency), ...box.subscriptions.map((row) => row.currency), ...box.items.map((item) => item.currency)].map((value) => String(value).toLowerCase()));
+    if (currencies.size > 1) throw new OrderError(`box_has_more_than_one_currency:${box.instanceId}:${[...currencies].sort().join(",")}`, 409);
     for (const item of box.items) {
       // a one-time line follows the VAT basis of the plan it was added under
       charge(Number(item.amount_cents), planById.has(item.box_plan_id) ? item.box_plan_id : latest?.id ?? null);

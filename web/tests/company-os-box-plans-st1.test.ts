@@ -8,7 +8,7 @@ vi.mock("@/lib/postgres", () => ({ getPgPool: () => holder.pool }));
 
 import { addPackageToBundle, enrolPublisher, issueEnrolmentCode, upsertBundle } from "@/lib/companyOs/privateStore";
 import { addInvoiceLine, assignPlan, definePlan, endPlan, invoiceCsv, invoiceLines, markBox, planList, setPlanFunction, setVatRate } from "@/lib/companyOs/boxPlans.mjs";
-import { applyDueSubscriptionDates, grantSubscriptionByOrder } from "@/lib/companyOs/subscriptionOrders.mjs";
+import { applyDueSubscriptionDates, endSubscriptionByAdmin, grantSubscriptionByOrder } from "@/lib/companyOs/subscriptionOrders.mjs";
 import { keyIdFor, loadEd25519PublicKey } from "@/lib/companyOs/publisherKeys";
 import { enrol, storeInstallations, storePlan } from "@/app/api/company-os/v1/storeHandlers";
 import { createStoreDb, ed25519Pair, envelope, signedManifest, signedRequest, type Appliance } from "./helpers/companyOsStoreDb";
@@ -356,6 +356,29 @@ describe("ST1 plans: what Old School invoices per box", () => {
     await grantSubscriptionByOrder(holder.pool, { tenantId, instanceId: appliance.instanceId, bundleId: "extra-workflow", startsOn: "2026-12-01", endsOn: "2027-03-01", administrator: ADMIN, now: NOW });
     expect((await invoiceLines(holder.pool, { month: "2027-01" })).find((line) => line.line === "add_on")).toMatchObject({ amountCents: 9900 });
     expect(await invoiceLines(holder.pool, { month: "2027-02" })).toEqual([]);
+  });
+
+  it("Codex P2: ending a plan also brings forward a later end an administrator had already set", async () => {
+    await assign(appliance.instanceId);
+    const addOn = await grantSubscriptionByOrder(holder.pool, { tenantId, instanceId: appliance.instanceId, bundleId: "extra-workflow", startsOn: "2026-12-01", administrator: ADMIN, now: NOW });
+    await endSubscriptionByAdmin(holder.pool, { subscriptionId: addOn.subscriptionId, graceDays: 20, administrator: ADMIN, now: new Date("2027-01-12T00:00:00.000Z") });
+    const boxPlan = (await holder.pool.query("SELECT id FROM company_os_box_plans WHERE instance_id=$1", [appliance.instanceId])).rows[0].id;
+    await endPlan(holder.pool, { boxPlanId: boxPlan, graceDays: 0, administrator: ADMIN, now: new Date("2027-01-15T00:00:00.000Z") });
+    const row = (await holder.pool.query("SELECT subscription_state,stopped_at FROM company_os_bundle_subscriptions WHERE id=$1", [addOn.subscriptionId])).rows[0];
+    expect(row.subscription_state).toBe("cancelled");
+    expect(new Date(row.stopped_at).toISOString()).toBe("2027-01-15T00:00:00.000Z");
+  });
+
+  it("Codex P2: one currency per box: other currencies are refused, never added up", async () => {
+    await upsertBundle({ id: "dollar-workflow", name: "Dollar workflow", description: "Priced in USD.", stripePriceId: null, polarProductId: null, monthlyPriceCents: 9900, currency: "usd" });
+    const box = await newBox();
+    await grantSubscriptionByOrder(holder.pool, { tenantId, instanceId: box, bundleId: "dollar-workflow", startsOn: "2026-12-01", administrator: ADMIN, now: NOW });
+    await expect(assign(box)).rejects.toThrow("box_currency_differs_from_plan:usd:chf");
+    await expect(grantSubscriptionByOrder(holder.pool, { tenantId, instanceId: box, bundleId: "extra-workflow", startsOn: "2026-12-01", administrator: ADMIN, now: NOW })).rejects.toThrow("box_currency_differs:usd:chf");
+    // data written around the commands is still refused when the invoice is built
+    await assign(appliance.instanceId);
+    await holder.pool.query("INSERT INTO company_os_bundle_subscriptions(id,tenant_id,instance_id,bundle_id,copy_number,billing_description,billing_provider,subscription_state,entitled_at,billing_starts_at,invoice_monthly_cents) VALUES($1,$2,$3,'dollar-workflow',1,'Dollar workflow','invoice','active','2026-12-01','2026-12-01',9900)", [randomUUID(), tenantId, appliance.instanceId]);
+    await expect(invoiceLines(holder.pool, { month: "2027-01" })).rejects.toThrow(`box_has_more_than_one_currency:${appliance.instanceId}:chf,usd`);
   });
 
   it("refuses plan data and invoice lines that would be wrong", async () => {

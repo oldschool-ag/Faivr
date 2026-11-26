@@ -119,6 +119,9 @@ export async function grantSubscriptionByOrder(client, input) {
   const plan = await liveBoxPlan(client, input.tenantId, input.instanceId, now);
   const included = plan ? await includedInPlan(client, plan.plan_id, input.bundleId, copyNumber) : false;
   if (plan && !included && String(bundle.rows[0].currency) !== String(plan.currency)) throw new OrderError(`add_on_currency_differs_from_plan:${bundle.rows[0].currency}:${plan.currency}`);
+  // one currency per box, also without a plan
+  const otherCurrency = await client.query("SELECT b.currency FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.tenant_id=$1 AND s.instance_id=$2 AND s.billing_provider=$3 AND b.currency<>$4 LIMIT 1", [input.tenantId, input.instanceId, INVOICE, bundle.rows[0].currency]);
+  if (otherCurrency.rowCount) throw new OrderError(`box_currency_differs:${otherCurrency.rows[0].currency}:${bundle.rows[0].currency}`);
   const monthlyCents = included ? 0 : Number(bundle.rows[0].monthly_price_cents);
   // an add-on to a plan with an end date ends with the plan unless it was given its own end
   const ends = endsAt ?? (plan?.ends_at ? new Date(plan.ends_at) : null);
