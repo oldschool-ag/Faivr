@@ -251,6 +251,26 @@ describe("ST1 plans: what Old School invoices per box", () => {
     expect(january.find((line) => line[0] === "subtotal")?.[2]).toBe(24800);
   });
 
+  it("Codex P2: a customer who returns after a price change keeps its number and its price", async () => {
+    const first = await assign(appliance.instanceId);
+    await endPlan(holder.pool, { boxPlanId: first.boxPlanId, graceDays: 0, administrator: ADMIN, now: NOW });
+    await definePlan(holder.pool, { id: PLAN, name: PLAN_NAME, prices: "1=199", aiAllowanceChf: "30", freeMonths: 0, pricesExcludeVat: true, includes: INCLUDES, administrator: ADMIN });
+    const back = await assign(appliance.instanceId, { now: new Date(NOW.getTime() + 1000) });
+    expect([back.customerNumber, back.monthlyPriceCents]).toEqual([1, 14900]);
+    // a new customer pays today's steps
+    expect((await assign(await newBox())).monthlyPriceCents).toBe(19900);
+  });
+
+  it("Codex P2: a month with a plan before VAT and a plan with VAT applies each plan's basis", async () => {
+    await definePlan(holder.pool, { id: "net-plan", name: "Net plan", prices: "1=100", aiAllowanceChf: "0", freeMonths: 0, pricesExcludeVat: true, includes: INCLUDES, administrator: ADMIN });
+    await definePlan(holder.pool, { id: "gross-plan", name: "Gross plan", prices: "1=108.10", aiAllowanceChf: "0", freeMonths: 0, pricesExcludeVat: false, includes: INCLUDES, administrator: ADMIN });
+    const old = await assignPlan(holder.pool, { tenantId, instanceId: appliance.instanceId, planId: "net-plan", startsOn: "2027-01-01", administrator: ADMIN, now: NOW });
+    await endPlan(holder.pool, { boxPlanId: old.boxPlanId, graceDays: 0, administrator: ADMIN, now: new Date("2027-01-10T00:00:00.000Z") });
+    await assignPlan(holder.pool, { tenantId, instanceId: appliance.instanceId, planId: "gross-plan", startsOn: "2027-01-15", administrator: ADMIN, now: new Date("2027-01-12T00:00:00.000Z") });
+    const january = await invoiceLines(holder.pool, { month: "2027-01" });
+    expect(["subtotal", "vat", "total"].map((name) => january.find((line) => line.line === name)?.amountCents)).toEqual([20000, 1620, 21620]);
+  });
+
   it("refuses plan data and invoice lines that would be wrong", async () => {
     const plan = (input: Record<string, unknown>) => definePlan(holder.pool, { id: "p", name: "P", prices: "1=10", aiAllowanceChf: "0", freeMonths: 0, pricesExcludeVat: true, includes: ["Support"], administrator: ADMIN, ...input } as Parameters<typeof definePlan>[1]);
     await expect(plan({ prices: "1=149.999" })).rejects.toThrow("prices_invalid");

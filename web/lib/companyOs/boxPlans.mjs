@@ -210,7 +210,9 @@ export async function assignPlan(client, input) {
   const customers = await countingCustomers(client, plan.id);
   const key = `${input.tenantId}/${input.instanceId}`;
   const customerNumber = mark ? null : (customers.get(key) ?? customers.size + 1);
-  const monthlyCents = priceFor(steps, customerNumber ?? customers.size + 1);
+  // a returning customer keeps the price it had with its number; only a new number takes today's steps
+  const earlier = customerNumber === null ? null : (await client.query("SELECT monthly_price_cents FROM company_os_box_plans WHERE plan_id=$1 AND tenant_id=$2 AND instance_id=$3 AND customer_number=$4 ORDER BY created_at LIMIT 1", [plan.id, input.tenantId, input.instanceId, customerNumber])).rows[0];
+  const monthlyCents = earlier ? Number(earlier.monthly_price_cents) : priceFor(steps, customerNumber ?? customers.size + 1);
   const boxPlanId = randomUUID();
   await client.query(
     "INSERT INTO company_os_box_plans(id,tenant_id,instance_id,plan_id,plan_name,monthly_price_cents,currency,prices_exclude_vat,ai_allowance_cents,free_months,includes,customer_number,starts_at,ends_at,granted_by,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",
@@ -378,12 +380,19 @@ export async function invoiceLines(client, input) {
       const index = monthsFrom(plan.starts_at, month.start);
       if (index < Number(plan.free_months)) freeNoteOf.set(plan.id, `free month ${index + 1} of ${plan.free_months}`);
     }
-    let total = 0;
+    // charges are summed by VAT basis: prices before VAT, and prices with VAT included
+    const sums = { exclusive: 0, inclusive: 0 };
+    const planById = new Map(box.plans.map((plan) => [plan.id, plan]));
+    const charge = (cents, planId) => {
+      const plan = planId ? planById.get(planId) : null;
+      if (plan && plan.prices_exclude_vat === false) sums.inclusive += cents;
+      else sums.exclusive += cents;
+    };
     if (!box.plans.length) add("no_plan", "No plan on this box", 0, "add-ons only");
     for (const plan of box.plans) {
       const free = freeNoteOf.get(plan.id);
       const price = free ? 0 : Number(plan.monthly_price_cents);
-      total += price;
+      charge(price, plan.id);
       add("plan", `${plan.plan_name}, monthly`, price, free ?? "");
       const includes = Array.isArray(plan.includes) ? plan.includes : [];
       if (includes.length) add("plan_includes", `Includes: ${includes.join("; ")}`, 0, "included in your plan");
@@ -395,29 +404,30 @@ export async function invoiceLines(client, input) {
     for (const row of box.subscriptions) {
       if (row.box_plan_id && planIds.has(row.box_plan_id)) {
         if (row.included_in_plan) included.push(row);
-        else addOns.push({ row, cents: Number(row.invoice_monthly_cents ?? row.monthly_price_cents), free: freeNoteOf.get(row.box_plan_id) });
+        else addOns.push({ row, cents: Number(row.invoice_monthly_cents ?? row.monthly_price_cents), free: freeNoteOf.get(row.box_plan_id), planId: row.box_plan_id });
       } else {
         // a month outside its plan: the price it had without the plan (never "included")
         const cents = row.pre_plan_monthly_cents ?? (row.included_in_plan ? row.monthly_price_cents : (row.invoice_monthly_cents ?? row.monthly_price_cents));
-        addOns.push({ row, cents: Number(cents), free: undefined });
+        addOns.push({ row, cents: Number(cents), free: undefined, planId: null });
       }
     }
     for (const row of included) add("included_function", row.billing_description, 0, "included in your plan");
-    for (const { row, cents, free } of addOns) {
+    for (const { row, cents, free, planId } of addOns) {
       const price = free ? 0 : cents;
-      total += price;
+      charge(price, planId);
       add("add_on", row.billing_description, price, free ?? "add-on, list price");
     }
     for (const item of box.items) {
-      total += Number(item.amount_cents);
+      // a one-time line follows the VAT basis of the plan it was added under
+      charge(Number(item.amount_cents), planById.has(item.box_plan_id) ? item.box_plan_id : latest?.id ?? null);
       add(item.kind, item.description, Number(item.amount_cents), "one-time");
     }
     // net, VAT and total: prices before VAT get the VAT on top; prices with VAT have it taken out
     if (vatBasisPoints === null) throw new OrderError(`vat_rate_missing_for:${month.label}`, 409);
     const rate = `${vatBasisPoints / 100}%`;
-    const exclusive = latest ? latest.prices_exclude_vat : true;
-    const vat = exclusive ? vatOn(total, vatBasisPoints) : total - Math.round((total * 10000) / (10000 + vatBasisPoints));
-    const net = exclusive ? total : total - vat;
+    const vatIncluded = sums.inclusive - Math.round((sums.inclusive * 10000) / (10000 + vatBasisPoints));
+    const vat = vatOn(sums.exclusive, vatBasisPoints) + vatIncluded;
+    const net = sums.exclusive + sums.inclusive - vatIncluded;
     const notInvoiced = mark ? `not invoiced: ${MARK_TEXT[mark]}` : "";
     add("subtotal", `Subtotal ${month.label}, net`, net, notInvoiced);
     add("vat", `VAT ${rate}`, vat, notInvoiced);
