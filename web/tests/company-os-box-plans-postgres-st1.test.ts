@@ -15,6 +15,7 @@ const url = process.env.STORE_TEST_DATABASE_URL;
 const ADMIN = "bernd (CEO)";
 const NOW = new Date("2026-11-26T12:00:00.000Z");
 const PLAN = "customers-and-product-management";
+const OTHER = "other-plan";
 
 describe.skipIf(!url)("ST1 plans on Postgres: one transaction per admin command", () => {
   const schema = `st1_test_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
@@ -39,6 +40,8 @@ describe.skipIf(!url)("ST1 plans on Postgres: one transaction per admin command"
     await definePlan(admin, { id: PLAN, name: "Truchsess box", earlyBirdCustomers: 1, ...terms });
     await setPlanFunction(admin, { planId: PLAN, bundleId: "customers", granted: true, administrator: ADMIN });
     await definePlan(admin, { id: "broken-plan", name: "Broken", earlyBirdCustomers: 0, ...terms });
+    await definePlan(admin, { id: OTHER, name: "Other", earlyBirdCustomers: 0, ...terms });
+    await setPlanFunction(admin, { planId: OTHER, bundleId: "customers", granted: true, administrator: ADMIN });
     await setPlanFunction(admin, { planId: "broken-plan", bundleId: "retired-workflow", granted: true, administrator: ADMIN });
   });
 
@@ -74,6 +77,26 @@ describe.skipIf(!url)("ST1 plans on Postgres: one transaction per admin command"
       // customer 1 is the plan's only early bird here; customer 2 is not
       expect([first.customerNumber, first.earlyBird?.discountBasisPoints]).toEqual([1, 5000]);
       expect([done.customerNumber, done.earlyBird]).toEqual([2, null]);
+    } finally {
+      await a.end();
+      await b.end();
+    }
+  });
+
+  it("Codex P2: two assigns of different plans on one box run one after the other: the second finds the first", async () => {
+    const box = randomUUID();
+    await admin.query("INSERT INTO company_os_instance_keys(tenant_id,instance_id,key_id,public_key,label,enrolled_at) VALUES($1,$2,'k','pem','box',now())", [tenantId, box]);
+    const [a, b] = [await connect(), await connect()];
+    try {
+      await a.query("BEGIN");
+      await assignPlan(a, { tenantId, instanceId: box, planId: PLAN, startsOn: "2026-12-01", administrator: ADMIN, now: NOW });
+      const second = inTransaction(b, () => assignPlan(b, { tenantId, instanceId: box, planId: OTHER, startsOn: "2026-12-01", administrator: ADMIN, now: NOW }));
+      const waited = await Promise.race([second.then(() => "finished", () => "failed"), new Promise((resolve) => setTimeout(() => resolve("waiting"), 500))]);
+      expect(waited).toBe("waiting");
+      await a.query("COMMIT");
+      await expect(second).rejects.toThrow("box_has_a_plan");
+      const plans = await a.query("SELECT plan_id FROM company_os_box_plans WHERE instance_id=$1", [box]);
+      expect(plans.rows.map((row) => row.plan_id)).toEqual([PLAN]);
     } finally {
       await a.end();
       await b.end();

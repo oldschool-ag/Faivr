@@ -96,7 +96,9 @@ export async function grantSubscriptionByOrder(client, input) {
   if (endsAt && endsAt.getTime() <= startsAt.getTime()) throw new OrderError("end_not_after_start", 400);
   const note = typeof input.note === "string" && input.note.trim() ? input.note.trim().slice(0, 500) : null;
 
-  const box = await client.query("SELECT 1 FROM company_os_instance_keys WHERE tenant_id=$1 AND instance_id=$2 AND revoked_at IS NULL", [input.tenantId, input.instanceId]);
+  // the box's row is locked: grants and plan assignments on one box run one after the other, so
+  // their checks (one live copy, one currency, the box's plan) see each other's work
+  const box = await client.query("SELECT 1 FROM company_os_instance_keys WHERE tenant_id=$1 AND instance_id=$2 AND revoked_at IS NULL FOR UPDATE", [input.tenantId, input.instanceId]);
   if (!box.rowCount) throw new OrderError("box_not_enrolled", 404);
   const bundle = await client.query("SELECT id,name,status,monthly_price_cents,currency,kind,ai_allowance_usd_cents FROM company_os_function_bundles WHERE id=$1", [input.bundleId]);
   if (!bundle.rowCount) throw new OrderError("bundle_not_found", 404);
@@ -153,6 +155,17 @@ export async function grantSubscriptionByOrder(client, input) {
  * @param {{ query: Function }} client
  * @param {{ subscriptionId: string; graceDays: number; administrator: string; reason?: string | null; confirmProviderNotTold?: boolean; effectiveAt?: Date | null; now?: Date }} input
  */
+/**
+ * ST1: the invoice workflows on a box's plan that run for as long as the plan does: active, not
+ * ended by an administrator, and with no end of their own before the plan's end (an open plan
+ * needs a workflow with no end). A box always has at least one.
+ */
+export async function workflowsCoveringPlan(client, boxPlanId, planEndsAt, exceptId = null) {
+  const rows = (await client.query("SELECT s.id,s.billing_ends_at,COALESCE(s.invoice_kind,b.kind) AS kind FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.box_plan_id=$1 AND s.billing_provider=$2 AND s.subscription_state='active' AND s.admin_ended_at IS NULL", [boxPlanId, INVOICE])).rows;
+  const planEnd = planEndsAt ? new Date(planEndsAt).getTime() : null;
+  return rows.filter((row) => row.id !== exceptId && row.kind === "workflow" && (row.billing_ends_at === null || (planEnd !== null && new Date(row.billing_ends_at).getTime() >= planEnd)));
+}
+
 export async function endSubscriptionByAdmin(client, input) {
   const now = input.now ?? new Date();
   const admin = administrator(input.administrator);
@@ -168,8 +181,8 @@ export async function endSubscriptionByAdmin(client, input) {
   if (!input.withPlan && row.billing_provider === INVOICE && row.kind === "workflow" && row.box_plan_id) {
     const plan = await client.query("SELECT ends_at FROM company_os_box_plans WHERE id=$1", [row.box_plan_id]);
     const planRuns = plan.rows[0] && (!plan.rows[0].ends_at || new Date(plan.rows[0].ends_at).getTime() > now.getTime());
-    const others = await client.query("SELECT 1 FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.box_plan_id=$1 AND s.id<>$2 AND s.subscription_state='active' AND s.admin_ended_at IS NULL AND COALESCE(s.invoice_kind,b.kind)='workflow'", [row.box_plan_id, row.id]);
-    if (planRuns && !others.rowCount) throw new OrderError("last_workflow_end_the_plan_instead");
+    // another workflow must run as long as the plan does, not only until its own earlier end
+    if (planRuns && !(await workflowsCoveringPlan(client, row.box_plan_id, plan.rows[0].ends_at, row.id)).length) throw new OrderError("last_workflow_end_the_plan_instead");
   }
   if (row.admin_ended_at) throw new OrderError(`subscription_already_ended_by_admin:${new Date(row.cancel_effective_at).toISOString()}`);
   if (row.billing_provider === "stripe") throw new OrderError("stripe_subscription_end_at_stripe");

@@ -281,6 +281,24 @@ describe("ST1 plans: what Old School invoices per box", () => {
     expect((await holder.pool.query("SELECT subscription_state FROM company_os_bundle_subscriptions WHERE id=$1", [customers])).rows[0].subscription_state).toBe("cancelled");
   });
 
+  it("Codex P2: a joined workflow that ends before the plan does not count as the box's workflow", async () => {
+    // the box's only workflow is an order ending 15 Jan; an open-ended plan would outlive it
+    await grant(appliance.instanceId, "customers", { endsOn: "2027-01-15" });
+    await expect(assign(appliance.instanceId)).rejects.toThrow("box_needs_a_workflow");
+    // a plan that ends no later than the workflow is fine
+    const short = await assign(await newBox(), { endsOn: "2027-01-15" });
+    expect(short.granted.map((item: { bundleId: string }) => item.bundleId)).toEqual(["customers"]);
+  });
+
+  it("Codex P2: the last open-ended workflow is not ended while the other one ends before the plan", async () => {
+    const assigned = await assign(appliance.instanceId);
+    const shortOne = await grant(appliance.instanceId, "product-management", { endsOn: "2027-01-15" });
+    const customers = assigned.granted[0].subscriptionId;
+    await expect(endSubscriptionByAdmin(holder.pool, { subscriptionId: customers, graceDays: 0, administrator: ADMIN, now: NOW })).rejects.toThrow("last_workflow_end_the_plan_instead");
+    // the one with its own end may go
+    await endSubscriptionByAdmin(holder.pool, { subscriptionId: shortOne.subscriptionId, graceDays: 0, administrator: ADMIN, now: NOW });
+  });
+
   it("an agent never costs more than a workflow and has no AI allowance of its own", async () => {
     await expect(setBundleKind(holder.pool, { bundleId: "assistant", kind: "agent", aiAllowanceUsd: "30", administrator: ADMIN })).rejects.toThrow("agent_has_no_ai_allowance");
     await upsertBundle({ id: "big-agent", name: "Big agent", description: "Too dear.", stripePriceId: null, polarProductId: null, monthlyPriceCents: 17950 });

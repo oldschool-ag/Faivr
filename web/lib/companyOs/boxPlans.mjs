@@ -18,7 +18,7 @@
 // Plain JavaScript on purpose: the admin command runs with node and no build step. No billing
 // provider is reached from here.
 import { randomUUID } from "node:crypto";
-import { administrator, applyDueSubscriptionDates, endSubscriptionByAdmin, grantSubscriptionByOrder, INVOICE, liveBoxPlan, OrderError, parseOrderDate } from "./subscriptionOrders.mjs";
+import { administrator, applyDueSubscriptionDates, endSubscriptionByAdmin, grantSubscriptionByOrder, INVOICE, liveBoxPlan, OrderError, parseOrderDate, workflowsCoveringPlan } from "./subscriptionOrders.mjs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -268,7 +268,8 @@ export async function assignPlan(client, input) {
   const endsAt = parseOrderDate(input.endsOn, "end");
   if (endsAt && (endsAt.getTime() <= now.getTime() || endsAt.getTime() <= startsAt.getTime())) throw new OrderError("end_not_after_start_and_now", 400);
   const ownHardware = input.ownHardware === true;
-  const box = await client.query("SELECT 1 FROM company_os_instance_keys WHERE tenant_id=$1 AND instance_id=$2 AND revoked_at IS NULL", [input.tenantId, input.instanceId]);
+  // the box's row first, then the plan's: two assignments on one box (also of different plans) run one after the other
+  const box = await client.query("SELECT 1 FROM company_os_instance_keys WHERE tenant_id=$1 AND instance_id=$2 AND revoked_at IS NULL FOR UPDATE", [input.tenantId, input.instanceId]);
   if (!box.rowCount) throw new OrderError("box_not_enrolled", 404);
   // the plan row is locked while customers are counted, so two boxes cannot get the same number
   const found = await client.query("SELECT * FROM company_os_plans WHERE id=$1 FOR UPDATE", [input.planId]);
@@ -322,8 +323,9 @@ export async function assignPlan(client, input) {
     if (joined.some((item) => item.bundleId === bundleId && item.copyNumber === 1)) continue;
     granted.push(await grantSubscriptionByOrder(client, { tenantId: input.tenantId, instanceId: input.instanceId, bundleId, startsOn: input.startsOn, endsOn: input.endsOn ?? null, administrator: admin, note: `granted with plan ${plan.id}`, now }));
   }
-  // a box always has at least one workflow
-  if (![...joined, ...granted].some((item) => (item.kind ?? "workflow") === "workflow")) throw new OrderError("box_needs_a_workflow", 409);
+  // a box always has at least one workflow, for as long as the plan runs: a joined workflow with an
+  // earlier end of its own does not count
+  if (!(await workflowsCoveringPlan(client, boxPlanId, endsAt ? endsAt.toISOString() : null)).length) throw new OrderError("box_needs_a_workflow", 409);
   const result = { boxPlanId, planId: plan.id, planName: plan.name, customerNumber, mark, ownHardware, boxPriceCents: boxCents, earlyBird: discountBp > 0 ? { discountBasisPoints: discountBp, note: discountNote } : null, startsAt: startsAt.toISOString(), endsAt: endsAt ? endsAt.toISOString() : null, granted, joined, grantedBy: admin };
   await planAudit(client, "plan_assigned", admin, { tenantId: input.tenantId, instanceId: input.instanceId, planId: plan.id, customerNumber, mark, ownHardware, boxPriceCents: boxCents, earlyBirdDiscountBp: discountBp, startsAt: result.startsAt, endsAt: result.endsAt, granted: granted.map((item) => item.bundleId), joined: joined.map((item) => item.bundleId), note: input.note ?? null }, { planId: plan.id, boxPlanId }, now);
   return result;
