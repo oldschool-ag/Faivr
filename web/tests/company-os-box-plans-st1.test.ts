@@ -451,10 +451,25 @@ describe("ST1 plans: what Old School invoices per box", () => {
 
   it("Codex P2: a one-time line keeps its own plan's VAT basis after that plan ended", async () => {
     await definePlan(holder.pool, { id: "gross-plan", name: "Gross plan", prices: "1=100", aiCreditsChf: "0", aiAllowanceUsd: "0", freeMonths: 0, pricesExcludeVat: false, includes: INCLUDES, administrator: ADMIN });
-    await assignPlan(holder.pool, { tenantId, instanceId: appliance.instanceId, planId: "gross-plan", startsOn: "2026-12-01", endsOn: "2027-02-01", administrator: ADMIN, now: NOW });
+    // the line for February is recorded while the plan runs; the plan is ended afterwards, on 1 Feb
+    const gross = await assignPlan(holder.pool, { tenantId, instanceId: appliance.instanceId, planId: "gross-plan", startsOn: "2026-12-01", administrator: ADMIN, now: NOW });
     await addInvoiceLine(holder.pool, { tenantId, instanceId: appliance.instanceId, month: "2027-02", kind: "ai-use-above-allowance", amountChf: "108.10", administrator: ADMIN, now: NOW });
+    await endPlan(holder.pool, { boxPlanId: gross.boxPlanId, graceDays: 1, administrator: ADMIN, now: new Date("2027-01-31T00:00:00.000Z") });
     const february = await invoiceLines(holder.pool, { month: "2027-02" });
     expect(["subtotal", "vat", "total"].map((name) => february.find((line) => line.line === name)?.amountCents)).toEqual([10000, 810, 10810]);
+  });
+
+  it("Codex P2: a top-up added later for an earlier month uses that month's plan and rate", async () => {
+    const january = await assign(appliance.instanceId, { startsOn: "2027-01-01" });
+    await endPlan(holder.pool, { boxPlanId: january.boxPlanId, graceDays: 0, administrator: ADMIN, now: new Date("2027-02-01T00:00:00.000Z") });
+    await definePlan(holder.pool, { id: "rich-plan", name: "Rich plan", prices: "1=0", aiCreditsChf: "30", aiAllowanceUsd: "60", freeMonths: 0, pricesExcludeVat: true, includes: INCLUDES, administrator: ADMIN });
+    await assignPlan(holder.pool, { tenantId, instanceId: appliance.instanceId, planId: "rich-plan", startsOn: "2027-02-01", administrator: ADMIN, now: new Date("2027-02-01T00:00:00.000Z") });
+    // in February, a CHF 20 top-up for January: January's rate (USD 30 for CHF 30), not February's
+    const late = await addInvoiceLine(holder.pool, { tenantId, instanceId: appliance.instanceId, month: "2027-01", kind: "ai-top-up", amountChf: "20", administrator: ADMIN, now: new Date("2027-02-05T00:00:00.000Z") });
+    expect(late.allowanceUsdCents).toBe(2000);
+    const february = await addInvoiceLine(holder.pool, { tenantId, instanceId: appliance.instanceId, month: "2027-02", kind: "ai-top-up", amountChf: "20", administrator: ADMIN, now: new Date("2027-02-05T00:00:00.000Z") });
+    expect(february.allowanceUsdCents).toBe(4000);
+    await expect(addInvoiceLine(holder.pool, { tenantId, instanceId: appliance.instanceId, month: "2026-11", kind: "ai-top-up", amountChf: "20", administrator: ADMIN, now: NOW })).rejects.toThrow("box_has_no_plan_in_month");
   });
 
   it("refuses plan data and invoice lines that would be wrong", async () => {

@@ -341,8 +341,11 @@ export async function addInvoiceLine(client, input) {
   const month = parseMonth(input.month);
   const amount = parseChf(input.amountChf, "amount");
   if (amount <= 0) throw new OrderError("amount_invalid", 400);
-  const plan = await liveBoxPlan(client, input.tenantId, input.instanceId, month.start) ?? await liveBoxPlan(client, input.tenantId, input.instanceId, now);
-  if (!plan) throw new OrderError("box_has_no_plan", 404);
+  // the plan that ran in the month the line is for (its rate and VAT basis), not a later one; in a
+  // month with a change of plan, the one that ran last in that month
+  const held = (await client.query("SELECT * FROM company_os_box_plans WHERE tenant_id=$1 AND instance_id=$2 ORDER BY starts_at,created_at", [input.tenantId, input.instanceId])).rows;
+  const plan = held.filter((row) => daysWithin(month, row.starts_at, row.ends_at ?? null) > 0).at(-1) ?? null;
+  if (!plan) throw new OrderError(held.length ? "box_has_no_plan_in_month" : "box_has_no_plan", 404);
   let allowanceUsd = null;
   if (kind === "ai_top_up") {
     // the same rate as the monthly credits: USD allowance per CHF, both data on the box's plan
