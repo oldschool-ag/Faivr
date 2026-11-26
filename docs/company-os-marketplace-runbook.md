@@ -216,7 +216,7 @@ The CEO's final price structure of 26 Nov 2026. Every value is data entered with
 Per box and month, all plus VAT:
 - **Box:** the plan's box price (today CHF 100), with what the box includes listed under it. Optional: a customer on its own hardware (a device or a server) has no box line (`assign-plan --own-hardware`).
 - **Workflow:** one line per workflow at its list price (today CHF 179 each). Each workflow includes an AI provider allowance in USD (today USD 30 per month); the allowances of a box's workflows add up (two workflows: USD 60). A box always has at least one workflow. The developer workflow (internal name Bob) is a workflow like the others.
-- **Single agent:** one line per agent at its list price (today CHF 59 to 149). An agent has no AI allowance of its own: it uses the box's pool. An agent's price may never be above a workflow's: the store refuses it (`agent_price_above_workflow_price`) when a price or kind is set and when an agent is granted.
+- **Single agent:** one line per agent at its list price (today CHF 59 to 149, see the first setup below). Every function in the store can be bought alone as a single agent, except Software delivery (Bob), which is sold only as the developer workflow. An agent has no AI allowance of its own: it uses the box's pool. An agent's price may never be above a workflow's: the store refuses it (`agent_price_above_workflow_price`) when a price or kind is set and when an agent is granted.
 - **Early bird:** customers 1 to 50 by customer number (box and own-hardware customers count alike; marked boxes never count) get the first workflow at 50 percent, as its own discount line ("Early bird: Customers 50% off", CHF -89.50). It is kept for as long as the customer stays, also when the plan changes later. Further workflows are at full price.
 - **Top-ups:** one-time CHF lines that add USD allowance at the plan's top-up rate (today USD 1 per CHF 1).
 - **Never per person:** a workflow or agent is priced per box, whatever the number of users.
@@ -237,27 +237,91 @@ Rules:
 - **Billing by days.** Billing starts with the first month and is counted in days. Every monthly line that runs only part of a month (box, workflow, agent, early-bird discount; the first month, the last month, a change of plan, an end and a new start) is billed as price x days it ran / days in the month, rounded to the cent; the USD allowance follows the same days, and so do the workflows and agents on a plan. A day counts from the day a line starts up to the day it ends (that day not included). The note says "30 of 31 days". Free months stay possible as data (0 below).
 - **Uninstalled workflows and agents.** One billed by invoice keeps billing after the client uninstalls it, until Old School ends it. When a client uninstalls one, end it the same day with `end-subscription --subscription <id> --grace-days 0 --by "<your name>"` (the last workflow: `end-plan`).
 
-The commands with the CEO's numbers, in this order (the CEO confirms them before the first box gets the plan; the ids are the catalog's). The VAT rate comes first: without it no month can be invoiced. Every command runs in one transaction: it is done completely or not at all. The function bundles' list prices from the store of 8 Oct are data too: set each to its new value with `set-price --amount-cents` and `set-bundle-kind` (a bundle is a workflow until told otherwise).
+**First setup after the merge.** The CEO's decisions of 26 Nov, as commands the CEO runs one at a time, in this order. Every command runs in one transaction: it is done completely or not at all, and a refused command changes nothing. Check the ids with `node scripts/company-os-store-admin.mjs list` first; the ones below are the store's. Replace `<your name>` with your name.
+
+Every function in the store can be bought alone as a single agent, except Software delivery (Bob), which is sold only as the developer workflow. The store refuses an agent priced above the cheapest workflow. The migration leaves every existing function a workflow at its 8 Oct price until it is told otherwise, so step 3 sets all new prices first, while there is no agent yet, and step 4 turns the functions into agents from the cheapest to the dearest. In that order no step is refused.
+
+1. VAT rate (without it no month can be invoiced):
 
 ```
 node scripts/company-os-store-admin.mjs set-vat-rate --from 2024-01-01 --percent 8.1 --by "<your name>"
-node scripts/company-os-store-admin.mjs create-bundle --id <Customers id> --name "Customers" --description "..." --amount-cents 17900 --kind workflow --ai-allowance-usd 30 --by "<your name>"
-node scripts/company-os-store-admin.mjs create-bundle --id <Product management id> --name "Product management" --description "..." --amount-cents 17900 --kind workflow --ai-allowance-usd 30 --by "<your name>"
-node scripts/company-os-store-admin.mjs create-bundle --id <developer workflow id> --name "Developer" --description "..." --amount-cents 17900 --kind workflow --ai-allowance-usd 30 --by "<your name>"
-node scripts/company-os-store-admin.mjs create-bundle --id <agent id> --name "<agent>" --description "..." --amount-cents 5900 --kind agent --by "<your name>"
-node scripts/company-os-store-admin.mjs set-price --id <existing bundle id> --amount-cents 17900
-node scripts/company-os-store-admin.mjs set-bundle-kind --id <existing bundle id> --kind workflow --ai-allowance-usd 30 --by "<your name>"
+```
+
+2. Workflows, CHF 179 each with USD 30 of AI use per month. Add each workflow's agents with `add-package`.
+
+```
+node scripts/company-os-store-admin.mjs create-bundle --id customers --name "Customers" --description "..." --amount-cents 17900 --kind workflow --ai-allowance-usd 30 --by "<your name>"
+node scripts/company-os-store-admin.mjs create-bundle --id product-management --name "Product management" --description "..." --amount-cents 17900 --kind workflow --ai-allowance-usd 30 --by "<your name>"
+node scripts/company-os-store-admin.mjs set-price --id software-delivery --amount-cents 17900
+node scripts/company-os-store-admin.mjs set-bundle-kind --id software-delivery --kind workflow --ai-allowance-usd 30 --by "<your name>"
+```
+
+3. Single-agent list prices, CHF per box per month plus VAT:
+
+| Function | CHF | Command |
+| --- | ---: | --- |
+| Pricing and business models | 59 (was 49) | `set-price --id pricing-and-business-models --amount-cents 5900` |
+| Product ownership (Alden) | 79 (was 249) | `set-price --id product-ownership --amount-cents 7900` |
+| Strategy and challenge | 79 | `set-price --id strategy-and-challenge --amount-cents 7900` |
+| Visibility in AI search | 79 | `set-price --id visibility-in-ai-search --amount-cents 7900` |
+| Marketing planning | 99 | `set-price --id marketing-planning --amount-cents 9900` |
+| Design review | 99 | `set-price --id design-review --amount-cents 9900` |
+| Company mail (Penn) | 149 | `set-price --id company-mail --amount-cents 14900` |
+| Website care | 149 | `set-price --id website-care --amount-cents 14900` |
+
+```
+node scripts/company-os-store-admin.mjs set-price --id pricing-and-business-models --amount-cents 5900
+node scripts/company-os-store-admin.mjs set-price --id product-ownership --amount-cents 7900
+node scripts/company-os-store-admin.mjs set-price --id strategy-and-challenge --amount-cents 7900
+node scripts/company-os-store-admin.mjs set-price --id visibility-in-ai-search --amount-cents 7900
+node scripts/company-os-store-admin.mjs set-price --id marketing-planning --amount-cents 9900
+node scripts/company-os-store-admin.mjs set-price --id design-review --amount-cents 9900
+node scripts/company-os-store-admin.mjs set-price --id company-mail --amount-cents 14900
+node scripts/company-os-store-admin.mjs set-price --id website-care --amount-cents 14900
+```
+
+4. The same functions become single agents (no AI allowance of their own), cheapest first:
+
+```
+node scripts/company-os-store-admin.mjs set-bundle-kind --id pricing-and-business-models --kind agent --by "<your name>"
+node scripts/company-os-store-admin.mjs set-bundle-kind --id product-ownership --kind agent --by "<your name>"
+node scripts/company-os-store-admin.mjs set-bundle-kind --id strategy-and-challenge --kind agent --by "<your name>"
+node scripts/company-os-store-admin.mjs set-bundle-kind --id visibility-in-ai-search --kind agent --by "<your name>"
+node scripts/company-os-store-admin.mjs set-bundle-kind --id marketing-planning --kind agent --by "<your name>"
+node scripts/company-os-store-admin.mjs set-bundle-kind --id design-review --kind agent --by "<your name>"
+node scripts/company-os-store-admin.mjs set-bundle-kind --id company-mail --kind agent --by "<your name>"
+node scripts/company-os-store-admin.mjs set-bundle-kind --id website-care --kind agent --by "<your name>"
+```
+
+5. The plan with the early-bird rule (customers 1 to 50, first workflow 50 percent off), the box price and the top-up rate, and the workflow it grants:
+
+```
 node scripts/company-os-store-admin.mjs define-plan --id truchsess --name "Truchsess box" --box-chf 100 --early-bird-customers 50 --early-bird-percent 50 --early-bird-note "Early bird" --top-up-usd-per-chf 1 --free-months 0 --prices-exclude-vat yes --includes "Setup in our office|Updates of agents, system and AI|Safety copies|Support|2 years warranty on the box" --by "<your name>"
-node scripts/company-os-store-admin.mjs plan-function --plan truchsess --bundle <Customers id> --granted yes --by "<your name>"
+node scripts/company-os-store-admin.mjs plan-function --plan truchsess --bundle customers --granted yes --by "<your name>"
+```
+
+6. Marks, before any of these boxes gets a plan: box 1 and box 2 are Old School's own, each test user's box is a test box (one command per test box):
+
+```
 node scripts/company-os-store-admin.mjs mark-box --tenant <tenant id> --instance <box 1 id> --as old-school --note "box 1" --by "<your name>"
-node scripts/company-os-store-admin.mjs mark-box --tenant <tenant id> --instance <test box id> --as test --by "<your name>"
+node scripts/company-os-store-admin.mjs mark-box --tenant <tenant id> --instance <box 2 id> --as old-school --note "box 2" --by "<your name>"
+node scripts/company-os-store-admin.mjs mark-box --tenant <tenant id> --instance <test user box id> --as test --note "<test user>" --by "<your name>"
+```
+
+7. Check, then give boxes their plan (`--own-hardware` for a customer on its own device or server), add workflows and agents per box, and print the month:
+
+```
+node scripts/company-os-store-admin.mjs plans
+node scripts/company-os-store-admin.mjs list
 node scripts/company-os-store-admin.mjs assign-plan --tenant <tenant id> --instance <box id> --plan truchsess --start 2026-12-01 --by "<your name>"
 node scripts/company-os-store-admin.mjs assign-plan --tenant <tenant id> --instance <own server id> --plan truchsess --start 2026-12-01 --own-hardware --by "<your name>"
-node scripts/company-os-store-admin.mjs grant-by-order --tenant <tenant id> --instance <box id> --bundle <Product management id> --start 2026-12-01 --by "<your name>"
+node scripts/company-os-store-admin.mjs grant-by-order --tenant <tenant id> --instance <box id> --bundle product-management --start 2026-12-01 --by "<your name>"
+node scripts/company-os-store-admin.mjs grant-by-order --tenant <tenant id> --instance <box id> --bundle company-mail --start 2026-12-01 --by "<your name>"
 node scripts/company-os-store-admin.mjs add-invoice-line --tenant <tenant id> --instance <box id> --month 2027-01 --kind ai-top-up --amount-chf 20 --by "<your name>"
 node scripts/company-os-store-admin.mjs invoice-csv --month 2026-12 > invoices-2026-12.csv
-node scripts/company-os-store-admin.mjs plans
 ```
+
+A price changed later goes the same way: `set-price --id <function> --amount-cents <cents>`. It is refused if it puts an agent above the cheapest workflow. Boxes that already hold a function keep the price they were granted at.
 
 For customer 1 with a box and the Customers workflow, December gives:
 
@@ -270,7 +334,7 @@ For customer 1 with a box and the Customers workflow, December gives:
 | VAT 8.1% | 15.35 |
 | Total | 204.85 |
 
-With Product management (CHF 179) and one agent (CHF 59) added, the same box is CHF 427.50 net, VAT CHF 34.63, total CHF 462.13, and its AI allowance is USD 60 (two workflows; the agent adds none). A CHF 20 top-up in January adds USD 20.
+With Product management (CHF 179) and the Pricing and business models agent (CHF 59) added, the same box is CHF 427.50 net, VAT CHF 34.63, total CHF 462.13, and its AI allowance is USD 60 (two workflows; the agent adds none). A CHF 20 top-up in January adds USD 20.
 
 `invoice-csv` writes one row per line with the box's name; the discount is a negative amount. Subscriptions billed by Polar are not in it: Polar invoices them. `plans` shows each plan's box price, early bird, top-up rate, workflows, the paying customers so far, and whether the next one gets the early bird. `end-plan --box-plan <id> --grace-days 14 --by "<your name>"` ends a box's plan and every invoice subscription on it after the grace. The month it ends in is billed for its days. What happens to the box itself at the end of a contract is not decided yet and is not modelled.
 
