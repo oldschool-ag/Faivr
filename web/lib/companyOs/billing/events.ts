@@ -12,6 +12,8 @@ export type AppliedBillingEvent = { applied: boolean; action: string };
 
 export async function applyBillingEvent(event: BillingEvent, client: Queryable): Promise<AppliedBillingEvent> {
   const provider = event.provider;
+  // ST1: a subscription Old School bills by invoice is never a provider's to change
+  if ((provider as string) === "invoice") return { applied: false, action: "ignored" };
   switch (event.kind) {
     case "checkout_completed":
     case "subscription_active": {

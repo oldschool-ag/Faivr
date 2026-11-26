@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { authenticatedJson, type AuthenticatedRequest } from "@/lib/companyOs/http";
-import { activePublishers, StoreError, abandonBundleCheckout, billingBundle, bundleForCheckout, bundleSubscriptionRow, cancellableSubscription, catalogForAppliance, checkoutCopySelection, createBundleSubscription, createStoreInstallation, liveSubscriptionForCopy, ownerEmail, recordBundleCheckout, redeemEnrolmentCode, scheduleBundleCancellation, subscriptionViewOf } from "@/lib/companyOs/privateStore";
+import { activePublishers, StoreError, abandonBundleCheckout, applyDueOrderDates, billingBundle, bundleForCheckout, bundleSubscriptionRow, cancellableSubscription, catalogForAppliance, checkoutCopySelection, createBundleSubscription, createStoreInstallation, liveSubscriptionForCopy, ownerEmail, recordBundleCheckout, redeemEnrolmentCode, scheduleBundleCancellation, subscriptionViewOf } from "@/lib/companyOs/privateStore";
 import { normalizePublicKeyPem, PublicKeyError } from "@/lib/companyOs/publisherKeys";
 import { copyNumberSchema, enrolmentRequestSchema, storeCancelSchema, storeCheckoutSchema, storeInstallationSchema } from "@/lib/companyOs/storeSchemas";
 import { uuidSchema } from "@/lib/companyOs/schemas";
@@ -101,6 +101,8 @@ export async function storeCatalog(req: NextRequest) {
   if (auth instanceof NextResponse) return auth;
   try {
     const provider = billingProvider();
+    // ST1: an order's end date or an administrator's grace that has passed is applied first
+    await applyDueOrderDates({ tenantId: auth.principal.tenantId, instanceId: auth.principal.instanceId });
     // A paid checkout with a delayed/lost webhook is repaired for this signed box before projection.
     await reconcilePendingCheckouts({ tenantId: auth.principal.tenantId, instanceId: auth.principal.instanceId, limit: 10 });
     const bundles = await catalogForAppliance(auth.principal.tenantId, auth.principal.instanceId, { priceConfigured: (bundle) => !("error" in provider.productReference(bundle)), installedVersions: installedVersionsFromCatalog(req) });
@@ -189,10 +191,15 @@ export async function storeSubscriptions(req: NextRequest) {
   if (parsedCopyNumber && !parsedCopyNumber.success) return json({ error: "copy_number_invalid" }, 400);
   if (installationId && !uuidSchema.safeParse(installationId).success) return json({ error: "installation_id_invalid" }, 400);
   try {
+    await applyDueOrderDates({ tenantId: auth.principal.tenantId, instanceId: auth.principal.instanceId });
     const row = await bundleSubscriptionRow(auth.principal.tenantId, auth.principal.instanceId, { subscriptionId, bundleId, copyNumber: parsedCopyNumber?.data, installationId });
     if (!row) return json({ error: "subscription_not_found" }, 404);
     const view: Record<string, unknown> = subscriptionViewOf(row);
-    if (wantsPortal && row.subscription_state !== "checkout_pending") {
+    if (wantsPortal && row.billing_provider === "invoice") {
+      // ST1: billed by invoice; there is no provider portal to open (the box says "Ask Old School")
+      view.customerPortalUrl = null;
+      view.customerPortalExpiresAt = null;
+    } else if (wantsPortal && row.subscription_state !== "checkout_pending") {
       const portal = await billingProviderFor(row.billing_provider).customerPortalUrl({ ownerAccountId: row.tenant_id, providerCustomerId: row.provider_customer_id, returnUrl: null });
       view.customerPortalUrl = portal?.url ?? null;
       view.customerPortalExpiresAt = portal?.expiresAt ?? null;
@@ -214,6 +221,8 @@ export async function storeSubscriptionCancel(req: NextRequest) {
     return json(
       await idempotent(auth.principal.tenantId, auth.principal.idempotencyKey, "store.subscription.cancel", auth.bodyHash, async () => {
         const subscription = await cancellableSubscription(auth.principal.tenantId, auth.principal.instanceId, parsed.data.subscriptionId);
+        // ST1: a subscription by order ends by Old School's order (the admin's end), never at a provider
+        if (subscription.billing_provider === "invoice") throw new StoreError("subscription_by_order_ask_old_school", 409);
         if (!subscription.provider_subscription_id) throw new Error("billing_subscription_not_configured");
         const cancellation = await billingProviderFor(subscription.billing_provider).cancelAtPeriodEnd(subscription.provider_subscription_id, `faivr-store-cancel-${subscription.id}`);
         await scheduleBundleCancellation(subscription.id, cancellation.effectiveAt);
@@ -233,6 +242,8 @@ export async function storeInstallations(req: NextRequest) {
   if (!parsed.success) return json({ error: "invalid_store_installation_request", issues: parsed.error.issues }, 400);
   if (principalMismatch(auth, parsed.data.tenantId, parsed.data.instanceId)) return json({ error: "principal_mismatch" }, 403);
   try {
+    // ST1: an order or an administrator's grace that has ended reserves no new install
+    await applyDueOrderDates({ tenantId: auth.principal.tenantId, instanceId: auth.principal.instanceId });
     return json(
       await idempotent(auth.principal.tenantId, auth.principal.idempotencyKey, "store.installation.create", auth.bodyHash, () =>
         createStoreInstallation({ tenantId: auth.principal.tenantId, instanceId: auth.principal.instanceId, bundleId: parsed.data.bundleId, modelId: parsed.data.faivrAgentModelId, subscriptionId: parsed.data.subscriptionId, copyNumber: parsed.data.copyNumber, installationId: parsed.data.installationId }),

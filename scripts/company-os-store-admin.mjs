@@ -16,12 +16,26 @@
 //                     billing provider's checkout for that tenant (one provider customer per owner)
 //   list              bundles, packages, appliances, subscriptions
 //
+//   ST1, subscriptions by order (billed by invoice; no billing provider is asked, ever):
+//   grant-by-order    --tenant <uuid> --instance <uuid> --bundle design-review --start 2026-11-30 [--end 2027-11-30] [--copy 1] --by <admin> [--note "..."]
+//                     the box gets an active subscription to the function; it installs exactly as after a paid checkout.
+//                     The start is the day invoice billing starts (may lie ahead: the box can install at once, e.g. the
+//                     office is prepared before the contract starts); the end date, if given, ends it on that day
+//   end-subscription  --subscription <uuid> --grace-days 14 --by <admin> [--reason "..."] [--provider-not-told]
+//                     ends a subscription after the grace: what is installed keeps working until then, nothing new is installed;
+//                     afterwards the box stops the function. For an invoice subscription that is all. A Polar (sandbox)
+//                     subscription needs --provider-not-told: the store ends it, Polar is not asked, Polar events no longer change it
+//   sell-by-order     --id design-review --by-order yes|no
+//                     yes: the box cannot buy the function itself (the catalog says buyable:false, purchase:"order")
+//   orders            the subscriptions by order and the ones an administrator ended, with their audit lines
+//
 // Nothing here touches Polar or Stripe: the CEO creates the product (Polar, sandbox first) or the price (Stripe) in the provider's dashboard
 // and pastes its id. Nothing here touches the chain.
 import { createHash, createPublicKey, randomInt, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import pg from "../web/node_modules/pg/lib/index.js";
 import { assertFunctionLeadAvailable, latestVersionIsFunctionLead } from "./company-os-function-leads.mjs";
+import { endSubscriptionByAdmin, grantSubscriptionByOrder, orderSubscriptions } from "../web/lib/companyOs/subscriptionOrders.mjs";
 
 const [command, ...rest] = process.argv.slice(2);
 const options = {};
@@ -61,7 +75,7 @@ function enrolmentCode() {
 }
 
 if (!command || !process.env.DATABASE_URL) {
-  console.error("Usage: DATABASE_URL=... node scripts/company-os-store-admin.mjs enrol-publisher|create-bundle|set-price|add-package|remove-package|issue-code|list [options]");
+  console.error("Usage: DATABASE_URL=... node scripts/company-os-store-admin.mjs enrol-publisher|create-bundle|set-price|add-package|remove-package|issue-code|list|grant-by-order|end-subscription|sell-by-order|orders [options]");
   process.exit(2);
 }
 
@@ -141,12 +155,31 @@ try {
     );
     console.log(JSON.stringify({ enrolmentCode: code, tenantId, label, expiresInDays: days, ownerEmail, note: "shown once; only the hash is stored" }));
   } else if (command === "list") {
-    const bundles = (await client.query("SELECT b.id,b.name,b.polar_product_id,b.stripe_price_id,b.monthly_price_cents,b.currency,b.status,(SELECT array_agg(package_id ORDER BY package_id) FROM company_os_bundle_packages WHERE bundle_id=b.id) AS packages FROM company_os_function_bundles b ORDER BY b.id")).rows;
+    const bundles = (await client.query("SELECT b.id,b.name,b.polar_product_id,b.stripe_price_id,b.monthly_price_cents,b.currency,b.status,b.sold_by_order,(SELECT array_agg(package_id ORDER BY package_id) FROM company_os_bundle_packages WHERE bundle_id=b.id) AS packages FROM company_os_function_bundles b ORDER BY b.id")).rows;
     const packages = (await client.query("SELECT p.id,p.name,v.version,v.artifact_sha256,v.publisher_key_id,(SELECT count(*) FROM company_os_package_artifacts a WHERE a.version_id=v.id)::int AS inline_artifacts FROM company_os_packages p JOIN company_os_package_versions v ON v.package_id=p.id AND v.status='published' ORDER BY p.id,v.published_at DESC")).rows;
     const appliances = (await client.query("SELECT tenant_id,instance_id,key_id,label,enrolled_at,last_contact_at,revoked_at FROM company_os_instance_keys ORDER BY enrolled_at NULLS LAST")).rows;
-    const subscriptions = (await client.query("SELECT id,tenant_id,bundle_id,subscription_state,billing_provider,provider_subscription_id,created_at,cancel_effective_at FROM company_os_bundle_subscriptions ORDER BY created_at DESC LIMIT 50")).rows;
+    const subscriptions = (await client.query("SELECT id,tenant_id,instance_id,bundle_id,copy_number,subscription_state,billing_provider,provider_subscription_id,created_at,cancel_effective_at,billing_ends_at,granted_by,admin_ended_by FROM company_os_bundle_subscriptions ORDER BY created_at DESC LIMIT 50")).rows;
     const codes = (await client.query("SELECT label,tenant_id,created_at,expires_at,used_at,instance_id FROM company_os_enrolment_codes ORDER BY created_at DESC LIMIT 50")).rows;
     console.log(JSON.stringify({ bundles, packages, appliances, subscriptions, enrolmentCodes: codes }, null, 2));
+  } else if (command === "grant-by-order") {
+    const copy = options.copy !== undefined ? Number.parseInt(options.copy, 10) : 1;
+    const granted = await grantSubscriptionByOrder(client, { tenantId: need("tenant"), instanceId: need("instance"), bundleId: need("bundle"), copyNumber: copy, startsOn: need("start"), endsOn: options.end ?? null, administrator: need("by"), note: options.note ?? null });
+    console.log(JSON.stringify({ granted }));
+  } else if (command === "end-subscription") {
+    const graceDays = Number.parseInt(need("grace-days"), 10);
+    const ended = await endSubscriptionByAdmin(client, { subscriptionId: need("subscription"), graceDays, administrator: need("by"), reason: options.reason ?? null, confirmProviderNotTold: options["provider-not-told"] === "true" });
+    console.log(JSON.stringify({ ended }));
+  } else if (command === "sell-by-order") {
+    const id = need("id");
+    const value = need("by-order");
+    if (!["yes", "no"].includes(value)) throw new Error("--by-order is yes or no");
+    const updated = await client.query("UPDATE company_os_function_bundles SET sold_by_order=$2,updated_at=now() WHERE id=$1 RETURNING id,sold_by_order", [id, value === "yes"]);
+    if (!updated.rowCount) throw new Error(`bundle ${id} does not exist`);
+    console.log(JSON.stringify({ bundle: updated.rows[0] }));
+  } else if (command === "orders") {
+    const subscriptions = await orderSubscriptions(client);
+    const audit = (await client.query("SELECT subscription_id,action,administrator,detail,created_at FROM company_os_subscription_audit ORDER BY created_at DESC LIMIT 200")).rows;
+    console.log(JSON.stringify({ subscriptions, audit }, null, 2));
   } else {
     throw new Error(`unknown command ${command}`);
   }

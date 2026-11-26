@@ -6,6 +6,7 @@ import { describePermission } from "@/lib/publicPermissions";
 import { normalizePublicKeyPem } from "./publisherKeys";
 import { isPublicSlot, type PublicSlot } from "@/lib/publicCatalogData";
 import type { BundleImage } from "./bundleImages";
+import { applyDueSubscriptionDates } from "./subscriptionOrders.mjs";
 
 /**
  * The private store (T6b): Old School's catalog of governed AI workers, installable on
@@ -120,7 +121,7 @@ export async function touchLastContact(tenantId: string, instanceId: string, key
 
 const POLAR_PRODUCT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export type BundleRow = { id: string; name: string; description: string; stripe_price_id: string | null; polar_product_id: string | null; monthly_price_cents: number; currency: string };
+export type BundleRow = { id: string; name: string; description: string; stripe_price_id: string | null; polar_product_id: string | null; monthly_price_cents: number; currency: string; sold_by_order?: boolean | null };
 
 export function billingBundle(row: BundleRow) {
   return { id: row.id, name: row.name, polarProductId: row.polar_product_id ?? null, stripePriceId: row.stripe_price_id ?? null, monthlyPriceCents: row.monthly_price_cents, currency: row.currency };
@@ -220,8 +221,16 @@ export type CatalogBundle = {
   monthlyPriceCents: number;
   currency: string;
   priceConfigured: boolean;
+  /**
+   * ST1: whether the box can buy this function itself (a checkout at the billing provider).
+   * `false` when the provider has no price for it or Old School sells it only by order: the box
+   * then says "Ask Old School" instead of Subscribe. `purchase` names which of the two it is.
+   */
+  buyable: boolean;
+  purchase: "checkout" | "order";
   image: BundleImage | null;
-  subscription: { subscriptionId: string; state: string; checkoutState: string | null; checkoutSessionId: string | null; cancelEffectiveAt: string | null; message: string | null } | null;
+  /** `billing` (ST1): "invoice" for a subscription Old School granted by order, "provider" for a paid checkout; `endsAt`: an order's end date. */
+  subscription: { subscriptionId: string; state: string; checkoutState: string | null; checkoutSessionId: string | null; cancelEffectiveAt: string | null; message: string | null; billing: "invoice" | "provider"; endsAt: string | null } | null;
   /** Paid copies of this function on this box. Pending and ended checkouts are not entitlements. */
   entitlements: Array<{ subscriptionId: string; copyNumber: number; description: string; state: string; installationIds: string[]; cancelEffectiveAt: string | null }>;
   packages: CatalogPackage[];
@@ -259,14 +268,14 @@ function permissionChanges(installedManifest: unknown, latestManifest: unknown) 
 export async function catalogForAppliance(tenantId: string, instanceId: string, options: CatalogOptions = {}, client?: Queryable): Promise<CatalogBundle[]> {
   const q = db(client);
   const priced = options.priceConfigured ?? ((bundle) => Boolean(bundle.stripePriceId));
-  const bundles = await q.query("SELECT b.id,b.name,b.description,b.stripe_price_id,b.polar_product_id,b.monthly_price_cents,b.currency,blob.content_sha256,blob.width,blob.height,blob.media_type FROM company_os_function_bundles b LEFT JOIN company_os_bundle_images i ON i.bundle_id=b.id LEFT JOIN company_os_bundle_image_blobs blob ON blob.content_sha256=i.content_sha256 WHERE b.status='active' ORDER BY b.name");
+  const bundles = await q.query("SELECT b.id,b.name,b.description,b.stripe_price_id,b.polar_product_id,b.monthly_price_cents,b.currency,b.sold_by_order,blob.content_sha256,blob.width,blob.height,blob.media_type FROM company_os_function_bundles b LEFT JOIN company_os_bundle_images i ON i.bundle_id=b.id LEFT JOIN company_os_bundle_image_blobs blob ON blob.content_sha256=i.content_sha256 WHERE b.status='active' ORDER BY b.name");
   const members = await q.query("SELECT bundle_id,package_id FROM company_os_bundle_packages ORDER BY bundle_id,package_id");
   const packages = await q.query("SELECT id,name,summary FROM company_os_packages WHERE status='active'");
   const versions = await q.query(
     "SELECT v.id,v.package_id,v.version,v.manifest,v.publisher_key_id,v.publisher_signature,v.artifact_sha256,v.min_company_os_version,v.release_notes,pub.publisher_id,pub.name AS publisher_name FROM company_os_package_versions v LEFT JOIN company_os_publishers pub ON pub.key_id=v.publisher_key_id WHERE v.status='published'",
   );
   const subscriptions = await q.query(
-    "SELECT id,bundle_id,copy_number,billing_description,subscription_state,checkout_session_id,cancel_effective_at,checkout_abandoned_at,entitled_at,created_at FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND instance_id=$2 ORDER BY copy_number,CASE WHEN subscription_state IN ('active','cancel_at_period_end') THEN 0 WHEN subscription_state IN ('checkout_pending','past_due','suspended','cancellation_pending_uninstall') THEN 1 ELSE 2 END,created_at DESC",
+    "SELECT id,bundle_id,copy_number,billing_description,subscription_state,checkout_session_id,cancel_effective_at,checkout_abandoned_at,entitled_at,billing_provider,billing_ends_at,created_at FROM company_os_bundle_subscriptions WHERE tenant_id=$1 AND instance_id=$2 ORDER BY copy_number,CASE WHEN subscription_state IN ('active','cancel_at_period_end') THEN 0 WHEN subscription_state IN ('checkout_pending','past_due','suspended','cancellation_pending_uninstall') THEN 1 ELSE 2 END,created_at DESC",
     [tenantId, instanceId],
   );
   const installations = await q.query(
@@ -295,6 +304,8 @@ export async function catalogForAppliance(tenantId: string, instanceId: string, 
   }
   return bundles.rows.map((bundle) => {
     const subscription = subscriptionByBundle.get(bundle.id as string);
+    const soldByOrder = bundle.sold_by_order === true;
+    const buyable = !soldByOrder && priced(billingBundle(bundle as BundleRow));
     const bundleSubscriptions = subscriptions.rows.filter((row) => row.bundle_id === bundle.id);
     const entitledSubscriptions = bundleSubscriptions.filter((row) => row.entitled_at && row.subscription_state !== "cancelled");
     const packageIds = members.rows.filter((m) => m.bundle_id === bundle.id).map((m) => m.package_id as string);
@@ -353,7 +364,10 @@ export async function catalogForAppliance(tenantId: string, instanceId: string, 
       description: bundle.description as string,
       monthlyPriceCents: bundle.monthly_price_cents as number,
       currency: bundle.currency as string,
-      priceConfigured: priced(billingBundle(bundle as BundleRow)),
+      // a function sold only by order shows no price to buy on older boxes either ("Subscribe (no price yet)", disabled)
+      priceConfigured: buyable,
+      buyable,
+      purchase: buyable ? "checkout" : "order",
       image: bundle.content_sha256 ? applianceImageMetadata({ contentSha256: bundle.content_sha256 as string, width: Number(bundle.width), height: Number(bundle.height) }) : null,
       subscription: subscription
         ? {
@@ -364,6 +378,8 @@ export async function catalogForAppliance(tenantId: string, instanceId: string, 
             checkoutSessionId: (subscription.checkout_session_id as string | null) ?? null,
             cancelEffectiveAt: subscription.cancel_effective_at ? new Date(subscription.cancel_effective_at as string).toISOString() : null,
             message: subscription.checkout_abandoned_at ? "Checkout not finished. Subscribe again" : null,
+            billing: subscription.billing_provider === "invoice" ? "invoice" : "provider",
+            endsAt: iso(subscription.billing_ends_at),
           }
         : null,
       entitlements: entitledSubscriptions.map((row) => ({
@@ -401,12 +417,37 @@ export type BundleSubscriptionRow = {
   cancel_effective_at: unknown;
   stopped_at: unknown;
   checkout_abandoned_at: unknown;
+  /** ST1: an order's dates and the administrator's end (null on a paid checkout) */
+  billing_starts_at?: unknown;
+  billing_ends_at?: unknown;
+  admin_ended_at?: unknown;
   created_at: unknown;
 };
 
+/**
+ * ST1: the dates the store keeps itself (an order's end date, the end of an administrator's
+ * grace), applied in one transaction before the store answers a box, and by the reconcile cron.
+ */
+export async function applyDueOrderDates(scope: { tenantId?: string; instanceId?: string; now?: Date } = {}) {
+  const client = await getPgPool().connect();
+  try {
+    await client.query("BEGIN");
+    const result = await applyDueSubscriptionDates(client, scope);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function bundleForCheckout(bundleId: string, client?: Queryable) {
-  const r = await db(client).query("SELECT id,name,description,stripe_price_id,polar_product_id,monthly_price_cents,currency FROM company_os_function_bundles WHERE id=$1 AND status='active'", [bundleId]);
+  const r = await db(client).query("SELECT id,name,description,stripe_price_id,polar_product_id,monthly_price_cents,currency,sold_by_order FROM company_os_function_bundles WHERE id=$1 AND status='active'", [bundleId]);
   if (!r.rowCount) throw new StoreError("bundle_not_found", 404);
+  // ST1: Old School sells this function only by order; the box says "Ask Old School"
+  if (r.rows[0].sold_by_order === true) throw new StoreError("bundle_sold_by_order_ask_old_school", 409);
   return r.rows[0] as BundleRow;
 }
 
@@ -500,7 +541,7 @@ export async function reconcileBundleCheckout(input: PendingBundleCheckout & { s
  */
 export async function activateBundleSubscription(input: { provider: string; providerCheckoutId: string; providerSubscriptionId: string; providerCustomerId?: string | null; subscriptionId?: string | null; tenantId?: string | null; instanceId?: string | null; copyNumber?: number | null }, client?: Queryable) {
   const r = await db(client).query(
-    "UPDATE company_os_bundle_subscriptions SET subscription_state='active',provider_subscription_id=$3,provider_customer_id=COALESCE($4,provider_customer_id),checkout_abandoned_at=NULL,stopped_at=CASE WHEN checkout_abandoned_at IS NOT NULL THEN NULL ELSE stopped_at END,entitled_at=COALESCE(entitled_at,now()),updated_at=now() WHERE billing_provider=$1 AND provider_checkout_id=$2 AND ($5::uuid IS NULL OR id=$5::uuid) AND ($6::uuid IS NULL OR tenant_id=$6::uuid) AND ($7::uuid IS NULL OR instance_id=$7::uuid) AND ($8::int IS NULL OR copy_number=$8::int) AND (subscription_state IN ('checkout_pending','active','past_due') OR checkout_abandoned_at IS NOT NULL) RETURNING id",
+    "UPDATE company_os_bundle_subscriptions SET subscription_state='active',provider_subscription_id=$3,provider_customer_id=COALESCE($4,provider_customer_id),checkout_abandoned_at=NULL,stopped_at=CASE WHEN checkout_abandoned_at IS NOT NULL THEN NULL ELSE stopped_at END,entitled_at=COALESCE(entitled_at,now()),updated_at=now() WHERE billing_provider=$1 AND provider_checkout_id=$2 AND billing_provider<>'invoice' AND admin_ended_at IS NULL AND ($5::uuid IS NULL OR id=$5::uuid) AND ($6::uuid IS NULL OR tenant_id=$6::uuid) AND ($7::uuid IS NULL OR instance_id=$7::uuid) AND ($8::int IS NULL OR copy_number=$8::int) AND (subscription_state IN ('checkout_pending','active','past_due') OR checkout_abandoned_at IS NOT NULL) RETURNING id",
     [input.provider, input.providerCheckoutId, input.providerSubscriptionId, input.providerCustomerId ?? null, input.subscriptionId ?? null, input.tenantId ?? null, input.instanceId ?? null, input.copyNumber ?? null],
   );
   return Boolean(r.rowCount);
@@ -533,6 +574,9 @@ export function subscriptionViewOf(row: BundleSubscriptionRow) {
     entitledAt: iso(row.entitled_at),
     cancelEffectiveAt: iso(row.cancel_effective_at),
     stoppedAt: iso(row.stopped_at),
+    // ST1: billed by invoice (granted by order) or through the provider's checkout; an order's end date
+    billing: row.billing_provider === "invoice" ? "invoice" : "provider",
+    endsAt: iso(row.billing_ends_at),
   };
 }
 
@@ -554,11 +598,11 @@ export type BundleSubscriptionTransition = "past_due" | "active" | "uncancelled"
 export async function markBundleSubscriptionState(provider: string, providerSubscriptionId: string, transition: BundleSubscriptionTransition, effectiveAt: string | null, client?: Queryable) {
   const q = db(client);
   const statements: Record<BundleSubscriptionTransition, string> = {
-    cancelled: "UPDATE company_os_bundle_subscriptions SET subscription_state='cancelled',stopped_at=$3,updated_at=now() WHERE billing_provider=$1 AND provider_subscription_id=$2 AND subscription_state<>'cancelled' RETURNING id",
-    cancel_at_period_end: "UPDATE company_os_bundle_subscriptions SET subscription_state='cancel_at_period_end',cancel_effective_at=$3,updated_at=now() WHERE billing_provider=$1 AND provider_subscription_id=$2 AND subscription_state IN ('active','past_due','cancellation_pending_uninstall','cancel_at_period_end') RETURNING id",
-    past_due: "UPDATE company_os_bundle_subscriptions SET subscription_state='past_due',updated_at=now() WHERE billing_provider=$1 AND provider_subscription_id=$2 AND subscription_state='active' AND $3::text IS NULL RETURNING id",
-    active: "UPDATE company_os_bundle_subscriptions SET subscription_state='active',updated_at=now() WHERE billing_provider=$1 AND provider_subscription_id=$2 AND subscription_state IN ('past_due','suspended') AND $3::text IS NULL RETURNING id",
-    uncancelled: "UPDATE company_os_bundle_subscriptions SET subscription_state='active',cancel_effective_at=NULL,updated_at=now() WHERE billing_provider=$1 AND provider_subscription_id=$2 AND subscription_state='cancel_at_period_end' AND $3::text IS NULL RETURNING id",
+    cancelled: "UPDATE company_os_bundle_subscriptions SET subscription_state='cancelled',stopped_at=$3,updated_at=now() WHERE billing_provider=$1 AND provider_subscription_id=$2 AND billing_provider<>'invoice' AND admin_ended_at IS NULL AND subscription_state<>'cancelled' RETURNING id",
+    cancel_at_period_end: "UPDATE company_os_bundle_subscriptions SET subscription_state='cancel_at_period_end',cancel_effective_at=$3,updated_at=now() WHERE billing_provider=$1 AND provider_subscription_id=$2 AND billing_provider<>'invoice' AND admin_ended_at IS NULL AND subscription_state IN ('active','past_due','cancellation_pending_uninstall','cancel_at_period_end') RETURNING id",
+    past_due: "UPDATE company_os_bundle_subscriptions SET subscription_state='past_due',updated_at=now() WHERE billing_provider=$1 AND provider_subscription_id=$2 AND billing_provider<>'invoice' AND admin_ended_at IS NULL AND subscription_state='active' AND $3::text IS NULL RETURNING id",
+    active: "UPDATE company_os_bundle_subscriptions SET subscription_state='active',updated_at=now() WHERE billing_provider=$1 AND provider_subscription_id=$2 AND billing_provider<>'invoice' AND admin_ended_at IS NULL AND subscription_state IN ('past_due','suspended') AND $3::text IS NULL RETURNING id",
+    uncancelled: "UPDATE company_os_bundle_subscriptions SET subscription_state='active',cancel_effective_at=NULL,updated_at=now() WHERE billing_provider=$1 AND provider_subscription_id=$2 AND billing_provider<>'invoice' AND admin_ended_at IS NULL AND subscription_state='cancel_at_period_end' AND $3::text IS NULL RETURNING id",
   };
   const effective = transition === "cancelled" || transition === "cancel_at_period_end" ? (effectiveAt ?? new Date().toISOString()) : null;
   const r = await q.query(statements[transition], [provider, providerSubscriptionId, effective]);
@@ -574,7 +618,7 @@ export async function markBundleSubscriptionState(provider: string, providerSubs
 }
 
 export async function rememberProviderCustomer(provider: string, providerSubscriptionId: string, providerCustomerId: string, client?: Queryable) {
-  await db(client).query("UPDATE company_os_bundle_subscriptions SET provider_customer_id=$3,updated_at=now() WHERE billing_provider=$1 AND provider_subscription_id=$2 AND provider_customer_id IS NULL", [provider, providerSubscriptionId, providerCustomerId]);
+  await db(client).query("UPDATE company_os_bundle_subscriptions SET provider_customer_id=$3,updated_at=now() WHERE billing_provider=$1 AND provider_subscription_id=$2 AND billing_provider<>'invoice' AND provider_customer_id IS NULL", [provider, providerSubscriptionId, providerCustomerId]);
 }
 
 /**
@@ -585,7 +629,7 @@ export async function rememberProviderCustomer(provider: string, providerSubscri
  */
 export async function refreshBundleSubscription(provider: string, providerSubscriptionId: string, view: { state: string | null; periodEnd: string | null; providerCustomerId: string | null }, client?: Queryable) {
   const q = db(client);
-  const r = await q.query("SELECT id,subscription_state FROM company_os_bundle_subscriptions WHERE billing_provider=$1 AND provider_subscription_id=$2", [provider, providerSubscriptionId]);
+  const r = await q.query("SELECT id,subscription_state FROM company_os_bundle_subscriptions WHERE billing_provider=$1 AND provider_subscription_id=$2 AND billing_provider<>'invoice' AND admin_ended_at IS NULL", [provider, providerSubscriptionId]);
   const row = r.rows[0] as { id: string; subscription_state: string } | undefined;
   if (!row) return false;
   if (view.providerCustomerId) await rememberProviderCustomer(provider, providerSubscriptionId, view.providerCustomerId, q);
@@ -678,10 +722,10 @@ export async function otherInstallationsOnSubscription(bundleSubscriptionId: str
 
 export async function bundleSubscriptionForInstallation(installationId: string, client?: Queryable) {
   const r = await db(client).query(
-    "SELECT s.id,s.billing_provider,s.provider_subscription_id,s.provider_customer_id,s.subscription_state FROM company_os_installations i JOIN company_os_bundle_subscriptions s ON s.id=i.bundle_subscription_id WHERE i.id=$1",
+    "SELECT s.id,s.billing_provider,s.provider_subscription_id,s.provider_customer_id,s.subscription_state,s.admin_ended_at,s.cancel_effective_at FROM company_os_installations i JOIN company_os_bundle_subscriptions s ON s.id=i.bundle_subscription_id WHERE i.id=$1",
     [installationId],
   );
-  return (r.rows[0] as { id: string; billing_provider: string | null; provider_subscription_id: string | null; provider_customer_id: string | null; subscription_state: string } | undefined) ?? null;
+  return (r.rows[0] as { id: string; billing_provider: string | null; provider_subscription_id: string | null; provider_customer_id: string | null; subscription_state: string; admin_ended_at: Date | string | null; cancel_effective_at: Date | string | null } | undefined) ?? null;
 }
 
 export async function scheduleBundleCancellation(subscriptionId: string, effectiveAt: string, client?: Queryable) {

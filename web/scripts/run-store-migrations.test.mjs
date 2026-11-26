@@ -94,7 +94,7 @@ test("backfills all released migrations from their unchanged source bytes", asyn
   const first = await applyStoreMigrations({ client, migrations, log: () => {} });
   const second = await applyStoreMigrations({ client, migrations, log: () => {} });
   assert.deepEqual(first.backfilled, legacyNames);
-  assert.deepEqual(first.applied, ["20261012_reconcile_pending_checkouts.sql", "20261013_bundle_images.sql", "20261014_bundle_image_blobs.sql", "20261015_bundle_image_association_columns.sql", "20261017_f12_paid_copies.sql"]);
+  assert.deepEqual(first.applied, ["20261012_reconcile_pending_checkouts.sql", "20261013_bundle_images.sql", "20261014_bundle_image_blobs.sql", "20261015_bundle_image_association_columns.sql", "20261017_f12_paid_copies.sql", "20261126_st1_subscription_by_order.sql"]);
   assert.deepEqual(second.skipped, migrations.map((item) => item.filename));
 });
 
