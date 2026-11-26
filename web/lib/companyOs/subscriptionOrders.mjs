@@ -145,7 +145,7 @@ export async function grantSubscriptionByOrder(client, input) {
  * so `confirmProviderNotTold` must be set, and from then on provider events leave the row alone.
  *
  * @param {{ query: Function }} client
- * @param {{ subscriptionId: string; graceDays: number; administrator: string; reason?: string | null; confirmProviderNotTold?: boolean; now?: Date }} input
+ * @param {{ subscriptionId: string; graceDays: number; administrator: string; reason?: string | null; confirmProviderNotTold?: boolean; effectiveAt?: Date | null; now?: Date }} input
  */
 export async function endSubscriptionByAdmin(client, input) {
   const now = input.now ?? new Date();
@@ -161,7 +161,9 @@ export async function endSubscriptionByAdmin(client, input) {
   if (row.billing_provider === "stripe") throw new OrderError("stripe_subscription_end_at_stripe");
   if (row.billing_provider !== INVOICE && !input.confirmProviderNotTold) throw new OrderError("provider_subscription_needs_confirmation_the_provider_is_not_told");
   if (!["active", "past_due", "suspended", "cancel_at_period_end"].includes(row.subscription_state)) throw new OrderError(`subscription_state_mismatch:${row.subscription_state}`);
-  let effective = new Date(now.getTime() + graceDays * DAY_MS);
+  // an exact deadline (a plan's end passed on to its subscriptions) wins over whole grace days
+  if (input.effectiveAt && (!(input.effectiveAt instanceof Date) || Number.isNaN(input.effectiveAt.getTime()) || input.effectiveAt.getTime() < now.getTime())) throw new OrderError("effective_at_invalid", 400);
+  let effective = input.effectiveAt ? new Date(input.effectiveAt.getTime()) : new Date(now.getTime() + graceDays * DAY_MS);
   // an earlier end already on the row (the order's end date, the provider's period end) stays
   for (const earlier of [row.billing_ends_at, row.subscription_state === "cancel_at_period_end" ? row.cancel_effective_at : null]) {
     if (earlier && new Date(earlier).getTime() < effective.getTime()) effective = new Date(earlier);

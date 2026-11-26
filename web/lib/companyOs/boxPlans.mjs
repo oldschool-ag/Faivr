@@ -290,8 +290,8 @@ export async function endPlan(client, input) {
   await client.query("UPDATE company_os_box_plans SET ends_at=$2,ended_by=$3,end_reason=$4 WHERE id=$1", [plan.id, effective.toISOString(), admin, reason]);
   const subscriptions = await client.query("SELECT id FROM company_os_bundle_subscriptions WHERE box_plan_id=$1 AND billing_provider=$2 AND subscription_state<>'cancelled' AND admin_ended_at IS NULL", [plan.id, INVOICE]);
   const ended = [];
-  const graceForSubscriptions = Math.max(0, Math.round((effective.getTime() - now.getTime()) / DAY_MS));
-  for (const row of subscriptions.rows) ended.push(await endSubscriptionByAdmin(client, { subscriptionId: row.id, graceDays: graceForSubscriptions, administrator: admin, reason: reason ?? `plan ${plan.plan_id} ended`, now }));
+  // the subscriptions end at the plan's exact deadline, not at a rounded number of days
+  for (const row of subscriptions.rows) ended.push(await endSubscriptionByAdmin(client, { subscriptionId: row.id, graceDays, effectiveAt: effective, administrator: admin, reason: reason ?? `plan ${plan.plan_id} ended`, now }));
   await planAudit(client, "plan_ended", admin, { effectiveAt: effective.toISOString(), graceDays, reason, subscriptions: ended.map((item) => item.subscriptionId) }, { planId: plan.plan_id, boxPlanId: plan.id }, now);
   return { boxPlanId: plan.id, endsAt: effective.toISOString(), endedBy: admin, subscriptions: ended };
 }
@@ -370,7 +370,9 @@ export async function invoiceLines(client, input) {
   const scoped = "($1::uuid IS NULL OR tenant_id=$1::uuid) AND ($2::uuid IS NULL OR instance_id=$2::uuid)";
   const total = daysInMonth(month);
   // a plan counts with the whole days it ran in the month (none: a period that ended before it started)
-  const plans = (await client.query(`SELECT * FROM company_os_box_plans WHERE ${scoped} ORDER BY created_at`, scope)).rows
+  const allPlans = (await client.query(`SELECT * FROM company_os_box_plans WHERE ${scoped} ORDER BY created_at`, scope)).rows;
+  const anyPlanById = new Map(allPlans.map((plan) => [plan.id, plan]));
+  const plans = allPlans
     .map((plan) => ({ ...plan, days: daysWithin(month, plan.starts_at, plan.ends_at ?? null) }))
     .filter((plan) => plan.days > 0);
   const subscriptions = (await client.query(
@@ -379,6 +381,9 @@ export async function invoiceLines(client, input) {
   )).rows.map((row) => {
     const start = new Date(row.billing_starts_at ?? row.entitled_at ?? row.created_at).getTime();
     const stops = [row.stopped_at, row.subscription_state === "cancel_at_period_end" ? row.cancel_effective_at : null, row.billing_ends_at].filter(Boolean).map((value) => new Date(value).getTime());
+    // a subscription on a plan stops with that plan, whatever later end it has of its own
+    const linkedEnd = row.box_plan_id && anyPlanById.get(row.box_plan_id)?.ends_at ? new Date(anyPlanById.get(row.box_plan_id).ends_at).getTime() : null;
+    if (linkedEnd !== null) stops.push(linkedEnd);
     const stop = stops.length ? Math.min(...stops) : null;
     return { ...row, start, stop, days: daysWithin(month, start, stop) };
   }).filter((row) => row.days > 0);
@@ -433,14 +438,17 @@ export async function invoiceLines(client, input) {
       if (includes.length) add("plan_includes", `Includes: ${includes.join("; ")}`, 0, "included in your plan");
       if (Number(plan.ai_allowance_cents) > 0) add("ai_allowance", `AI use up to ${currency.toUpperCase()} ${money(Number(plan.ai_allowance_cents))} per month`, 0, "included in your plan");
     }
-    // a subscription's days in the month split into the days its plan ran (the plan's terms) and
-    // the days outside it (the price it had without the plan, never "included")
+    // a subscription's days in the month split into the days before its plan started (the price
+    // it had without the plan, never "included"), the days its plan ran (the plan's terms), and
+    // the days after its plan ended (not billed: the plan's end ends what rides on it)
     const included = [];
     const addOns = [];
     for (const row of box.subscriptions) {
-      const plan = row.box_plan_id ? planById.get(row.box_plan_id) : null;
-      const onPlan = plan ? daysWithin(month, Math.max(row.start, new Date(plan.starts_at).getTime()), plan.ends_at ? (row.stop === null ? new Date(plan.ends_at).getTime() : Math.min(row.stop, new Date(plan.ends_at).getTime())) : row.stop) : 0;
-      const offPlan = row.days - onPlan;
+      const linked = row.box_plan_id ? anyPlanById.get(row.box_plan_id) : null;
+      const plan = linked && planById.has(linked.id) ? linked : null;
+      const planStart = linked ? new Date(linked.starts_at).getTime() : null;
+      const onPlan = plan ? daysWithin(month, Math.max(row.start, planStart), row.stop) : 0;
+      const offPlan = linked ? daysWithin(month, row.start, row.stop === null ? planStart : Math.min(row.stop, planStart)) : row.days;
       if (onPlan > 0) {
         if (row.included_in_plan) included.push(row);
         else addOns.push({ row, cents: Number(row.invoice_monthly_cents ?? row.monthly_price_cents), days: onPlan, free: freeNoteOf.get(plan.id), planId: plan.id });

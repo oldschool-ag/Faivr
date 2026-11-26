@@ -339,6 +339,25 @@ describe("ST1 plans: what Old School invoices per box", () => {
     await expect(invoiceLines(holder.pool, { month: "2027-01" })).rejects.toThrow("vat_rate_missing_for:2027-01");
   });
 
+  it("Codex P2: ending a plan passes its exact deadline to its subscriptions (no day lost to rounding)", async () => {
+    const assigned = await assign(appliance.instanceId, { endsOn: "2027-02-01" });
+    const addOn = await grantSubscriptionByOrder(holder.pool, { tenantId, instanceId: appliance.instanceId, bundleId: "extra-workflow", startsOn: "2026-12-01", administrator: ADMIN, now: NOW });
+    const ended = await endPlan(holder.pool, { boxPlanId: assigned.boxPlanId, graceDays: 14, administrator: ADMIN, now: new Date("2027-01-25T18:00:00.000Z") });
+    expect(ended.endsAt).toBe("2027-02-01T00:00:00.000Z");
+    expect(ended.subscriptions.every((item: { effectiveAt: string }) => item.effectiveAt === "2027-02-01T00:00:00.000Z")).toBe(true);
+    const row = await holder.pool.query("SELECT cancel_effective_at FROM company_os_bundle_subscriptions WHERE id=$1", [addOn.subscriptionId]);
+    expect(new Date(row.rows[0].cancel_effective_at).toISOString()).toBe("2027-02-01T00:00:00.000Z");
+    // the add-on is billed for all of January, like its plan
+    expect((await invoiceLines(holder.pool, { month: "2027-01" })).find((line) => line.line === "add_on")).toMatchObject({ amountCents: 9900, note: "add-on, list price" });
+  });
+
+  it("Codex P2: an add-on with a later end of its own stops billing when its plan ends", async () => {
+    await assign(appliance.instanceId, { endsOn: "2027-02-01" });
+    await grantSubscriptionByOrder(holder.pool, { tenantId, instanceId: appliance.instanceId, bundleId: "extra-workflow", startsOn: "2026-12-01", endsOn: "2027-03-01", administrator: ADMIN, now: NOW });
+    expect((await invoiceLines(holder.pool, { month: "2027-01" })).find((line) => line.line === "add_on")).toMatchObject({ amountCents: 9900 });
+    expect(await invoiceLines(holder.pool, { month: "2027-02" })).toEqual([]);
+  });
+
   it("refuses plan data and invoice lines that would be wrong", async () => {
     const plan = (input: Record<string, unknown>) => definePlan(holder.pool, { id: "p", name: "P", prices: "1=10", aiAllowanceChf: "0", freeMonths: 0, pricesExcludeVat: true, includes: ["Support"], administrator: ADMIN, ...input } as Parameters<typeof definePlan>[1]);
     await expect(plan({ prices: "1=149.999" })).rejects.toThrow("prices_invalid");
