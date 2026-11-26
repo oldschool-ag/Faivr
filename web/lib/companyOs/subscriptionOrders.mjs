@@ -173,6 +173,10 @@ export async function endSubscriptionByAdmin(client, input) {
   const graceDays = Number(input.graceDays);
   if (!Number.isInteger(graceDays) || graceDays < 0 || graceDays > 366) throw new OrderError("grace_days_invalid", 400);
   // the row is locked: a provider event in flight waits, then finds the administrator's end
+  // ST1: the box's row first (the lock order of assign-plan and grant-by-order), so two ends on one
+  // box run one after the other and the last-workflow check below sees the other's end
+  const owner = await client.query("SELECT tenant_id,instance_id FROM company_os_bundle_subscriptions WHERE id=$1", [input.subscriptionId]);
+  if (owner.rowCount) await client.query("SELECT 1 FROM company_os_instance_keys WHERE tenant_id=$1 AND instance_id=$2 FOR UPDATE", [owner.rows[0].tenant_id, owner.rows[0].instance_id]);
   const found = await client.query("SELECT id,subscription_state,billing_provider,billing_ends_at,admin_ended_at,cancel_effective_at,box_plan_id,bundle_id,invoice_kind FROM company_os_bundle_subscriptions WHERE id=$1 FOR UPDATE", [input.subscriptionId]);
   const row = found.rows[0];
   if (!row) throw new OrderError("subscription_not_found", 404);

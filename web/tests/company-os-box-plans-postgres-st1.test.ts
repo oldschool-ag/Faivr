@@ -4,6 +4,7 @@ import path from "node:path";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { assignPlan, definePlan, setPlanFunction } from "@/lib/companyOs/boxPlans.mjs";
+import { endSubscriptionByAdmin, grantSubscriptionByOrder } from "@/lib/companyOs/subscriptionOrders.mjs";
 import { applyStoreMigrations, readMigrations } from "../scripts/run-store-migrations.mjs";
 
 /**
@@ -34,7 +35,7 @@ describe.skipIf(!url)("ST1 plans on Postgres: one transaction per admin command"
     await admin.query(readFileSync(new URL("../sql/company-os-marketplace.sql", import.meta.url), "utf8"));
     await applyStoreMigrations({ client: admin, migrations: await readMigrations(path.resolve(path.dirname(new URL(import.meta.url).pathname), "../sql/migrations")), log: () => {} });
     for (const box of boxes) await admin.query("INSERT INTO company_os_instance_keys(tenant_id,instance_id,key_id,public_key,label,enrolled_at) VALUES($1,$2,'k','pem','box',now())", [tenantId, box]);
-    await admin.query("INSERT INTO company_os_function_bundles(id,name,description,monthly_price_cents) VALUES('customers','Customers','CRM',0),('retired-workflow','Retired','gone',0)");
+    await admin.query("INSERT INTO company_os_function_bundles(id,name,description,monthly_price_cents) VALUES('customers','Customers','CRM',0),('product-management','Product management','PM',0),('retired-workflow','Retired','gone',0)");
     await admin.query("UPDATE company_os_function_bundles SET status='retired' WHERE id='retired-workflow'");
     const terms = { boxChf: "100", earlyBirdPercent: "50", earlyBirdNote: "Early bird", topUpUsdPerChf: "1", freeMonths: 0, pricesExcludeVat: true, includes: ["Support"], administrator: ADMIN };
     await definePlan(admin, { id: PLAN, name: "Truchsess box", earlyBirdCustomers: 1, ...terms });
@@ -97,6 +98,26 @@ describe.skipIf(!url)("ST1 plans on Postgres: one transaction per admin command"
       await expect(second).rejects.toThrow("box_has_a_plan");
       const plans = await a.query("SELECT plan_id FROM company_os_box_plans WHERE instance_id=$1", [box]);
       expect(plans.rows.map((row) => row.plan_id)).toEqual([PLAN]);
+    } finally {
+      await a.end();
+      await b.end();
+    }
+  });
+
+  it("Codex P2: two ends of a box's last two workflows at the same time: the second is refused", async () => {
+    const box = randomUUID();
+    await admin.query("INSERT INTO company_os_instance_keys(tenant_id,instance_id,key_id,public_key,label,enrolled_at) VALUES($1,$2,'k','pem','box',now())", [tenantId, box]);
+    const assigned = await inTransaction(admin, () => assignPlan(admin, { tenantId, instanceId: box, planId: PLAN, startsOn: "2026-12-01", administrator: ADMIN, now: NOW }));
+    const second = await inTransaction(admin, () => grantSubscriptionByOrder(admin, { tenantId, instanceId: box, bundleId: "product-management", startsOn: "2026-12-01", administrator: ADMIN, now: NOW }));
+    const [a, b] = [await connect(), await connect()];
+    try {
+      await a.query("BEGIN");
+      await endSubscriptionByAdmin(a, { subscriptionId: assigned.granted[0].subscriptionId, graceDays: 14, administrator: ADMIN, now: NOW });
+      const other = inTransaction(b, () => endSubscriptionByAdmin(b, { subscriptionId: second.subscriptionId, graceDays: 14, administrator: ADMIN, now: NOW }));
+      const waited = await Promise.race([other.then(() => "finished", () => "failed"), new Promise((resolve) => setTimeout(() => resolve("waiting"), 500))]);
+      expect(waited).toBe("waiting");
+      await a.query("COMMIT");
+      await expect(other).rejects.toThrow("last_workflow_end_the_plan_instead");
     } finally {
       await a.end();
       await b.end();
