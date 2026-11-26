@@ -225,7 +225,9 @@ export async function storeSubscriptionCancel(req: NextRequest) {
         if (subscription.billing_provider === "invoice") throw new StoreError("subscription_by_order_ask_old_school", 409);
         if (!subscription.provider_subscription_id) throw new Error("billing_subscription_not_configured");
         const cancellation = await billingProviderFor(subscription.billing_provider).cancelAtPeriodEnd(subscription.provider_subscription_id, `faivr-store-cancel-${subscription.id}`);
-        await scheduleBundleCancellation(subscription.id, cancellation.effectiveAt);
+        const scheduled = await scheduleBundleCancellation(subscription.id, cancellation.effectiveAt);
+        // ST1: an administrator ended it while the provider was asked: the store's end stands
+        if (scheduled.adminEnded) return { subscriptionId: subscription.id, bundleId: subscription.bundle_id, copyNumber: Number(subscription.copy_number), description: subscription.billing_description, subscriptionState: scheduled.subscriptionState, effectiveAt: scheduled.effectiveAt };
         return { subscriptionId: subscription.id, bundleId: subscription.bundle_id, copyNumber: Number(subscription.copy_number), description: subscription.billing_description, subscriptionState: "cancel_at_period_end", effectiveAt: cancellation.effectiveAt };
       }),
     );

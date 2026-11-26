@@ -748,12 +748,20 @@ export async function mirrorEndedSubscriptionOnRemoved(installationId: string, s
   );
 }
 
+/**
+ * The provider's cancellation at the period end, written to the subscription and its installations.
+ * ST1: an administrator's end committed while the provider was asked wins: each statement re-checks
+ * it, nothing is written, and the caller is told (`adminEnded`) so it answers with the store's end.
+ */
 export async function scheduleBundleCancellation(subscriptionId: string, effectiveAt: string, client?: Queryable) {
   await db(client).query(
-    "UPDATE company_os_bundle_subscriptions SET subscription_state='cancel_at_period_end',cancel_effective_at=$2,updated_at=now() WHERE id=$1 AND subscription_state IN ('active','past_due','cancellation_pending_uninstall')",
+    "UPDATE company_os_bundle_subscriptions SET subscription_state='cancel_at_period_end',cancel_effective_at=$2,updated_at=now() WHERE id=$1 AND admin_ended_at IS NULL AND subscription_state IN ('active','past_due','cancellation_pending_uninstall')",
     [subscriptionId, effectiveAt],
   );
-  await db(client).query("UPDATE company_os_installations SET subscription_state='cancel_at_period_end',billing_cancel_effective_at=$2,updated_at=now() WHERE bundle_subscription_id=$1", [subscriptionId, effectiveAt]);
+  const mirrored = await db(client).query("UPDATE company_os_installations SET subscription_state='cancel_at_period_end',billing_cancel_effective_at=$2,updated_at=now() WHERE bundle_subscription_id=$1 AND EXISTS (SELECT 1 FROM company_os_bundle_subscriptions s WHERE s.id=$1 AND s.admin_ended_at IS NULL) RETURNING id", [subscriptionId, effectiveAt]);
+  if (mirrored.rowCount) return { adminEnded: false };
+  const row = (await db(client).query("SELECT admin_ended_at,subscription_state,cancel_effective_at,stopped_at FROM company_os_bundle_subscriptions WHERE id=$1", [subscriptionId])).rows[0];
+  return row?.admin_ended_at ? { adminEnded: true, subscriptionState: row.subscription_state as string, effectiveAt: iso(row.subscription_state === "cancelled" ? row.stopped_at : row.cancel_effective_at) } : { adminEnded: false };
 }
 
 /** The CEO cancels a bundle nothing is installed from any more (the receipt-gated path handles the rest). */

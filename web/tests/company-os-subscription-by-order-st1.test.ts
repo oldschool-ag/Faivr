@@ -55,7 +55,7 @@ describe("ST1: a subscription by order (billed by invoice)", () => {
   let enrolmentCode: string;
   let tenantId: string;
   let calls: Array<{ url: string; init: RequestInit }>;
-  let answers: Response[];
+  let answers: Array<Response | (() => Promise<Response>)>;
   const billingKeys = ed25519Pair();
 
   beforeEach(async () => {
@@ -93,7 +93,7 @@ describe("ST1: a subscription by order (billed by invoice)", () => {
       calls.push({ url: String(url), init });
       const next = answers.shift();
       if (!next) throw new Error(`unexpected Polar request ${init.method ?? "GET"} ${String(url)}`);
-      return next;
+      return typeof next === "function" ? next() : next;
     }));
     const response = await enrol(new NextRequest("https://store.faivr.test/api/company-os/v1/enrol", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enrolmentCode, appliancePublicKeyPem: appliance.keys.publicPem, label: "Office box" }) }));
     const body = await bodyOf(response);
@@ -369,6 +369,26 @@ describe("ST1: a subscription by order (billed by invoice)", () => {
     const acknowledgement = await bodyOf(await billing(signedRequest(appliance, "GET", `/api/company-os/v1/billing?installationId=${installationId}`)));
     expect(acknowledgement).toMatchObject({ messageType: "billing.stop_acknowledged", subscriptionState: "cancelled", effectiveAt: stoppedAt });
     expect(calls).toEqual([]);
+  });
+
+  it("Codex P2: an administrator's end committed while Polar cancels the last agent's subscription stands", async () => {
+    const subscriptionId = await sandboxSubscription();
+    expect((await deliver("subscription.active", { FAIVR_SUBSCRIPTION_ID: subscriptionId })).body).toMatchObject({ action: "activated" });
+    const { installationId } = await installAndActivate();
+    // Polar answers the cancellation only after the administrator's end (grace 0) has committed
+    answers.push(jsonResponse(polarFixture("api/subscription.active", values())), async () => {
+      await endSubscriptionByAdmin(holder.pool, { subscriptionId, graceDays: 0, administrator: ADMIN, confirmProviderNotTold: true });
+      return jsonResponse(polarFixture("api/subscription.cancel_at_period_end", values()));
+    });
+    const receipt = await uninstallLast(installationId, subscriptionId);
+    expect(receipt.status, JSON.stringify(receipt.body)).toBe(200);
+    const stoppedAt = new Date((await row(subscriptionId)).stopped_at as string).toISOString();
+    expect(receipt.body).toMatchObject({ subscriptionState: "cancelled", effectiveAt: stoppedAt });
+    expect(await row(subscriptionId)).toMatchObject({ subscription_state: "cancelled" });
+    const installation = await holder.pool.query("SELECT subscription_state,billing_stopped_at,billing_cancel_effective_at FROM company_os_installations WHERE id=$1", [installationId]);
+    expect(installation.rows[0].subscription_state).toBe("cancelled");
+    expect(new Date(installation.rows[0].billing_stopped_at).toISOString()).toBe(stoppedAt);
+    expect(new Date(installation.rows[0].billing_cancel_effective_at ?? 0).toISOString()).not.toBe(new Date(PERIOD_END).toISOString());
   });
 
   it("refuses a grant that would be wrong, with a reason", async () => {
