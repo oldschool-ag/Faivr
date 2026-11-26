@@ -400,6 +400,30 @@ describe("ST1 plans: what Old School invoices per box", () => {
     expect((await holder.pool.query("SELECT subscription_state FROM company_os_bundle_subscriptions WHERE id=$1", [addOn.subscriptionId])).rows[0].subscription_state).toBe("cancelled");
   });
 
+  it("Codex P2: a box keeps the workflows its plan included when it got the plan", async () => {
+    await assign(appliance.instanceId);
+    // later, for new customers only: the extra workflow is included, Product management no longer
+    await setPlanFunction(holder.pool, { planId: PLAN, bundleId: "extra-workflow", included: true, administrator: ADMIN });
+    await setPlanFunction(holder.pool, { planId: PLAN, bundleId: "product-management", included: false, administrator: ADMIN });
+    // a later grant to the older box: the extra workflow is still an add-on at its price for it
+    const addOn = await grantSubscriptionByOrder(holder.pool, { tenantId, instanceId: appliance.instanceId, bundleId: "extra-workflow", startsOn: "2026-12-01", administrator: ADMIN, now: NOW });
+    expect(addOn).toMatchObject({ includedInPlan: false, monthlyPriceCents: 9900 });
+    const view = (await (await storePlan(signedRequest(appliance, "GET", "/api/company-os/v1/store/plan?month=2027-01"))).json()) as { plan: { workflows: Array<{ bundleId: string }> } };
+    expect(view.plan.workflows.map((item) => item.bundleId)).toEqual(["customers", "product-management"]);
+    // a new box gets today's set
+    const fresh = await assign(await newBox());
+    expect(fresh.granted.map((item: { bundleId: string }) => item.bundleId)).toEqual(["customers", "extra-workflow"]);
+  });
+
+  it("Codex P2: a one-time line keeps its own plan's VAT basis after that plan ended", async () => {
+    await definePlan(holder.pool, { id: "gross-plan", name: "Gross plan", prices: "1=100", aiAllowanceChf: "0", freeMonths: 0, pricesExcludeVat: false, includes: INCLUDES, administrator: ADMIN });
+    await assignPlan(holder.pool, { tenantId, instanceId: appliance.instanceId, planId: "gross-plan", startsOn: "2026-12-01", endsOn: "2027-02-01", administrator: ADMIN, now: NOW });
+    await addInvoiceLine(holder.pool, { tenantId, instanceId: appliance.instanceId, month: "2027-02", kind: "ai-top-up", amountChf: "108.10", administrator: ADMIN, now: NOW });
+    const february = await invoiceLines(holder.pool, { month: "2027-02" });
+    // VAT included: 108.10 is the total, of which 8.10 VAT
+    expect(["subtotal", "vat", "total"].map((name) => february.find((line) => line.line === name)?.amountCents)).toEqual([10000, 810, 10810]);
+  });
+
   it("refuses plan data and invoice lines that would be wrong", async () => {
     const plan = (input: Record<string, unknown>) => definePlan(holder.pool, { id: "p", name: "P", prices: "1=10", aiAllowanceChf: "0", freeMonths: 0, pricesExcludeVat: true, includes: ["Support"], administrator: ADMIN, ...input } as Parameters<typeof definePlan>[1]);
     await expect(plan({ prices: "1=149.999" })).rejects.toThrow("prices_invalid");

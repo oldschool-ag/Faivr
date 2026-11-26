@@ -252,10 +252,13 @@ export async function assignPlan(client, input) {
   const earlier = customerNumber === null ? null : (await client.query("SELECT monthly_price_cents FROM company_os_box_plans WHERE plan_id=$1 AND tenant_id=$2 AND instance_id=$3 AND customer_number=$4 ORDER BY created_at LIMIT 1", [plan.id, input.tenantId, input.instanceId, customerNumber])).rows[0];
   const monthlyCents = earlier ? Number(earlier.monthly_price_cents) : priceFor(steps, customerNumber ?? nextCustomerNumber(customers));
   const boxPlanId = randomUUID();
+  // the workflows the plan includes today are this box's, kept like its price
+  const includedBundles = (await client.query("SELECT bundle_id FROM company_os_plan_functions WHERE plan_id=$1 ORDER BY bundle_id", [plan.id])).rows.map((row) => row.bundle_id);
   await client.query(
-    "INSERT INTO company_os_box_plans(id,tenant_id,instance_id,plan_id,plan_name,monthly_price_cents,currency,prices_exclude_vat,ai_allowance_cents,free_months,includes,customer_number,starts_at,ends_at,granted_by,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",
-    [boxPlanId, input.tenantId, input.instanceId, plan.id, plan.name, monthlyCents, plan.currency, plan.prices_exclude_vat, plan.ai_allowance_cents, plan.free_months, JSON.stringify(plan.includes), customerNumber, startsAt.toISOString(), endsAt ? endsAt.toISOString() : null, admin, now.toISOString()],
+    "INSERT INTO company_os_box_plans(id,tenant_id,instance_id,plan_id,plan_name,monthly_price_cents,currency,prices_exclude_vat,ai_allowance_cents,free_months,includes,customer_number,starts_at,ends_at,granted_by,created_at,included_bundles) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)",
+    [boxPlanId, input.tenantId, input.instanceId, plan.id, plan.name, monthlyCents, plan.currency, plan.prices_exclude_vat, plan.ai_allowance_cents, plan.free_months, JSON.stringify(plan.includes), customerNumber, startsAt.toISOString(), endsAt ? endsAt.toISOString() : null, admin, now.toISOString(), JSON.stringify(includedBundles)],
   );
+  const boxPlan = { id: boxPlanId, plan_id: plan.id, included_bundles: includedBundles };
   // invoice subscriptions the box already has join the plan
   const existing = await client.query(
     "SELECT s.id,s.bundle_id,s.copy_number,s.invoice_monthly_cents,b.monthly_price_cents FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.tenant_id=$1 AND s.instance_id=$2 AND s.billing_provider=$3 AND s.subscription_state<>'cancelled' AND s.box_plan_id IS NULL",
@@ -263,7 +266,7 @@ export async function assignPlan(client, input) {
   );
   const joined = [];
   for (const row of existing.rows) {
-    const included = await includedInPlan(client, plan.id, row.bundle_id, Number(row.copy_number));
+    const included = await includedInPlan(client, boxPlan, row.bundle_id, Number(row.copy_number));
     const cents = included ? 0 : Number(row.invoice_monthly_cents ?? row.monthly_price_cents);
     // the price it had before stays for the months before the plan (they are not rewritten)
     const before = Number(row.invoice_monthly_cents ?? row.monthly_price_cents);
@@ -272,11 +275,10 @@ export async function assignPlan(client, input) {
     joined.push({ subscriptionId: row.id, bundleId: row.bundle_id, includedInPlan: included, monthlyPriceCents: cents });
   }
   // every function the plan includes, not yet held: granted by order at CHF 0
-  const functions = await client.query("SELECT bundle_id FROM company_os_plan_functions WHERE plan_id=$1 ORDER BY bundle_id", [plan.id]);
   const granted = [];
-  for (const row of functions.rows) {
-    if (joined.some((item) => item.bundleId === row.bundle_id && item.includedInPlan)) continue;
-    granted.push(await grantSubscriptionByOrder(client, { tenantId: input.tenantId, instanceId: input.instanceId, bundleId: row.bundle_id, startsOn: input.startsOn, endsOn: input.endsOn ?? null, administrator: admin, note: `included in plan ${plan.id}`, now }));
+  for (const bundleId of includedBundles) {
+    if (joined.some((item) => item.bundleId === bundleId && item.includedInPlan)) continue;
+    granted.push(await grantSubscriptionByOrder(client, { tenantId: input.tenantId, instanceId: input.instanceId, bundleId, startsOn: input.startsOn, endsOn: input.endsOn ?? null, administrator: admin, note: `included in plan ${plan.id}`, now }));
   }
   const result = { boxPlanId, planId: plan.id, planName: plan.name, customerNumber, mark, monthlyPriceCents: monthlyCents, startsAt: startsAt.toISOString(), endsAt: endsAt ? endsAt.toISOString() : null, granted, joined, grantedBy: admin };
   await planAudit(client, "plan_assigned", admin, { tenantId: input.tenantId, instanceId: input.instanceId, planId: plan.id, customerNumber, mark, monthlyPriceCents: monthlyCents, startsAt: result.startsAt, endsAt: result.endsAt, granted: granted.map((item) => item.bundleId), joined: joined.map((item) => item.bundleId), note: input.note ?? null }, { planId: plan.id, boxPlanId }, now);
@@ -442,7 +444,8 @@ export async function invoiceLines(client, input) {
     const sums = { exclusive: 0, inclusive: 0 };
     const planById = new Map(box.plans.map((plan) => [plan.id, plan]));
     const charge = (cents, planId) => {
-      const plan = planId ? planById.get(planId) : null;
+      // the VAT basis of the plan a charge belongs to, also when that plan no longer runs this month
+      const plan = planId ? anyPlanById.get(planId) : null;
       if (plan && plan.prices_exclude_vat === false) sums.inclusive += cents;
       else sums.exclusive += cents;
     };
@@ -488,7 +491,7 @@ export async function invoiceLines(client, input) {
     if (currencies.size > 1) throw new OrderError(`box_has_more_than_one_currency:${box.instanceId}:${[...currencies].sort().join(",")}`, 409);
     for (const item of box.items) {
       // a one-time line follows the VAT basis of the plan it was added under
-      charge(Number(item.amount_cents), planById.has(item.box_plan_id) ? item.box_plan_id : latest?.id ?? null);
+      charge(Number(item.amount_cents), anyPlanById.has(item.box_plan_id) ? item.box_plan_id : latest?.id ?? null);
       add(item.kind, item.description, Number(item.amount_cents), "one-time");
     }
     // net, VAT and total: prices before VAT get the VAT on top; prices with VAT have it taken out
@@ -535,7 +538,8 @@ export async function boxPlanView(client, input) {
     if (!(error instanceof OrderError) || !error.code.startsWith("vat_rate_missing_for:")) throw error;
     ready = false;
   }
-  const workflows = plan ? (await client.query("SELECT f.bundle_id,b.name FROM company_os_plan_functions f JOIN company_os_function_bundles b ON b.id=f.bundle_id WHERE f.plan_id=$1 ORDER BY b.name", [plan.plan_id])).rows.map((row) => ({ bundleId: row.bundle_id, name: row.name })) : [];
+  const workflowIds = plan ? (Array.isArray(plan.included_bundles) ? plan.included_bundles : (await client.query("SELECT bundle_id FROM company_os_plan_functions WHERE plan_id=$1", [plan.plan_id])).rows.map((row) => row.bundle_id)) : [];
+  const workflows = workflowIds.length ? (await client.query("SELECT id,name FROM company_os_function_bundles ORDER BY name")).rows.filter((row) => workflowIds.includes(row.id)).map((row) => ({ bundleId: row.id, name: row.name })) : [];
   return {
     month,
     plan: plan

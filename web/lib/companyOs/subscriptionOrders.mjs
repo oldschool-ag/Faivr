@@ -58,10 +58,15 @@ export async function liveBoxPlan(client, tenantId, instanceId, at) {
   return r.rows[0] ?? null;
 }
 
-/** Whether a function is included in a plan (at CHF 0); only the function's first copy is. */
-export async function includedInPlan(client, planId, bundleId, copyNumber) {
+/**
+ * Whether a function is included (at CHF 0) in a box's plan; only the function's first copy is.
+ * The box's plan keeps the workflows it was given (`included_bundles`); a plan row from before
+ * that was kept reads the plan's current list.
+ */
+export async function includedInPlan(client, boxPlan, bundleId, copyNumber) {
   if (copyNumber !== 1) return false;
-  const r = await client.query("SELECT 1 FROM company_os_plan_functions WHERE plan_id=$1 AND bundle_id=$2", [planId, bundleId]);
+  if (Array.isArray(boxPlan.included_bundles)) return boxPlan.included_bundles.includes(bundleId);
+  const r = await client.query("SELECT 1 FROM company_os_plan_functions WHERE plan_id=$1 AND bundle_id=$2", [boxPlan.plan_id, bundleId]);
   return Boolean(r.rowCount);
 }
 
@@ -117,7 +122,7 @@ export async function grantSubscriptionByOrder(client, input) {
   // ST1 plans: a function the box's plan includes costs CHF 0 ("included in your plan"); any
   // other is an add-on at the function's list price (the catalog entry's monthly price)
   const plan = await liveBoxPlan(client, input.tenantId, input.instanceId, now);
-  const included = plan ? await includedInPlan(client, plan.plan_id, input.bundleId, copyNumber) : false;
+  const included = plan ? await includedInPlan(client, plan, input.bundleId, copyNumber) : false;
   if (plan && String(bundle.rows[0].currency) !== String(plan.currency)) throw new OrderError(`${included ? "included_workflow" : "add_on"}_currency_differs_from_plan:${bundle.rows[0].currency}:${plan.currency}`);
   // one currency per box, also without a plan
   const otherCurrency = await client.query("SELECT b.currency FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.tenant_id=$1 AND s.instance_id=$2 AND s.billing_provider=$3 AND b.currency<>$4 LIMIT 1", [input.tenantId, input.instanceId, INVOICE, bundle.rows[0].currency]);
