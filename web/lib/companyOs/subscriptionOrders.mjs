@@ -112,7 +112,7 @@ export async function grantSubscriptionByOrder(client, input) {
   const plan = await liveBoxPlan(client, input.tenantId, input.instanceId, now);
   if (plan && String(bundle.rows[0].currency) !== String(plan.currency)) throw new OrderError(`workflow_currency_differs_from_plan:${bundle.rows[0].currency}:${plan.currency}`);
   // one currency per box, also without a plan
-  const otherCurrency = await client.query("SELECT b.currency FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.tenant_id=$1 AND s.instance_id=$2 AND s.billing_provider=$3 AND b.currency<>$4 LIMIT 1", [input.tenantId, input.instanceId, INVOICE, bundle.rows[0].currency]);
+  const otherCurrency = await client.query("SELECT COALESCE(s.invoice_currency,b.currency) AS currency FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.tenant_id=$1 AND s.instance_id=$2 AND s.billing_provider=$3 AND COALESCE(s.invoice_currency,b.currency)<>$4 LIMIT 1", [input.tenantId, input.instanceId, INVOICE, bundle.rows[0].currency]);
   if (otherCurrency.rowCount) throw new OrderError(`box_currency_differs:${otherCurrency.rows[0].currency}:${bundle.rows[0].currency}`);
   const monthlyCents = Number(bundle.rows[0].monthly_price_cents);
   // a workflow on a plan with an end date ends with the plan unless it was given an earlier end
@@ -122,8 +122,8 @@ export async function grantSubscriptionByOrder(client, input) {
   const id = randomUUID();
   const description = copyDescription(String(bundle.rows[0].name), copyNumber);
   await client.query(
-    "INSERT INTO company_os_bundle_subscriptions(id,tenant_id,instance_id,bundle_id,copy_number,billing_description,billing_provider,subscription_state,entitled_at,billing_starts_at,billing_ends_at,granted_by,box_plan_id,invoice_monthly_cents,included_in_plan,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,'active',$8,$9,$10,$11,$12,$13,$14,$8,$8)",
-    [id, input.tenantId, input.instanceId, input.bundleId, copyNumber, description, INVOICE, now.toISOString(), startsAt.toISOString(), ends ? ends.toISOString() : null, admin, plan?.id ?? null, monthlyCents, false],
+    "INSERT INTO company_os_bundle_subscriptions(id,tenant_id,instance_id,bundle_id,copy_number,billing_description,billing_provider,subscription_state,entitled_at,billing_starts_at,billing_ends_at,granted_by,box_plan_id,invoice_monthly_cents,included_in_plan,invoice_currency,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,'active',$8,$9,$10,$11,$12,$13,$14,$15,$8,$8)",
+    [id, input.tenantId, input.instanceId, input.bundleId, copyNumber, description, INVOICE, now.toISOString(), startsAt.toISOString(), ends ? ends.toISOString() : null, admin, plan?.id ?? null, monthlyCents, false, String(bundle.rows[0].currency).toLowerCase()],
   );
   await audit(client, id, "granted_by_order", admin, { bundleId: input.bundleId, copyNumber, startsAt: startsAt.toISOString(), endsAt: ends ? ends.toISOString() : null, boxPlanId: plan?.id ?? null, monthlyCents, note }, now);
   return { subscriptionId: id, tenantId: input.tenantId, instanceId: input.instanceId, bundleId: input.bundleId, copyNumber, description, billing: INVOICE, subscriptionState: "active", startsAt: startsAt.toISOString(), endsAt: ends ? ends.toISOString() : null, grantedBy: admin, boxPlanId: plan?.id ?? null, monthlyPriceCents: monthlyCents };

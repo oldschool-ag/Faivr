@@ -252,7 +252,7 @@ export async function assignPlan(client, input) {
   if (live) throw new OrderError(`box_has_a_plan:${live.id}:${live.plan_id}`);
   // one currency per box: invoices never add up amounts in different currencies
   const otherCurrency = await client.query(
-    "SELECT currency FROM company_os_box_plans WHERE tenant_id=$1 AND instance_id=$2 AND currency<>$3 UNION ALL SELECT b.currency FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.tenant_id=$1 AND s.instance_id=$2 AND s.billing_provider='invoice' AND b.currency<>$3",
+    "SELECT currency FROM company_os_box_plans WHERE tenant_id=$1 AND instance_id=$2 AND currency<>$3 UNION ALL SELECT COALESCE(s.invoice_currency,b.currency) FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.tenant_id=$1 AND s.instance_id=$2 AND s.billing_provider='invoice' AND COALESCE(s.invoice_currency,b.currency)<>$3",
     [input.tenantId, input.instanceId, plan.currency],
   );
   if (otherCurrency.rowCount) throw new OrderError(`box_currency_differs_from_plan:${otherCurrency.rows[0].currency}:${plan.currency}`);
@@ -282,7 +282,7 @@ export async function assignPlan(client, input) {
     // it keeps the price it has (also for the months before the plan) and never outlives the
     // plan's planned end; an earlier end of its own stays
     const cents = Number(row.invoice_monthly_cents ?? row.monthly_price_cents);
-    await client.query("UPDATE company_os_bundle_subscriptions SET box_plan_id=$2,included_in_plan=false,invoice_monthly_cents=$3,pre_plan_monthly_cents=$3,billing_ends_at=CASE WHEN $4::timestamptz IS NULL THEN billing_ends_at WHEN billing_ends_at IS NULL OR billing_ends_at>$4::timestamptz THEN $4::timestamptz ELSE billing_ends_at END,updated_at=$5 WHERE id=$1", [row.id, boxPlanId, cents, endsAt ? endsAt.toISOString() : null, now.toISOString()]);
+    await client.query("UPDATE company_os_bundle_subscriptions SET box_plan_id=$2,included_in_plan=false,invoice_monthly_cents=$3,pre_plan_monthly_cents=$3,invoice_currency=COALESCE(invoice_currency,$6),billing_ends_at=CASE WHEN $4::timestamptz IS NULL THEN billing_ends_at WHEN billing_ends_at IS NULL OR billing_ends_at>$4::timestamptz THEN $4::timestamptz ELSE billing_ends_at END,updated_at=$5 WHERE id=$1", [row.id, boxPlanId, cents, endsAt ? endsAt.toISOString() : null, now.toISOString(), plan.currency]);
     joined.push({ subscriptionId: row.id, bundleId: row.bundle_id, copyNumber: Number(row.copy_number), monthlyPriceCents: cents });
   }
   // every workflow the plan grants that the box does not hold yet: granted by order at its list price
@@ -424,7 +424,7 @@ export async function invoiceLines(client, input) {
     .map((plan) => ({ ...plan, days: daysWithin(month, plan.starts_at, plan.ends_at ?? null) }))
     .filter((plan) => plan.days > 0);
   const subscriptions = (await client.query(
-    `SELECT s.id,s.tenant_id,s.instance_id,s.bundle_id,s.copy_number,s.billing_description,s.subscription_state,s.billing_starts_at,s.entitled_at,s.billing_ends_at,s.cancel_effective_at,s.stopped_at,s.invoice_monthly_cents,s.pre_plan_monthly_cents,s.included_in_plan,s.box_plan_id,s.created_at,b.monthly_price_cents,b.currency FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.billing_provider='invoice' AND ($1::uuid IS NULL OR s.tenant_id=$1::uuid) AND ($2::uuid IS NULL OR s.instance_id=$2::uuid) ORDER BY s.created_at`,
+    `SELECT s.id,s.tenant_id,s.instance_id,s.bundle_id,s.copy_number,s.billing_description,s.subscription_state,s.billing_starts_at,s.entitled_at,s.billing_ends_at,s.cancel_effective_at,s.stopped_at,s.invoice_monthly_cents,s.pre_plan_monthly_cents,s.included_in_plan,s.box_plan_id,s.created_at,b.monthly_price_cents,COALESCE(s.invoice_currency,b.currency) AS currency FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.billing_provider='invoice' AND ($1::uuid IS NULL OR s.tenant_id=$1::uuid) AND ($2::uuid IS NULL OR s.instance_id=$2::uuid) ORDER BY s.created_at`,
     scope,
   )).rows.map((row) => {
     const start = new Date(row.billing_starts_at ?? row.entitled_at ?? row.created_at).getTime();

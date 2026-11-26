@@ -472,6 +472,17 @@ describe("ST1 plans: what Old School invoices per box", () => {
     await expect(addInvoiceLine(holder.pool, { tenantId, instanceId: appliance.instanceId, month: "2026-11", kind: "ai-top-up", amountChf: "20", administrator: ADMIN, now: NOW })).rejects.toThrow("box_has_no_plan_in_month");
   });
 
+  it("Codex P2: a later change of a workflow's catalog currency never rewrites its invoices", async () => {
+    const box = await newBox("standalone");
+    await grantSubscriptionByOrder(holder.pool, { tenantId, instanceId: box, bundleId: "extra-workflow", startsOn: "2026-12-01", administrator: ADMIN, now: NOW });
+    await officeBox();
+    // the catalog entry moves to USD later: the subscriptions granted in CHF stay CHF
+    await upsertBundle({ id: "extra-workflow", name: "Extra workflow", description: "A later workflow.", stripePriceId: null, polarProductId: null, monthlyPriceCents: 5950, currency: "usd" });
+    const january = await invoiceLines(holder.pool, { month: "2027-01" });
+    expect(january.filter((line) => line.instanceId === box).every((line) => line.currency === "chf")).toBe(true);
+    expect(january.find((line) => line.instanceId === appliance.instanceId && line.line === "subtotal")?.amountCents).toBe(20850);
+  });
+
   it("refuses plan data and invoice lines that would be wrong", async () => {
     const plan = (input: Record<string, unknown>) => definePlan(holder.pool, { id: "p", name: "P", prices: "1=10", aiCreditsChf: "0", aiAllowanceUsd: "0", freeMonths: 0, pricesExcludeVat: true, includes: ["Support"], administrator: ADMIN, ...input } as Plan);
     await expect(plan({ prices: "1=149.999" })).rejects.toThrow("prices_invalid");

@@ -94,7 +94,7 @@ test("backfills all released migrations from their unchanged source bytes", asyn
   const first = await applyStoreMigrations({ client, migrations, log: () => {} });
   const second = await applyStoreMigrations({ client, migrations, log: () => {} });
   assert.deepEqual(first.backfilled, legacyNames);
-  assert.deepEqual(first.applied, ["20261012_reconcile_pending_checkouts.sql", "20261013_bundle_images.sql", "20261014_bundle_image_blobs.sql", "20261015_bundle_image_association_columns.sql", "20261017_f12_paid_copies.sql", "20261126_st1_subscription_by_order.sql", "20261127_st1_plans_and_invoices.sql", "20261128_st1_plan_prices_and_vat.sql", "20261128_st1_subscription_plan_history.sql", "20261129_st1_box_plan_workflows.sql", "20261130_st1_workflow_lines.sql"]);
+  assert.deepEqual(first.applied, ["20261012_reconcile_pending_checkouts.sql", "20261013_bundle_images.sql", "20261014_bundle_image_blobs.sql", "20261015_bundle_image_association_columns.sql", "20261017_f12_paid_copies.sql", "20261126_st1_subscription_by_order.sql", "20261127_st1_plans_and_invoices.sql", "20261128_st1_plan_prices_and_vat.sql", "20261128_st1_subscription_plan_history.sql", "20261129_st1_box_plan_workflows.sql", "20261130_st1_workflow_lines.sql", "20261201_st1_subscription_currency.sql"]);
   assert.deepEqual(second.skipped, migrations.map((item) => item.filename));
 });
 
