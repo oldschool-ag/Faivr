@@ -25,6 +25,7 @@ export const COMPANY_OS_STORE_ENDPOINTS = [
   "GET /api/company-os/v1/store/subscriptions",
   "POST /api/company-os/v1/store/subscriptions/cancel",
   "POST /api/company-os/v1/store/installations",
+  "GET /api/company-os/v1/store/plan",
 ] as const;
 
 /** T6b.1: the billing providers' webhook endpoints (unsigned by the appliance; verified with each provider's secret). */

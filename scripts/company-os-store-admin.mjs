@@ -29,6 +29,23 @@
 //                     yes: the box cannot buy the function itself (the catalog says buyable:false, purchase:"order")
 //   orders            the subscriptions by order and the ones an administrator ended, with their audit lines
 //
+//   ST1 plans: what Old School invoices per box (every value is data; nothing is priced in code):
+//   define-plan       --id early-bird --name "Early bird" --monthly-chf 149 --ai-allowance-chf 30 --free-months 1
+//                     --prices-exclude-vat yes|no --includes "Box on loan, 2 years warranty|Setup in our office|..."
+//                     [--currency chf] [--early-bird yes --box-limit 50] --by <admin>
+//                     defines or changes a plan; boxes that already hold it keep the terms they were given
+//   plan-function     --plan early-bird --bundle client-follow-up --included yes|no --by <admin>
+//                     a function the plan includes at CHF 0 ("included in your plan")
+//   assign-plan       --tenant <uuid> --instance <uuid> --plan early-bird --start 2026-12-01 [--end ...] --by <admin> [--note "..."]
+//                     gives the box the plan and grants every function it includes by order; refused once an
+//                     early-bird plan has reached its box limit
+//   end-plan          --box-plan <uuid> --grace-days 14 --by <admin> [--reason "..."]
+//                     ends the box's plan and every invoice subscription on it after the grace
+//   add-invoice-line  --tenant <uuid> --instance <uuid> --month 2027-01 --kind ai-top-up|ai-use-above-allowance --amount-chf 20 --by <admin> [--description "..."]
+//   invoice-csv       --month 2027-01 [--tenant <uuid> --instance <uuid>]
+//                     per box what to invoice for the month (plan, included functions, add-ons, one-time lines, total), as CSV
+//   plans             the plans, their included functions and how many boxes hold each (early-bird places left)
+//
 // Nothing here touches Polar or Stripe: the CEO creates the product (Polar, sandbox first) or the price (Stripe) in the provider's dashboard
 // and pastes its id. Nothing here touches the chain.
 import { createHash, createPublicKey, randomInt, randomUUID } from "node:crypto";
@@ -36,6 +53,7 @@ import { readFile } from "node:fs/promises";
 import pg from "../web/node_modules/pg/lib/index.js";
 import { assertFunctionLeadAvailable, latestVersionIsFunctionLead } from "./company-os-function-leads.mjs";
 import { endSubscriptionByAdmin, grantSubscriptionByOrder, orderSubscriptions } from "../web/lib/companyOs/subscriptionOrders.mjs";
+import { addInvoiceLine, assignPlan, definePlan, endPlan, invoiceCsv, invoiceLines, planList, setPlanFunction } from "../web/lib/companyOs/boxPlans.mjs";
 
 const [command, ...rest] = process.argv.slice(2);
 const options = {};
@@ -75,7 +93,7 @@ function enrolmentCode() {
 }
 
 if (!command || !process.env.DATABASE_URL) {
-  console.error("Usage: DATABASE_URL=... node scripts/company-os-store-admin.mjs enrol-publisher|create-bundle|set-price|add-package|remove-package|issue-code|list|grant-by-order|end-subscription|sell-by-order|orders [options]");
+  console.error("Usage: DATABASE_URL=... node scripts/company-os-store-admin.mjs enrol-publisher|create-bundle|set-price|add-package|remove-package|issue-code|list|grant-by-order|end-subscription|sell-by-order|orders|define-plan|plan-function|assign-plan|end-plan|add-invoice-line|invoice-csv|plans [options]");
   process.exit(2);
 }
 
@@ -180,6 +198,33 @@ try {
     const subscriptions = await orderSubscriptions(client);
     const audit = (await client.query("SELECT subscription_id,action,administrator,detail,created_at FROM company_os_subscription_audit ORDER BY created_at DESC LIMIT 200")).rows;
     console.log(JSON.stringify({ subscriptions, audit }, null, 2));
+  } else if (command === "define-plan") {
+    const yesNo = (name) => {
+      const value = need(name);
+      if (!["yes", "no"].includes(value)) throw new Error(`--${name} is yes or no`);
+      return value === "yes";
+    };
+    const earlyBird = options["early-bird"] === undefined ? false : yesNo("early-bird");
+    const plan = await definePlan(client, {
+      id: need("id"), name: need("name"), monthlyChf: need("monthly-chf"), currency: options.currency ?? "chf", pricesExcludeVat: yesNo("prices-exclude-vat"),
+      aiAllowanceChf: need("ai-allowance-chf"), freeMonths: Number.parseInt(need("free-months"), 10), includes: need("includes").split("|"),
+      earlyBird, boxLimit: options["box-limit"] !== undefined ? Number.parseInt(options["box-limit"], 10) : null, administrator: need("by"),
+    });
+    console.log(JSON.stringify({ plan }));
+  } else if (command === "plan-function") {
+    const value = need("included");
+    if (!["yes", "no"].includes(value)) throw new Error("--included is yes or no");
+    console.log(JSON.stringify({ planFunction: await setPlanFunction(client, { planId: need("plan"), bundleId: need("bundle"), included: value === "yes", administrator: need("by") }) }));
+  } else if (command === "assign-plan") {
+    console.log(JSON.stringify({ assigned: await assignPlan(client, { tenantId: need("tenant"), instanceId: need("instance"), planId: need("plan"), startsOn: need("start"), endsOn: options.end ?? null, administrator: need("by"), note: options.note ?? null }) }));
+  } else if (command === "end-plan") {
+    console.log(JSON.stringify({ ended: await endPlan(client, { boxPlanId: need("box-plan"), graceDays: Number.parseInt(need("grace-days"), 10), administrator: need("by"), reason: options.reason ?? null }) }));
+  } else if (command === "add-invoice-line") {
+    console.log(JSON.stringify({ invoiceLine: await addInvoiceLine(client, { tenantId: need("tenant"), instanceId: need("instance"), month: need("month"), kind: need("kind"), amountChf: need("amount-chf"), description: options.description ?? null, administrator: need("by") }) }));
+  } else if (command === "invoice-csv") {
+    process.stdout.write(invoiceCsv(await invoiceLines(client, { month: need("month"), tenantId: options.tenant ?? null, instanceId: options.instance ?? null })));
+  } else if (command === "plans") {
+    console.log(JSON.stringify({ plans: await planList(client) }, null, 2));
   } else {
     throw new Error(`unknown command ${command}`);
   }

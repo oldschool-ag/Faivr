@@ -7,6 +7,7 @@ import { normalizePublicKeyPem } from "./publisherKeys";
 import { isPublicSlot, type PublicSlot } from "@/lib/publicCatalogData";
 import type { BundleImage } from "./bundleImages";
 import { applyDueSubscriptionDates } from "./subscriptionOrders.mjs";
+import { boxPlanView } from "./boxPlans.mjs";
 
 /**
  * The private store (T6b): Old School's catalog of governed AI workers, installable on
@@ -423,6 +424,11 @@ export type BundleSubscriptionRow = {
   admin_ended_at?: unknown;
   created_at: unknown;
 };
+
+/** ST1 plans: the box's plan and the month's lines, the same ones Old School invoices from. */
+export async function boxPlanForAppliance(tenantId: string, instanceId: string, month?: string, client?: Queryable) {
+  return boxPlanView(db(client), { tenantId, instanceId, month });
+}
 
 /**
  * ST1: the dates the store keeps itself (an order's end date, the end of an administrator's

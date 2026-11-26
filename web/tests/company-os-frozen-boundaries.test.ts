@@ -116,7 +116,7 @@ describe("the lifecycle API is frozen off the chain", () => {
     }
     // every store route but enrolment is behind the appliance signature
     const handlers = readFileSync(join(webRoot, "app/api/company-os/v1/storeHandlers.ts"), "utf8");
-    const signedHandlers = ["storeCatalog", "storeCheckoutSessions", "storeSubscriptions", "storeSubscriptionCancel", "storeInstallations"];
+    const signedHandlers = ["storeCatalog", "storeCheckoutSessions", "storeSubscriptions", "storeSubscriptionCancel", "storeInstallations", "storePlan"];
     for (const name of signedHandlers) {
       const body = handlers.slice(handlers.indexOf(`export async function ${name}(`));
       expect(body.indexOf("authenticatedJson(req)"), name).toBeGreaterThan(0);

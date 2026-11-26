@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { authenticatedJson, type AuthenticatedRequest } from "@/lib/companyOs/http";
-import { activePublishers, StoreError, abandonBundleCheckout, applyDueOrderDates, billingBundle, bundleForCheckout, bundleSubscriptionRow, cancellableSubscription, catalogForAppliance, checkoutCopySelection, createBundleSubscription, createStoreInstallation, liveSubscriptionForCopy, ownerEmail, recordBundleCheckout, redeemEnrolmentCode, scheduleBundleCancellation, subscriptionViewOf } from "@/lib/companyOs/privateStore";
+import { activePublishers, StoreError, abandonBundleCheckout, applyDueOrderDates, boxPlanForAppliance, billingBundle, bundleForCheckout, bundleSubscriptionRow, cancellableSubscription, catalogForAppliance, checkoutCopySelection, createBundleSubscription, createStoreInstallation, liveSubscriptionForCopy, ownerEmail, recordBundleCheckout, redeemEnrolmentCode, scheduleBundleCancellation, subscriptionViewOf } from "@/lib/companyOs/privateStore";
 import { normalizePublicKeyPem, PublicKeyError } from "@/lib/companyOs/publisherKeys";
 import { copyNumberSchema, enrolmentRequestSchema, storeCancelSchema, storeCheckoutSchema, storeInstallationSchema } from "@/lib/companyOs/storeSchemas";
 import { uuidSchema } from "@/lib/companyOs/schemas";
@@ -229,6 +229,25 @@ export async function storeSubscriptionCancel(req: NextRequest) {
         return { subscriptionId: subscription.id, bundleId: subscription.bundle_id, copyNumber: Number(subscription.copy_number), description: subscription.billing_description, subscriptionState: "cancel_at_period_end", effectiveAt: cancellation.effectiveAt };
       }),
     );
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+/**
+ * GET /api/company-os/v1/store/plan[?month=YYYY-MM] (ST1): the box's plan (what it includes, the
+ * AI allowance, free months, VAT basis) and the month's lines: the plan, the functions included at
+ * CHF 0, add-ons at their price, one-time lines and the total. The same lines Old School invoices
+ * from (store admin `invoice-csv`), so the box's Plan and costs page and the invoice agree.
+ */
+export async function storePlan(req: NextRequest) {
+  const auth = await authenticatedJson(req);
+  if (auth instanceof NextResponse) return auth;
+  const month = req.nextUrl.searchParams.get("month") ?? undefined;
+  if (month !== undefined && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return json({ error: "month_invalid" }, 400);
+  try {
+    await applyDueOrderDates({ tenantId: auth.principal.tenantId, instanceId: auth.principal.instanceId });
+    return json(await boxPlanForAppliance(auth.principal.tenantId, auth.principal.instanceId, month));
   } catch (error) {
     return failure(error);
   }

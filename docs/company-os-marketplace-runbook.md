@@ -209,6 +209,30 @@ Old School can give a box a function without any checkout: the customer is bille
 
 What the box sees: the catalog's `subscription` and the subscription view carry `billing` (`invoice` or `provider`) and `endsAt` (an order's end date). The box's own Cancel on an invoice subscription is refused with `subscription_by_order_ask_old_school`; Manage subscription gets no portal link. Uninstalling the last agent of an invoice subscription leaves it active (Old School ends it by order). Dates are applied before the store answers a box (catalog, subscription view, install) and every 15 minutes by the reconcile cron. Rollout: the deploy applies `20261126_st1_subscription_by_order.sql` before the build (`web/vercel.json`, `migrate:store`): additive columns, one table, one index; nothing to roll back by hand.
 
+### Plans and invoices (ST1)
+
+What Old School invoices per box is a plan, not only agents. Every value is data entered with the store admin command; the store's code holds no price. The box's Plan and costs page reads the same lines from the store (`GET /api/company-os/v1/store/plan?month=YYYY-MM`, signed by the box), so the page and the invoice always agree.
+
+- A plan: name, monthly price, currency, whether prices are shown excluding VAT, the monthly AI allowance (included in the price), free months, what it includes (a list of lines), the functions it includes at CHF 0, and for an early-bird plan how many boxes may get it.
+- A box's plan keeps the terms it was given: changing a plan later applies only to boxes that get it afterwards.
+- Functions the plan includes are granted at CHF 0 ("included in your plan"); any other function granted by order is an add-on at its list price (the catalog entry's monthly price). A second copy of an included function is an add-on.
+- Free months count from the month the plan starts and cover the whole box (plan and add-ons). A plan or subscription running on any day of a month is invoiced for that whole month; there are no part months.
+- AI top-ups are one-time lines for a box and a month.
+- An early-bird plan is refused once as many boxes have held it as its limit (`plan_limit_reached:<held>/<limit>`). A box that leaves does not free its place. `plans` shows the places left.
+
+The commands with the CEO's numbers of 26 Nov 2026 (the CEO confirms them before the first box gets the plan):
+
+```
+node scripts/company-os-store-admin.mjs define-plan --id early-bird --name "Early bird" --monthly-chf 149 --ai-allowance-chf 30 --free-months 1 --prices-exclude-vat yes --includes "Box on loan, 2 years warranty|Setup in our office|Updates of agents, system and AI|Safety copies|Support" --early-bird yes --box-limit 50 --by "<your name>"
+node scripts/company-os-store-admin.mjs plan-function --plan early-bird --bundle <client follow-up function id> --included yes --by "<your name>"
+node scripts/company-os-store-admin.mjs set-price --id <opening doors function id> --amount-cents 9900
+node scripts/company-os-store-admin.mjs assign-plan --tenant <tenant id> --instance <box id> --plan early-bird --start 2026-12-01 --by "<your name>"
+node scripts/company-os-store-admin.mjs add-invoice-line --tenant <tenant id> --instance <box id> --month 2027-01 --kind ai-top-up --amount-chf 20 --by "<your name>"
+node scripts/company-os-store-admin.mjs invoice-csv --month 2027-01 > invoices-2027-01.csv
+```
+
+With a start on 1 December and one free month, December is invoiced at CHF 0 and the first invoice is for January. `invoice-csv` writes one row per line (plan, what it includes, AI allowance, included functions, add-ons, one-time lines, total) with the box's name, amounts in francs and the VAT basis. Subscriptions billed by Polar are not in it: Polar invoices them. `end-plan --box-plan <id> --grace-days 14 --by "<your name>"` ends a box's plan and every invoice subscription on it after the grace; the month it ends in is still invoiced whole.
+
 ### Cancellation and refunds
 
 Old School's own cancellation and refund actions stay in the Polar dashboard (**Sales**, **Subscriptions** and **Orders**; refunds under **Refunds**): the FAIVR side only mirrors state and never issues a refund or revokes a subscription itself. The appliance owner cancels at the period end from the appliance (uninstall of the last package, or **Cancel subscription** on a bundle nothing is installed from) or from Polar's customer portal (**Manage subscription**); both reach the store as `subscription.canceled`.

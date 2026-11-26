@@ -27,7 +27,7 @@ export class OrderError extends Error {
 }
 
 /** The name of the administrator on an audit line: required, one line, no more than 200 characters. */
-function administrator(value) {
+export function administrator(value) {
   const name = typeof value === "string" ? value.trim() : "";
   if (!name || name.length > 200 || /[\r\n\t]/.test(name)) throw new OrderError("administrator_required", 400);
   return name;
@@ -47,6 +47,22 @@ export function parseOrderDate(value, field) {
 function copyDescription(functionName, copyNumber) {
   if (copyNumber === 1) return functionName;
   return `${functionName} — ${copyNumber === 2 ? "second copy" : `copy ${copyNumber}`}`;
+}
+
+/** The plan a box holds at a moment (ST1 plans): the newest one not ended by then. */
+export async function liveBoxPlan(client, tenantId, instanceId, at) {
+  const r = await client.query(
+    "SELECT * FROM company_os_box_plans WHERE tenant_id=$1 AND instance_id=$2 AND (ends_at IS NULL OR ends_at>$3) ORDER BY created_at DESC LIMIT 1",
+    [tenantId, instanceId, at.toISOString()],
+  );
+  return r.rows[0] ?? null;
+}
+
+/** Whether a function is included in a plan (at CHF 0); only the function's first copy is. */
+export async function includedInPlan(client, planId, bundleId, copyNumber) {
+  if (copyNumber !== 1) return false;
+  const r = await client.query("SELECT 1 FROM company_os_plan_functions WHERE plan_id=$1 AND bundle_id=$2", [planId, bundleId]);
+  return Boolean(r.rowCount);
 }
 
 async function audit(client, subscriptionId, action, admin, detail, at) {
@@ -89,7 +105,7 @@ export async function grantSubscriptionByOrder(client, input) {
 
   const box = await client.query("SELECT 1 FROM company_os_instance_keys WHERE tenant_id=$1 AND instance_id=$2 AND revoked_at IS NULL", [input.tenantId, input.instanceId]);
   if (!box.rowCount) throw new OrderError("box_not_enrolled", 404);
-  const bundle = await client.query("SELECT id,name,status FROM company_os_function_bundles WHERE id=$1", [input.bundleId]);
+  const bundle = await client.query("SELECT id,name,status,monthly_price_cents,currency FROM company_os_function_bundles WHERE id=$1", [input.bundleId]);
   if (!bundle.rowCount) throw new OrderError("bundle_not_found", 404);
   if (bundle.rows[0].status !== "active") throw new OrderError("bundle_not_active");
   const live = await client.query(
@@ -98,14 +114,23 @@ export async function grantSubscriptionByOrder(client, input) {
   );
   if (live.rowCount) throw new OrderError(`subscription_exists:${live.rows[0].id}:${live.rows[0].subscription_state}:${live.rows[0].billing_provider ?? "none"}`);
 
+  // ST1 plans: a function the box's plan includes costs CHF 0 ("included in your plan"); any
+  // other is an add-on at the function's list price (the catalog entry's monthly price)
+  const plan = await liveBoxPlan(client, input.tenantId, input.instanceId, now);
+  const included = plan ? await includedInPlan(client, plan.plan_id, input.bundleId, copyNumber) : false;
+  if (plan && !included && String(bundle.rows[0].currency) !== String(plan.currency)) throw new OrderError(`add_on_currency_differs_from_plan:${bundle.rows[0].currency}:${plan.currency}`);
+  const monthlyCents = included ? 0 : Number(bundle.rows[0].monthly_price_cents);
+  // an add-on to a plan with an end date ends with the plan unless it was given its own end
+  const ends = endsAt ?? (plan?.ends_at ? new Date(plan.ends_at) : null);
+
   const id = randomUUID();
   const description = copyDescription(String(bundle.rows[0].name), copyNumber);
   await client.query(
-    "INSERT INTO company_os_bundle_subscriptions(id,tenant_id,instance_id,bundle_id,copy_number,billing_description,billing_provider,subscription_state,entitled_at,billing_starts_at,billing_ends_at,granted_by,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,'active',$8,$9,$10,$11,$8,$8)",
-    [id, input.tenantId, input.instanceId, input.bundleId, copyNumber, description, INVOICE, now.toISOString(), startsAt.toISOString(), endsAt ? endsAt.toISOString() : null, admin],
+    "INSERT INTO company_os_bundle_subscriptions(id,tenant_id,instance_id,bundle_id,copy_number,billing_description,billing_provider,subscription_state,entitled_at,billing_starts_at,billing_ends_at,granted_by,box_plan_id,invoice_monthly_cents,included_in_plan,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,'active',$8,$9,$10,$11,$12,$13,$14,$8,$8)",
+    [id, input.tenantId, input.instanceId, input.bundleId, copyNumber, description, INVOICE, now.toISOString(), startsAt.toISOString(), ends ? ends.toISOString() : null, admin, plan?.id ?? null, monthlyCents, included],
   );
-  await audit(client, id, "granted_by_order", admin, { bundleId: input.bundleId, copyNumber, startsAt: startsAt.toISOString(), endsAt: endsAt ? endsAt.toISOString() : null, note }, now);
-  return { subscriptionId: id, tenantId: input.tenantId, instanceId: input.instanceId, bundleId: input.bundleId, copyNumber, description, billing: INVOICE, subscriptionState: "active", startsAt: startsAt.toISOString(), endsAt: endsAt ? endsAt.toISOString() : null, grantedBy: admin };
+  await audit(client, id, "granted_by_order", admin, { bundleId: input.bundleId, copyNumber, startsAt: startsAt.toISOString(), endsAt: ends ? ends.toISOString() : null, boxPlanId: plan?.id ?? null, includedInPlan: included, monthlyCents, note }, now);
+  return { subscriptionId: id, tenantId: input.tenantId, instanceId: input.instanceId, bundleId: input.bundleId, copyNumber, description, billing: INVOICE, subscriptionState: "active", startsAt: startsAt.toISOString(), endsAt: ends ? ends.toISOString() : null, grantedBy: admin, boxPlanId: plan?.id ?? null, includedInPlan: included, monthlyPriceCents: monthlyCents };
 }
 
 /**
