@@ -422,6 +422,8 @@ export type BundleSubscriptionRow = {
   billing_starts_at?: unknown;
   billing_ends_at?: unknown;
   admin_ended_at?: unknown;
+  /** ST1 plans: the box's plan this subscription rides on (null without one) */
+  box_plan_id?: string | null;
   created_at: unknown;
 };
 
@@ -658,8 +660,29 @@ export async function refreshBundleSubscription(provider: string, providerSubscr
  * the bundle subscription's identity, so the locked uninstall receipt and billing
  * acknowledgement keep working unchanged on the appliance.
  */
-export async function createStoreInstallation(input: { tenantId: string; instanceId: string; bundleId: string; modelId: string; subscriptionId?: string; copyNumber?: number; installationId?: string }, client?: Queryable) {
-  const q = db(client);
+type StoreInstallationInput = { tenantId: string; instanceId: string; bundleId: string; modelId: string; subscriptionId?: string; copyNumber?: number; installationId?: string };
+
+export async function createStoreInstallation(input: StoreInstallationInput, client?: Queryable) {
+  // ST1 (Codex security review): one transaction, the box's row locked first (the lock order of
+  // assign, grant, end-subscription and end-plan), so an administrator's end and a new install on
+  // the same box run one after the other. A caller's client brings its own transaction.
+  if (client) return createStoreInstallationOnLockedBox(input, client);
+  const own = await getPgPool().connect();
+  try {
+    await own.query("BEGIN");
+    const created = await createStoreInstallationOnLockedBox(input, own);
+    await own.query("COMMIT");
+    return created;
+  } catch (error) {
+    await own.query("ROLLBACK");
+    throw error;
+  } finally {
+    own.release();
+  }
+}
+
+async function createStoreInstallationOnLockedBox(input: StoreInstallationInput, q: Queryable) {
+  await q.query("SELECT 1 FROM company_os_instance_keys WHERE tenant_id=$1 AND instance_id=$2 FOR UPDATE", [input.tenantId, input.instanceId]);
   const member = await q.query("SELECT 1 FROM company_os_bundle_packages WHERE bundle_id=$1 AND package_id=$2", [input.bundleId, input.modelId]);
   if (!member.rowCount) throw new StoreError("package_not_in_bundle", 404);
   const subscription = await bundleSubscriptionRow(input.tenantId, input.instanceId, input.subscriptionId
@@ -669,7 +692,14 @@ export async function createStoreInstallation(input: { tenantId: string; instanc
       : { bundleId: input.bundleId, copyNumber: input.copyNumber ?? 1 }, q);
   if (subscription?.bundle_id !== input.bundleId) throw new StoreError("subscription_scope_mismatch", 409);
   if (input.copyNumber && subscription && Number(subscription.copy_number) !== input.copyNumber) throw new StoreError("copy_number_mismatch", 409);
-  if (!subscription || subscription.subscription_state !== "active") throw new StoreError("subscription_not_active", 409);
+  if (!subscription || subscription.subscription_state !== "active" || subscription.admin_ended_at) throw new StoreError("subscription_not_active", 409);
+  // the subscription's plan, read after the box lock: a plan an administrator ended, or one whose
+  // end has passed, installs nothing new
+  if (subscription.box_plan_id) {
+    const plan = await q.query("SELECT ended_by,ends_at FROM company_os_box_plans WHERE id=$1", [subscription.box_plan_id]);
+    const row = plan.rows[0];
+    if (!row || row.ended_by || (row.ends_at && new Date(row.ends_at).getTime() <= Date.now())) throw new StoreError("box_plan_not_active", 409);
+  }
   // F25 (T129): the copy is the subscription; each agent of it is one installation with its own id.
   // A checkout's reserved id belongs to the one installation it was reserved for; every other agent
   // of the copy brings the box's fresh id (or gets the store's). An id another live copy reserved
