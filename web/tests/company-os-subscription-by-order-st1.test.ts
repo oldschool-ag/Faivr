@@ -12,7 +12,7 @@ import { applyDueSubscriptionDates, endSubscriptionByAdmin, grantSubscriptionByO
 import { applyBillingEvent } from "@/lib/companyOs/billing/events";
 import { keyIdFor, loadEd25519PublicKey } from "@/lib/companyOs/publisherKeys";
 import { enrol, storeCatalog, storeCheckoutSessions, storeInstallations, storeSubscriptionCancel, storeSubscriptions } from "@/app/api/company-os/v1/storeHandlers";
-import { activationReceipts, billing, uninstallReceipts, uninstallRequests } from "@/app/api/company-os/v1/handlers";
+import { activationReceipts, billing, packageDownload, uninstallReceipts, uninstallRequests, updateConfirmation } from "@/app/api/company-os/v1/handlers";
 import { POST as polarWebhook } from "@/app/api/company-os/v1/billing/polar/webhook/route";
 import { createStoreDb, ed25519Pair, envelope, signedManifest, signedRequest, type Appliance } from "./helpers/companyOsStoreDb";
 import { POLAR_TEST_SECRET, polarFixture, signPolarWebhook } from "./helpers/polarWebhook";
@@ -389,6 +389,120 @@ describe("ST1: a subscription by order (billed by invoice)", () => {
     expect(installation.rows[0].subscription_state).toBe("cancelled");
     expect(new Date(installation.rows[0].billing_stopped_at).toISOString()).toBe(stoppedAt);
     expect(new Date(installation.rows[0].billing_cancel_effective_at ?? 0).toISOString()).not.toBe(new Date(PERIOD_END).toISOString());
+  });
+
+  // --- Codex security sweep: every place that grants or keeps access reads every end date in its
+  // own transaction under the box's lock; an end date that passed and was not swept yet counts
+
+  async function passEndDate(subscriptionId: string) {
+    await holder.pool.query("UPDATE company_os_bundle_subscriptions SET billing_ends_at=$2 WHERE id=$1", [subscriptionId, new Date(Date.now() - 1000).toISOString()]);
+  }
+
+  async function download(installationId: string, versionId?: string) {
+    const path = `/api/company-os/v1/installations/${installationId}/package${versionId ? `?versionId=${versionId}` : ""}`;
+    const response = await packageDownload(signedRequest(appliance, "GET", path), { params: Promise.resolve({ id: installationId }) });
+    return { status: response.status, body: response.headers.get("content-type")?.includes("json") ? await bodyOf(response) : null };
+  }
+
+  async function activate(installationId: string) {
+    const ack = envelope(appliance, { messageType: "installation.acknowledged", installationId, modelId: MODEL_ID, version: VERSION, localAgentDefinitionId: "agdef_example_reviewer", packageDigest: manifest.packageDigest, activationResult: "active", compatibilityVerified: true, publisherSignatureVerified: true, packageChecksPassed: true, activatedAt: new Date().toISOString() });
+    const response = await activationReceipts(signedRequest(appliance, "POST", "/api/company-os/v1/activation-receipts", ack, { idempotencyKey: ack.idempotencyKey as string }));
+    return { status: response.status, body: await bodyOf(response) };
+  }
+
+  async function publish(version: string) {
+    const id = randomUUID();
+    const digest = `sha256:${randomUUID().replace(/-/g, "").padEnd(64, "0").slice(0, 64)}`;
+    await holder.pool.query(
+      "INSERT INTO company_os_package_versions(id,package_id,version,status,manifest,publisher_key_id,publisher_signature,artifact_url,artifact_sha256,monthly_price_cents,stripe_price_id,min_company_os_version,published_at) SELECT $1,package_id,$2,'published',manifest,publisher_key_id,publisher_signature,artifact_url,$3,1,NULL,'1.0.0',now() FROM company_os_package_versions WHERE id=$4",
+      [id, version, digest, versionId],
+    );
+    return { id, version, digest };
+  }
+
+  async function confirmUpdate(installationId: string, target: { id: string; version: string; digest: string }) {
+    const body = envelope(appliance, { messageType: "installation.updated", installationId, modelId: MODEL_ID, version: target.version, versionId: target.id, localAgentDefinitionId: "agdef_example_reviewer", packageDigest: target.digest, activationResult: "active", compatibilityVerified: true, publisherSignatureVerified: true, packageChecksPassed: true, updatedAt: new Date().toISOString() });
+    const response = await updateConfirmation(signedRequest(appliance, "POST", `/api/company-os/v1/installations/${installationId}/updated`, body, { idempotencyKey: body.idempotencyKey as string }), { params: Promise.resolve({ id: installationId }) });
+    return { status: response.status, body: await bodyOf(response) };
+  }
+
+  it("Codex security P2: an order end date that passes between the route's pre-sweep and the insert refuses the install", async () => {
+    const granted = await grant({ endsOn: "2099-12-31" });
+    // the route's pre-sweep runs first (nothing is due); the end date passes before the install's
+    // transaction takes the box lock and reads the subscription
+    const connect = holder.pool.connect.bind(holder.pool);
+    let passed = false;
+    holder.pool.connect = (async () => {
+      const client = await connect();
+      const query = client.query.bind(client);
+      client.query = (async (text: unknown, params?: unknown) => {
+        if (!passed && typeof text === "string" && text.startsWith("SELECT 1 FROM company_os_instance_keys")) {
+          passed = true;
+          await passEndDate(granted.subscriptionId);
+        }
+        return query(text as string, params as unknown[]);
+      }) as typeof client.query;
+      return client;
+    }) as typeof holder.pool.connect;
+    const refused = await install();
+    expect(passed).toBe(true);
+    expect(refused.status).toBe(409);
+    expect(await bodyOf(refused)).toMatchObject({ error: "subscription_not_active" });
+    const rows = await holder.pool.query("SELECT count(*)::int AS n FROM company_os_installations WHERE bundle_subscription_id=$1", [granted.subscriptionId]);
+    expect(rows.rows[0].n).toBe(0);
+  });
+
+  it("Codex security sweep: download and activation read the end dates; a grace keeps the agent, its end does not", async () => {
+    const granted = await grant({ endsOn: "2099-12-31" });
+    const response = await install();
+    const installationId = (await bodyOf(response)).installationId as string;
+    expect((await download(installationId)).status).toBe(200);
+    // an administrator's end with a grace: the agent keeps running and may fetch its package again
+    await endSubscriptionByAdmin(holder.pool, { subscriptionId: granted.subscriptionId, graceDays: 14, administrator: ADMIN });
+    expect((await download(installationId)).status).toBe(200);
+    expect((await activate(installationId)).status).toBe(200);
+    // the grace has passed and no sweep ran yet: no download, no activation
+    await holder.pool.query("UPDATE company_os_bundle_subscriptions SET cancel_effective_at=$2 WHERE id=$1", [granted.subscriptionId, new Date(Date.now() - 1000).toISOString()]);
+    expect(await download(installationId)).toMatchObject({ status: 403, body: { error: "entitlement_required" } });
+    expect(await activate(installationId)).toMatchObject({ status: 409, body: { error: "subscription_state_mismatch" } });
+  });
+
+  it("Codex security sweep: an order end date that passed and was not swept refuses download and activation", async () => {
+    const granted = await grant({ endsOn: "2099-12-31" });
+    const installationId = (await bodyOf(await install())).installationId as string;
+    await passEndDate(granted.subscriptionId);
+    expect(await download(installationId)).toMatchObject({ status: 403, body: { error: "entitlement_required" } });
+    expect(await activate(installationId)).toMatchObject({ status: 409, body: { error: "subscription_state_mismatch" } });
+  });
+
+  it("Codex security sweep: a newer version is fetched and confirmed only while the subscription takes new things", async () => {
+    const granted = await grant({ endsOn: "2099-12-31" });
+    const { installationId } = await installAndActivate();
+    const first = await publish("1.3.0");
+    expect((await confirmUpdate(installationId, first)).status).toBe(200);
+    const second = await publish("1.4.0");
+    await passEndDate(granted.subscriptionId);
+    expect(await download(installationId, second.id)).toMatchObject({ status: 403, body: { error: "entitlement_required" } });
+    expect(await confirmUpdate(installationId, second)).toMatchObject({ status: 409, body: { error: "subscription_state_mismatch" } });
+    // during an administrator's grace the agent keeps its version but takes no new one
+    await holder.pool.query("UPDATE company_os_bundle_subscriptions SET billing_ends_at=NULL WHERE id=$1", [granted.subscriptionId]);
+    await endSubscriptionByAdmin(holder.pool, { subscriptionId: granted.subscriptionId, graceDays: 14, administrator: ADMIN });
+    expect(await download(installationId, second.id)).toMatchObject({ status: 404, body: { error: "update_not_available" } });
+    expect(await confirmUpdate(installationId, second)).toMatchObject({ status: 409, body: { error: "subscription_state_mismatch" } });
+  });
+
+  it("Codex security sweep: a single agent never rides on a workflow whose end date passed unswept or that is ending", async () => {
+    for (const id of ["assistant-a", "assistant-b", "assistant-c"]) {
+      await holder.pool.query("INSERT INTO company_os_function_bundles(id,name,description,monthly_price_cents,kind) VALUES($1,$1,'single agent',100,'agent')", [id]);
+    }
+    const workflow = await grant({ endsOn: "2099-12-31" });
+    const agent = (bundleId: string) => grantSubscriptionByOrder(holder.pool, { tenantId, instanceId: appliance.instanceId, bundleId, startsOn: today(), administrator: ADMIN });
+    await expect(agent("assistant-a")).resolves.toMatchObject({ subscriptionState: "active" });
+    await passEndDate(workflow.subscriptionId);
+    await expect(agent("assistant-b")).rejects.toThrow("agent_needs_a_workflow_on_the_box");
+    await holder.pool.query("UPDATE company_os_bundle_subscriptions SET billing_ends_at=NULL WHERE id=$1", [workflow.subscriptionId]);
+    await endSubscriptionByAdmin(holder.pool, { subscriptionId: workflow.subscriptionId, graceDays: 14, administrator: ADMIN });
+    await expect(agent("assistant-c")).rejects.toThrow("agent_needs_a_workflow_on_the_box");
   });
 
   it("refuses a grant that would be wrong, with a reason", async () => {

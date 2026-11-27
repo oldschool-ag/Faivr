@@ -3,6 +3,37 @@ import { randomUUID } from "node:crypto";
 import { getPgPool } from "@/lib/postgres";
 import type { PoolClient } from "pg";
 import type { UninstallReceipt } from "./schemas";
+import { lockedSubscriptionAccess } from "./subscriptionOrders.mjs";
+
+type Access = "new" | "keep" | null;
+
+/**
+ * ST1 (Codex security sweep): work that grants or keeps access on a function-bundle subscription
+ * runs in one transaction that locks the box's row first (the lock order of assign, grant and both
+ * ends) and reads the subscription's state, administrator's end, order end date, grace and plan
+ * there (`lockedSubscriptionAccess`): an end that passed after any pre-sweep is seen, and an end
+ * committing meanwhile waits for this transaction.
+ */
+async function withSubscriptionAccess<T>(tenantId: string, instanceId: string, subscriptionId: string, work: (client: PoolClient, access: Access) => Promise<T>): Promise<T> {
+  const client = await getPgPool().connect();
+  try {
+    await client.query("BEGIN");
+    const { access } = await lockedSubscriptionAccess(client, { tenantId, instanceId, subscriptionId, now: new Date() });
+    const result = await work(client, access as Access);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/** What the box may do on this installation's subscription now: "new", "keep" or null (see withSubscriptionAccess). */
+export async function subscriptionAccessFor(tenantId: string, instanceId: string, subscriptionId: string): Promise<Access> {
+  return withSubscriptionAccess(tenantId, instanceId, subscriptionId, async (_client, access) => access);
+}
 
 export class IdempotencyConflict extends Error {}
 export class IdempotencyInProgress extends Error {}
@@ -144,7 +175,7 @@ export async function acknowledgeInstall(
     !ack.packageChecksPassed
   )
     return null;
-  const r = await getPgPool().query(
+  const activate = async (q: Pick<PoolClient, "query">) => (await q.query(
     "UPDATE company_os_installations SET installation_state='active',installed_version_id=(SELECT v.id FROM company_os_package_versions v WHERE v.package_id=$3 AND v.version=$4 AND v.artifact_sha256=$5 LIMIT 1),local_agent_definition_id=$6,installed_at=now(),updated_at=now() WHERE id=$1 AND tenant_id=$2 AND package_id=$3 AND installation_state IN ('entitled','downloading','installing','active') AND EXISTS (SELECT 1 FROM company_os_package_versions v WHERE v.package_id=$3 AND v.version=$4 AND v.artifact_sha256=$5) RETURNING *",
     [
       ack.installationId,
@@ -154,8 +185,15 @@ export async function acknowledgeInstall(
       ack.packageDigest,
       ack.localAgentDefinitionId,
     ],
-  );
-  return r.rows[0] ?? null;
+  )).rows[0] ?? null;
+  const owner = (await getPgPool().query("SELECT * FROM company_os_installations WHERE id=$1 AND tenant_id=$2", [ack.installationId, tenantId])).rows[0];
+  // a per-agent checkout (no function subscription) has no order or administrator's end to compare
+  if (!owner?.bundle_subscription_id) return activate(getPgPool());
+  // ST1: an agent activates only while its subscription still lets it run (a grace included)
+  return withSubscriptionAccess(tenantId, owner.instance_id, owner.bundle_subscription_id, async (client, access) => {
+    if (!access) throw new Error("subscription_state_mismatch");
+    return activate(client);
+  });
 }
 
 export async function confirmPackageUpdate(
@@ -163,7 +201,12 @@ export async function confirmPackageUpdate(
   instanceId: string,
   confirmation: { installationId: string; modelId: string; versionId: string; version: string; packageDigest: string; localAgentDefinitionId: string },
 ) {
-  const pool = getPgPool();
+  const owner = (await getPgPool().query("SELECT * FROM company_os_installations WHERE id=$1 AND tenant_id=$2", [confirmation.installationId, tenantId])).rows[0];
+  if (owner && owner.instance_id !== undefined && owner.instance_id !== instanceId) return null;
+  if (!owner?.bundle_subscription_id) return null;
+  // ST1: a new version needs a subscription that may still take new things, read under the box's lock
+  return withSubscriptionAccess(tenantId, instanceId, owner.bundle_subscription_id, async (pool, access) => {
+  if (access !== "new") throw new Error("subscription_state_mismatch");
   const current = await pool.query(
     "SELECT i.id,i.package_id,i.bundle_subscription_id,i.installed_version_id,v.version AS installed_version FROM company_os_installations i JOIN company_os_package_versions v ON v.id=COALESCE(i.installed_version_id,i.desired_version_id) WHERE i.id=$1 AND i.tenant_id=$2 AND i.instance_id=$3 AND i.package_id=$4 AND i.installation_state IN ('active','update_available')",
     [confirmation.installationId, tenantId, instanceId, confirmation.modelId],
@@ -184,6 +227,7 @@ export async function confirmPackageUpdate(
     [confirmation.installationId, tenantId, instanceId, target.rows[0].id, confirmation.localAgentDefinitionId, current.rows[0].installed_version_id],
   );
   return updated.rows[0] ?? null;
+  });
 }
 
 function comparePackageVersions(left: string, right: string) {

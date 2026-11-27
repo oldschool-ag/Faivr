@@ -6,7 +6,7 @@ import { describePermission } from "@/lib/publicPermissions";
 import { normalizePublicKeyPem } from "./publisherKeys";
 import { isPublicSlot, type PublicSlot } from "@/lib/publicCatalogData";
 import type { BundleImage } from "./bundleImages";
-import { applyDueSubscriptionDates } from "./subscriptionOrders.mjs";
+import { applyDueSubscriptionDates, subscriptionAccess } from "./subscriptionOrders.mjs";
 import { boxPlanView } from "./boxPlans.mjs";
 
 /**
@@ -692,13 +692,18 @@ async function createStoreInstallationOnLockedBox(input: StoreInstallationInput,
       : { bundleId: input.bundleId, copyNumber: input.copyNumber ?? 1 }, q);
   if (subscription?.bundle_id !== input.bundleId) throw new StoreError("subscription_scope_mismatch", 409);
   if (input.copyNumber && subscription && Number(subscription.copy_number) !== input.copyNumber) throw new StoreError("copy_number_mismatch", 409);
-  if (!subscription || subscription.subscription_state !== "active" || subscription.admin_ended_at) throw new StoreError("subscription_not_active", 409);
+  if (!subscription) throw new StoreError("subscription_not_active", 409);
   // the subscription's plan, read after the box lock: a plan an administrator ended, or one whose
   // end has passed, installs nothing new
+  let plan: { ended_by?: unknown; ends_at?: unknown } | undefined;
   if (subscription.box_plan_id) {
-    const plan = await q.query("SELECT ended_by,ends_at FROM company_os_box_plans WHERE id=$1", [subscription.box_plan_id]);
-    const row = plan.rows[0];
-    if (!row || row.ended_by || (row.ends_at && new Date(row.ends_at).getTime() <= Date.now())) throw new StoreError("box_plan_not_active", 409);
+    plan = (await q.query("SELECT ended_by,ends_at FROM company_os_box_plans WHERE id=$1", [subscription.box_plan_id])).rows[0];
+    if (!plan || plan.ended_by || (plan.ends_at && new Date(plan.ends_at as string).getTime() <= Date.now())) throw new StoreError("box_plan_not_active", 409);
+  }
+  // Codex security sweep: every end date in this transaction, swept or not (an order's end date
+  // that passed after the route's pre-sweep, an administrator's end, the state)
+  if (subscriptionAccess({ ...subscription, plan_ended_by: plan?.ended_by ?? null, plan_ends_at: plan?.ends_at ?? null }, new Date()) !== "new") {
+    throw new StoreError("subscription_not_active", 409);
   }
   // F25 (T129): the copy is the subscription; each agent of it is one installation with its own id.
   // A checkout's reserved id belongs to the one installation it was reserved for; every other agent

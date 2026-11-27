@@ -58,6 +58,37 @@ export async function liveBoxPlan(client, tenantId, instanceId, at) {
   return r.rows[0] ?? null;
 }
 
+// ST1 (Codex security sweep): what a box may do on a subscription at `now`, read inside a
+// transaction that holds the box's lock. It ends exactly what the date sweep
+// (applyDueSubscriptionDates) would end, whether or not the sweep has run yet: an order's end date,
+// an administrator's end after its grace, the end of the plan an invoice subscription rides on.
+// "new" may install, update and grant on it; "keep" may keep and re-fetch what it has (a grace, a
+// provider's past-due period); null may do nothing.
+const KEEP_STATES = ["active", "past_due", "suspended", "cancel_at_period_end", "cancellation_pending_uninstall"];
+
+export function subscriptionAccess(row, now = new Date()) {
+  if (!row) return null;
+  const at = now.getTime();
+  const passed = (value) => value !== null && value !== undefined && new Date(value).getTime() <= at;
+  const invoice = row.billing_provider === INVOICE;
+  if (invoice && passed(row.billing_ends_at)) return null;
+  if (row.admin_ended_at && passed(row.cancel_effective_at)) return null;
+  if (invoice && passed(row.plan_ends_at)) return null;
+  if (row.subscription_state === "active" && !row.admin_ended_at && !row.plan_ended_by) return "new";
+  return KEEP_STATES.includes(row.subscription_state) ? "keep" : null;
+}
+
+/** The box's lock first (the lock order of assign, grant and both ends), then the subscription and its plan. */
+export async function lockedSubscriptionAccess(client, { tenantId, instanceId, subscriptionId, now = new Date() }) {
+  await client.query("SELECT 1 FROM company_os_instance_keys WHERE tenant_id=$1 AND instance_id=$2 FOR UPDATE", [tenantId, instanceId]);
+  const found = await client.query(
+    "SELECT s.*,p.ended_by AS plan_ended_by,p.ends_at AS plan_ends_at FROM company_os_bundle_subscriptions s LEFT JOIN company_os_box_plans p ON p.id=s.box_plan_id WHERE s.id=$1 AND s.tenant_id=$2 AND s.instance_id=$3",
+    [subscriptionId, tenantId, instanceId],
+  );
+  const row = found.rows[0] ?? null;
+  return { row, access: subscriptionAccess(row, now) };
+}
+
 async function audit(client, subscriptionId, action, admin, detail, at) {
   await client.query(
     "INSERT INTO company_os_subscription_audit(id,subscription_id,action,administrator,detail,created_at) VALUES($1,$2,$3,$4,$5,$6)",
@@ -126,8 +157,10 @@ export async function grantSubscriptionByOrder(client, input) {
   if (kind === "agent") {
     const cheapest = await client.query("SELECT min(monthly_price_cents) AS cents FROM company_os_function_bundles WHERE kind='workflow' AND status='active' AND currency=$1", [bundle.rows[0].currency]);
     if (cheapest.rows[0]?.cents !== null && cheapest.rows[0]?.cents !== undefined && monthlyCents > Number(cheapest.rows[0].cents)) throw new OrderError(`agent_price_above_workflow_price:${input.bundleId}:${monthlyCents}:${cheapest.rows[0].cents}`);
-    const workflow = await client.query("SELECT 1 FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.tenant_id=$1 AND s.instance_id=$2 AND s.billing_provider=$3 AND s.subscription_state='active' AND COALESCE(s.invoice_kind,b.kind)='workflow'", [input.tenantId, input.instanceId, INVOICE]);
-    if (!workflow.rowCount) throw new OrderError("agent_needs_a_workflow_on_the_box");
+    // the sweep's rule, under the box lock: a workflow whose end date, grace or plan has passed (swept
+    // or not) or that an administrator is ending carries no new agent
+    const workflows = await client.query("SELECT s.*,p.ended_by AS plan_ended_by,p.ends_at AS plan_ends_at FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id LEFT JOIN company_os_box_plans p ON p.id=s.box_plan_id WHERE s.tenant_id=$1 AND s.instance_id=$2 AND s.billing_provider=$3 AND s.subscription_state='active' AND COALESCE(s.invoice_kind,b.kind)='workflow'", [input.tenantId, input.instanceId, INVOICE]);
+    if (!workflows.rows.some((row) => subscriptionAccess(row, now) === "new")) throw new OrderError("agent_needs_a_workflow_on_the_box");
   }
   // a workflow on a plan with an end date ends with the plan unless it was given an earlier end
   const planEnd = plan?.ends_at ? new Date(plan.ends_at) : null;
