@@ -6,9 +6,11 @@
 //   enrol-publisher   --public-key <ed25519-....pub> --publisher-id old-school --name "Old School AG"
 //                     registers (or refreshes) the publisher key; the key id is derived from the key
 //   create-bundle     --id design-review --name "Design review" --description "..." --amount-cents 4900 [--currency chf] [--polar-product <uuid>] [--stripe-price price_...]
+//                     [--kind workflow|agent [--ai-allowance-usd 30] --by <admin>]   (ST1: see set-bundle-kind; a new bundle is a workflow until told)
 //                     one Polar product (one monthly recurring price) per function bundle; the Stripe price is the second
 //                     provider's reference. Without the active provider's reference the bundle is listed but cannot be subscribed
 //   set-price         --id design-review [--polar-product <uuid>] [--stripe-price price_...] [--amount-cents 4900]
+//                     at least one of them; --amount-cents alone changes the list price (what invoices use), not Polar's price
 //   add-package       --bundle design-review --model-id faivr.agent.<slug>
 //   remove-package    --bundle design-review --package faivr.agent.<slug>
 //   issue-code        --label "Bernd's appliance" [--tenant <uuid>] [--days 14] [--by bernd@example] [--owner-email bernd@example]
@@ -16,12 +18,54 @@
 //                     billing provider's checkout for that tenant (one provider customer per owner)
 //   list              bundles, packages, appliances, subscriptions
 //
+//   ST1, subscriptions by order (billed by invoice; no billing provider is asked, ever):
+//   grant-by-order    --tenant <uuid> --instance <uuid> --bundle design-review --start 2026-11-30 [--end 2027-11-30] [--copy 1] --by <admin> [--note "..."]
+//                     the box gets an active subscription to the function; it installs exactly as after a paid checkout.
+//                     The start is the day invoice billing starts (may lie ahead: the box can install at once, e.g. the
+//                     office is prepared before the contract starts); the end date, if given, ends it on that day
+//   end-subscription  --subscription <uuid> --grace-days 14 --by <admin> [--reason "..."] [--provider-not-told]
+//                     ends a subscription after the grace: what is installed keeps working until then, nothing new is installed;
+//                     afterwards the box stops the function. For an invoice subscription that is all. A Polar (sandbox)
+//                     subscription needs --provider-not-told: the store ends it, Polar is not asked, Polar events no longer change it
+//   sell-by-order     --id design-review --by-order yes|no
+//                     yes: the box cannot buy the function itself (the catalog says buyable:false, purchase:"order")
+//   orders            the subscriptions by order and the ones an administrator ended, with their audit lines
+//
+//   ST1 plans: what Old School invoices per box (every value is data; nothing is priced in code). Per box and month,
+//   plus VAT: the box (none on own hardware), each workflow (with its USD AI allowance), each single agent, and for
+//   early-bird customers a discount on the first workflow. Never per person.
+//   set-bundle-kind   --id <bundle> --kind workflow|agent [--ai-allowance-usd 30] --by <admin>
+//                     a workflow includes a USD AI allowance; a single agent has none. An agent's price never exceeds
+//                     a workflow's (checked after every price or kind change; create-bundle and set-price are checked too)
+//   define-plan       --id truchsess --name "Truchsess box" --box-chf 100 --early-bird-customers 50 --early-bird-percent 50
+//                     --early-bird-note "Early bird" --top-up-usd-per-chf 1 --free-months 0 --prices-exclude-vat yes
+//                     --includes "Setup in our office|..." [--currency chf] --by <admin>
+//                     defines or changes a plan; boxes that already hold the plan keep the terms they got
+//   plan-function     --plan <plan> --bundle <workflow or agent> --granted yes|no --by <admin>
+//                     granted with the plan, by order, at its list price (the catalog entry's monthly price)
+//   mark-box          --tenant <uuid> --instance <uuid> --as test|old-school|client --by <admin> [--note "box 1"]
+//                     a test box or Old School's own box never counts as a customer and is never invoiced; client removes the mark.
+//                     Mark a box before it gets a plan (its customer number is set then)
+//   set-vat-rate      --from 2024-01-01 --percent 8.1 --by <admin>
+//                     the Swiss VAT rate from that day; an invoice month uses the rate in force on its first day
+//   assign-plan       --tenant <uuid> --instance <uuid> --plan <plan> --start 2026-12-01 [--end ...] [--own-hardware] --by <admin> [--note "..."]
+//                     gives the box the plan (the next customer number, the early bird for the first ones, kept) and grants its
+//                     workflows by order; --own-hardware: the customer runs on its own device or server, no box line
+//   end-plan          --box-plan <uuid> --grace-days 14 --by <admin> [--reason "..."]
+//                     ends the box's plan and every invoice subscription on it after the grace
+//   add-invoice-line  --tenant <uuid> --instance <uuid> --month 2027-01 --kind ai-top-up|ai-use-above-allowance --amount-chf 20 --by <admin> [--description "..."]
+//   invoice-csv       --month 2027-01 [--tenant <uuid> --instance <uuid>] [--include-not-invoiced]
+//                     per box what to invoice for the month (plan, workflows, add-ons, one-time lines, net, VAT, total), as CSV
+//   plans             the plans, their workflows, price steps, paying customers so far and what the next one pays
+//
 // Nothing here touches Polar or Stripe: the CEO creates the product (Polar, sandbox first) or the price (Stripe) in the provider's dashboard
 // and pastes its id. Nothing here touches the chain.
 import { createHash, createPublicKey, randomInt, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import pg from "../web/node_modules/pg/lib/index.js";
 import { assertFunctionLeadAvailable, latestVersionIsFunctionLead } from "./company-os-function-leads.mjs";
+import { endSubscriptionByAdmin, grantSubscriptionByOrder, orderSubscriptions } from "../web/lib/companyOs/subscriptionOrders.mjs";
+import { addInvoiceLine, assertCatalogPrices, assignPlan, definePlan, endPlan, invoiceCsv, invoiceLines, markBox, planList, setBundleKind, setPlanFunction, setVatRate } from "../web/lib/companyOs/boxPlans.mjs";
 
 const [command, ...rest] = process.argv.slice(2);
 const options = {};
@@ -61,7 +105,7 @@ function enrolmentCode() {
 }
 
 if (!command || !process.env.DATABASE_URL) {
-  console.error("Usage: DATABASE_URL=... node scripts/company-os-store-admin.mjs enrol-publisher|create-bundle|set-price|add-package|remove-package|issue-code|list [options]");
+  console.error("Usage: DATABASE_URL=... node scripts/company-os-store-admin.mjs enrol-publisher|create-bundle|set-price|add-package|remove-package|issue-code|list|grant-by-order|end-subscription|sell-by-order|orders|set-bundle-kind|define-plan|plan-function|mark-box|set-vat-rate|assign-plan|end-plan|add-invoice-line|invoice-csv|plans [options]");
   process.exit(2);
 }
 
@@ -92,9 +136,13 @@ try {
         "INSERT INTO company_os_function_bundles(id,name,description,stripe_price_id,polar_product_id,monthly_price_cents,currency) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,description=EXCLUDED.description,stripe_price_id=COALESCE(EXCLUDED.stripe_price_id,company_os_function_bundles.stripe_price_id),polar_product_id=COALESCE(EXCLUDED.polar_product_id,company_os_function_bundles.polar_product_id),monthly_price_cents=EXCLUDED.monthly_price_cents,currency=EXCLUDED.currency,updated_at=now()",
         [id, need("name"), need("description"), price, product, amount, (options.currency ?? "chf").toLowerCase()],
       );
+      // ST1: the kind in the same transaction, so a new agent is never checked as a workflow first
+      if (options.kind !== undefined) await setBundleKind(client, { bundleId: id, kind: options.kind, aiAllowanceUsd: options["ai-allowance-usd"] ?? null, administrator: need("by") });
     } else {
-      if (price === null && product === null) throw new Error("--polar-product or --stripe-price is required");
       const amount = options["amount-cents"] !== undefined ? Number.parseInt(options["amount-cents"], 10) : null;
+      if (amount !== null && (!Number.isSafeInteger(amount) || amount < 0)) throw new Error("--amount-cents must be a whole number of minor units");
+      // ST1: a list price alone may change (the price invoices use); a Polar product's own price is changed in Polar
+      if (price === null && product === null && amount === null) throw new Error("--amount-cents, --polar-product or --stripe-price is required");
       const updated = await client.query(
         "UPDATE company_os_function_bundles SET stripe_price_id=COALESCE($2,stripe_price_id),polar_product_id=COALESCE($3,polar_product_id),monthly_price_cents=COALESCE($4,monthly_price_cents),updated_at=now() WHERE id=$1 RETURNING id",
         [id, price, product, amount],
@@ -103,6 +151,8 @@ try {
     }
     const row = (await client.query("SELECT id,name,polar_product_id,stripe_price_id,monthly_price_cents,currency FROM company_os_function_bundles WHERE id=$1", [id])).rows[0];
     // subscribable under the active provider (FAIVR_BILLING_PROVIDER, polar by default); the value itself is not echoed
+    // ST1: an agent's price never exceeds a workflow's
+    await assertCatalogPrices(client);
     const usesStripe = (process.env.FAIVR_BILLING_PROVIDER ?? "polar").trim().toLowerCase() === "stripe";
     console.log(JSON.stringify({ bundle: row, subscribable: Boolean(usesStripe ? row.stripe_price_id : row.polar_product_id) }));
   } else if (command === "add-package") {
@@ -141,12 +191,63 @@ try {
     );
     console.log(JSON.stringify({ enrolmentCode: code, tenantId, label, expiresInDays: days, ownerEmail, note: "shown once; only the hash is stored" }));
   } else if (command === "list") {
-    const bundles = (await client.query("SELECT b.id,b.name,b.polar_product_id,b.stripe_price_id,b.monthly_price_cents,b.currency,b.status,(SELECT array_agg(package_id ORDER BY package_id) FROM company_os_bundle_packages WHERE bundle_id=b.id) AS packages FROM company_os_function_bundles b ORDER BY b.id")).rows;
+    const bundles = (await client.query("SELECT b.id,b.name,b.polar_product_id,b.stripe_price_id,b.monthly_price_cents,b.currency,b.status,b.sold_by_order,(SELECT array_agg(package_id ORDER BY package_id) FROM company_os_bundle_packages WHERE bundle_id=b.id) AS packages FROM company_os_function_bundles b ORDER BY b.id")).rows;
     const packages = (await client.query("SELECT p.id,p.name,v.version,v.artifact_sha256,v.publisher_key_id,(SELECT count(*) FROM company_os_package_artifacts a WHERE a.version_id=v.id)::int AS inline_artifacts FROM company_os_packages p JOIN company_os_package_versions v ON v.package_id=p.id AND v.status='published' ORDER BY p.id,v.published_at DESC")).rows;
     const appliances = (await client.query("SELECT tenant_id,instance_id,key_id,label,enrolled_at,last_contact_at,revoked_at FROM company_os_instance_keys ORDER BY enrolled_at NULLS LAST")).rows;
-    const subscriptions = (await client.query("SELECT id,tenant_id,bundle_id,subscription_state,billing_provider,provider_subscription_id,created_at,cancel_effective_at FROM company_os_bundle_subscriptions ORDER BY created_at DESC LIMIT 50")).rows;
+    const subscriptions = (await client.query("SELECT id,tenant_id,instance_id,bundle_id,copy_number,subscription_state,billing_provider,provider_subscription_id,created_at,cancel_effective_at,billing_ends_at,granted_by,admin_ended_by FROM company_os_bundle_subscriptions ORDER BY created_at DESC LIMIT 50")).rows;
     const codes = (await client.query("SELECT label,tenant_id,created_at,expires_at,used_at,instance_id FROM company_os_enrolment_codes ORDER BY created_at DESC LIMIT 50")).rows;
     console.log(JSON.stringify({ bundles, packages, appliances, subscriptions, enrolmentCodes: codes }, null, 2));
+  } else if (command === "grant-by-order") {
+    const copy = options.copy !== undefined ? Number.parseInt(options.copy, 10) : 1;
+    const granted = await grantSubscriptionByOrder(client, { tenantId: need("tenant"), instanceId: need("instance"), bundleId: need("bundle"), copyNumber: copy, startsOn: need("start"), endsOn: options.end ?? null, administrator: need("by"), note: options.note ?? null });
+    console.log(JSON.stringify({ granted }));
+  } else if (command === "end-subscription") {
+    const graceDays = Number.parseInt(need("grace-days"), 10);
+    const ended = await endSubscriptionByAdmin(client, { subscriptionId: need("subscription"), graceDays, administrator: need("by"), reason: options.reason ?? null, confirmProviderNotTold: options["provider-not-told"] === "true" });
+    console.log(JSON.stringify({ ended }));
+  } else if (command === "sell-by-order") {
+    const id = need("id");
+    const value = need("by-order");
+    if (!["yes", "no"].includes(value)) throw new Error("--by-order is yes or no");
+    const updated = await client.query("UPDATE company_os_function_bundles SET sold_by_order=$2,updated_at=now() WHERE id=$1 RETURNING id,sold_by_order", [id, value === "yes"]);
+    if (!updated.rowCount) throw new Error(`bundle ${id} does not exist`);
+    console.log(JSON.stringify({ bundle: updated.rows[0] }));
+  } else if (command === "orders") {
+    const subscriptions = await orderSubscriptions(client);
+    const audit = (await client.query("SELECT subscription_id,action,administrator,detail,created_at FROM company_os_subscription_audit ORDER BY created_at DESC LIMIT 200")).rows;
+    console.log(JSON.stringify({ subscriptions, audit }, null, 2));
+  } else if (command === "define-plan") {
+    const yesNo = (name) => {
+      const value = need(name);
+      if (!["yes", "no"].includes(value)) throw new Error(`--${name} is yes or no`);
+      return value === "yes";
+    };
+    const plan = await definePlan(client, {
+      id: need("id"), name: need("name"), boxChf: need("box-chf"), currency: options.currency ?? "chf", pricesExcludeVat: yesNo("prices-exclude-vat"),
+      earlyBirdCustomers: Number.parseInt(need("early-bird-customers"), 10), earlyBirdPercent: need("early-bird-percent"), earlyBirdNote: options["early-bird-note"] ?? null,
+      topUpUsdPerChf: need("top-up-usd-per-chf"), freeMonths: Number.parseInt(need("free-months"), 10), includes: need("includes").split("|"), administrator: need("by"),
+    });
+    console.log(JSON.stringify({ plan }));
+  } else if (command === "plan-function") {
+    const value = need("granted");
+    if (!["yes", "no"].includes(value)) throw new Error("--granted is yes or no");
+    console.log(JSON.stringify({ planFunction: await setPlanFunction(client, { planId: need("plan"), bundleId: need("bundle"), granted: value === "yes", administrator: need("by") }) }));
+  } else if (command === "set-bundle-kind") {
+    console.log(JSON.stringify({ bundle: await setBundleKind(client, { bundleId: need("id"), kind: need("kind"), aiAllowanceUsd: options["ai-allowance-usd"] ?? null, administrator: need("by") }) }));
+  } else if (command === "mark-box") {
+    console.log(JSON.stringify({ box: await markBox(client, { tenantId: need("tenant"), instanceId: need("instance"), as: need("as"), note: options.note ?? null, administrator: need("by") }) }));
+  } else if (command === "set-vat-rate") {
+    console.log(JSON.stringify({ vat: await setVatRate(client, { from: need("from"), percent: need("percent"), administrator: need("by") }) }));
+  } else if (command === "assign-plan") {
+    console.log(JSON.stringify({ assigned: await assignPlan(client, { tenantId: need("tenant"), instanceId: need("instance"), planId: need("plan"), startsOn: need("start"), endsOn: options.end ?? null, ownHardware: options["own-hardware"] === "true", administrator: need("by"), note: options.note ?? null }) }));
+  } else if (command === "end-plan") {
+    console.log(JSON.stringify({ ended: await endPlan(client, { boxPlanId: need("box-plan"), graceDays: Number.parseInt(need("grace-days"), 10), administrator: need("by"), reason: options.reason ?? null }) }));
+  } else if (command === "add-invoice-line") {
+    console.log(JSON.stringify({ invoiceLine: await addInvoiceLine(client, { tenantId: need("tenant"), instanceId: need("instance"), month: need("month"), kind: need("kind"), amountChf: need("amount-chf"), description: options.description ?? null, administrator: need("by") }) }));
+  } else if (command === "invoice-csv") {
+    process.stdout.write(invoiceCsv(await invoiceLines(client, { month: need("month"), tenantId: options.tenant ?? null, instanceId: options.instance ?? null }), { includeNotInvoiced: options["include-not-invoiced"] === "true" }));
+  } else if (command === "plans") {
+    console.log(JSON.stringify({ plans: await planList(client) }, null, 2));
   } else {
     throw new Error(`unknown command ${command}`);
   }
