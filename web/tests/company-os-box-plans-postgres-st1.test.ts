@@ -75,7 +75,7 @@ describe.skipIf(!url)("ST1 plans on Postgres: one transaction per admin command"
       expect(waited).toBe("waiting");
       await a.query("COMMIT");
       const done = await second;
-      // customer 1 is the plan's only early bird here; customer 2 is not
+      // decision C: one early-bird place; two assigns at once under the plan lock never both take it
       expect([first.customerNumber, first.earlyBird?.discountBasisPoints]).toEqual([1, 5000]);
       expect([done.customerNumber, done.earlyBird]).toEqual([2, null]);
     } finally {

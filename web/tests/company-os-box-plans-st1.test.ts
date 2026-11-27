@@ -441,11 +441,29 @@ describe("ST1 plans: what Old School invoices per box", () => {
     const boxes = [appliance.instanceId, await newBox(), await newBox(), await newBox(), await newBox()];
     for (const box of boxes) await assign(box);
     await markBox(holder.pool, { tenantId, instanceId: boxes[2], as: "test", administrator: ADMIN });
+    // decision C: the marked box keeps its number (never given again) and frees its early-bird place
     const sixth = await assign(await newBox(), { ownHardware: true });
-    expect([sixth.customerNumber, sixth.earlyBird]).toEqual([6, null]);
+    expect([sixth.customerNumber, sixth.earlyBird?.discountBasisPoints]).toEqual([6, 5000]);
     const numbers = (await holder.pool.query("SELECT customer_number FROM company_os_box_plans WHERE customer_number IS NOT NULL ORDER BY customer_number")).rows.map((row) => row.customer_number);
     expect(numbers).toEqual([1, 2, 3, 4, 5, 6]);
-    expect((await planList(holder.pool)).find((plan: { id: string }) => plan.id === PLAN)).toMatchObject({ payingCustomers: 5, nextCustomerNumber: 7, nextCustomerGetsEarlyBird: false });
+    expect((await planList(holder.pool)).find((plan: { id: string }) => plan.id === PLAN)).toMatchObject({ payingCustomers: 5, nextCustomerNumber: 7, nextCustomerGetsEarlyBird: false, earlyBirdsHeld: 5 });
+  });
+
+  it("Codex P2 (decision C): marking the newest box never gives its number again; the next customer still gets the early bird", async () => {
+    await define({ earlyBirdCustomers: 3 });
+    const boxes = [appliance.instanceId, await newBox(), await newBox()];
+    for (const box of boxes) await assign(box);
+    // the newest customer (number 3) is marked later: its number stays used, its place is free
+    await markBox(holder.pool, { tenantId, instanceId: boxes[2], as: "test", administrator: ADMIN });
+    const next = await assign(await newBox());
+    expect([next.customerNumber, next.earlyBird?.discountBasisPoints]).toEqual([4, 5000]);
+    // the mark taken off again: two paying boxes never share a number
+    await markBox(holder.pool, { tenantId, instanceId: boxes[2], as: "client", administrator: ADMIN });
+    const numbers = (await holder.pool.query("SELECT customer_number FROM company_os_box_plans WHERE customer_number IS NOT NULL ORDER BY customer_number")).rows.map((row) => row.customer_number);
+    expect(numbers).toEqual([1, 2, 3, 4]);
+    // with every place held (3 unmarked early birds again: 1, 2 and 4, and now 3 counts once more), the next paying box gets none
+    const after = await assign(await newBox());
+    expect([after.customerNumber, after.earlyBird]).toEqual([5, null]);
   });
 
   it("supervisor: without a VAT rate the box is told plainly that the month's costs are not ready, and keeps its AI allowance", async () => {

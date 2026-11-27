@@ -5,7 +5,7 @@
 //     (the allowances of a box's workflows add up); a box always has at least one workflow;
 //   - each single agent at its list price, with no allowance of its own (it uses the box's pool);
 //     an agent's price never exceeds a workflow's;
-//   - for the first customers by customer number (early bird), a discount line on the first
+//   - for the first customers (early bird: while fewer unmarked boxes hold it than the plan's places), a discount line on the first
 //     workflow, kept for as long as the customer stays;
 //   - one-time top-ups in CHF that add USD allowance at the plan's rate.
 // Nothing is priced per person: a workflow or agent is priced per box, whatever the number of users.
@@ -210,25 +210,35 @@ async function boxMark(client, tenantId, instanceId) {
 }
 
 /**
- * The boxes that count as paying customers of a plan: every box that held it and carries no
- * mark, with its customer number. The next customer gets the highest of these numbers plus one,
- * so a number is never given twice while its box counts (a box marked later leaves a gap).
+ * The customers of a plan (read under the plan's row lock, so two assignments never see the same
+ * state). `boxes`: every box that held the plan and carries no mark, with its customer number.
+ * `highest`: the highest number ever given, marked boxes included, so a number is never given
+ * again (a box marked later keeps its number). `earlyBirds`: how many unmarked boxes hold the
+ * early bird; a box marked later frees its place, never its number (CEO decision C, 27 Nov).
  */
 async function countingCustomers(client, planId) {
-  const held = await client.query("SELECT tenant_id,instance_id,customer_number FROM company_os_box_plans WHERE plan_id=$1 AND customer_number IS NOT NULL", [planId]);
+  const held = await client.query("SELECT tenant_id,instance_id,customer_number,early_bird_discount_bp FROM company_os_box_plans WHERE plan_id=$1 AND customer_number IS NOT NULL", [planId]);
   const marks = await client.query("SELECT tenant_id,instance_id FROM company_os_box_marks");
   const marked = new Set(marks.rows.map((row) => `${row.tenant_id}/${row.instance_id}`));
   const boxes = new Map();
+  const early = new Set();
+  let highest = 0;
   for (const row of held.rows) {
     const key = `${row.tenant_id}/${row.instance_id}`;
+    highest = Math.max(highest, Number(row.customer_number));
     if (marked.has(key)) continue;
     boxes.set(key, Math.min(boxes.get(key) ?? Infinity, Number(row.customer_number)));
+    if (Number(row.early_bird_discount_bp) > 0) early.add(key);
   }
-  return boxes;
+  return { boxes, highest, earlyBirds: early.size };
 }
 
 function nextCustomerNumber(customers) {
-  return customers.size ? Math.max(...customers.values()) + 1 : 1;
+  return customers.highest + 1;
+}
+
+function earlyBirdFree(customers, plan) {
+  return Number(plan.early_bird_discount_bp) > 0 && customers.earlyBirds < Number(plan.early_bird_customers);
 }
 
 /**
@@ -250,8 +260,9 @@ export async function setPlanFunction(client, input) {
 
 /**
  * Give a box a plan. A box that counts (no administrator's mark; boxes and own-hardware customers
- * alike) gets the next customer number of the plan; the first `early_bird_customers` numbers get
- * the early-bird discount on the first workflow. The box keeps its box price, discount and terms
+ * alike) gets the next customer number of the plan (the highest ever given plus one: never given
+ * again); it gets the early-bird discount on the first workflow while fewer than
+ * `early_bird_customers` unmarked boxes hold it (decided under the same plan lock). The box keeps its box price, discount and terms
  * (a box that held the plan before gets its old number and terms back). A marked box gets no
  * number: it is shown the terms the next customer would get and is never invoiced. On own
  * hardware there is no box line. The plan's workflows are granted by order at their list price;
@@ -287,11 +298,11 @@ export async function assignPlan(client, input) {
   const mark = await boxMark(client, input.tenantId, input.instanceId);
   const customers = await countingCustomers(client, plan.id);
   const key = `${input.tenantId}/${input.instanceId}`;
-  const customerNumber = mark ? null : (customers.get(key) ?? nextCustomerNumber(customers));
+  const customerNumber = mark ? null : (customers.boxes.get(key) ?? nextCustomerNumber(customers));
   // a returning customer keeps the terms it had with its number; only a new number takes today's
   const earlier = customerNumber === null ? null : (await client.query("SELECT monthly_price_cents,own_hardware,early_bird_discount_bp,early_bird_note FROM company_os_box_plans WHERE plan_id=$1 AND tenant_id=$2 AND instance_id=$3 AND customer_number=$4 ORDER BY created_at LIMIT 1", [plan.id, input.tenantId, input.instanceId, customerNumber])).rows[0];
-  const number = customerNumber ?? nextCustomerNumber(customers);
-  const earlyBird = earlier ? Number(earlier.early_bird_discount_bp) > 0 : number <= Number(plan.early_bird_customers) && Number(plan.early_bird_discount_bp) > 0;
+  // the early bird by counting, not by number: while fewer unmarked boxes hold it than the plan's places
+  const earlyBird = earlier ? Number(earlier.early_bird_discount_bp) > 0 : earlyBirdFree(customers, plan);
   const discountBp = earlier ? Number(earlier.early_bird_discount_bp) : (earlyBird ? Number(plan.early_bird_discount_bp) : 0);
   const discountNote = earlier ? (earlier.early_bird_note ?? null) : (earlyBird ? plan.early_bird_note : null);
   const boxCents = ownHardware ? 0 : (earlier && !earlier.own_hardware ? Number(earlier.monthly_price_cents) : Number(plan.box_price_cents));
@@ -413,7 +424,8 @@ export async function planList(client) {
       earlyBird: { customers: Number(plan.early_bird_customers), discountBasisPoints: Number(plan.early_bird_discount_bp), note: plan.early_bird_note ?? null },
       topUpUsdCentsPerChf: Number(plan.top_up_usd_cents_per_chf), includes: plan.includes, status: plan.status,
       workflows: functions.filter((row) => row.plan_id === plan.id).map((row) => row.bundle_id),
-      payingCustomers: customers.size, nextCustomerNumber: next, nextCustomerGetsEarlyBird: next <= Number(plan.early_bird_customers) && Number(plan.early_bird_discount_bp) > 0,
+      payingCustomers: customers.boxes.size, nextCustomerNumber: next, nextCustomerGetsEarlyBird: earlyBirdFree(customers, plan),
+      earlyBirdsHeld: customers.earlyBirds,
     });
   }
   return out;
