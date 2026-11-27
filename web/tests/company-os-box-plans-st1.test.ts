@@ -299,6 +299,14 @@ describe("ST1 plans: what Old School invoices per box", () => {
     await endSubscriptionByAdmin(holder.pool, { subscriptionId: shortOne.subscriptionId, graceDays: 0, administrator: ADMIN, now: NOW });
   });
 
+  it("Codex P2: no grant rides on a plan an administrator is ending (nothing new during the grace)", async () => {
+    const assigned = await assign(appliance.instanceId);
+    const ended = await endPlan(holder.pool, { boxPlanId: assigned.boxPlanId, graceDays: 14, administrator: ADMIN, now: NOW });
+    await expect(grant(appliance.instanceId, "product-management")).rejects.toThrow(`box_plan_is_ending:${assigned.boxPlanId}:${ended.endsAt}`);
+    await expect(grant(appliance.instanceId, "assistant")).rejects.toThrow("box_plan_is_ending");
+    expect((await holder.pool.query("SELECT count(*)::int AS n FROM company_os_bundle_subscriptions WHERE instance_id=$1", [appliance.instanceId])).rows[0].n).toBe(1);
+  });
+
   it("an agent never costs more than a workflow and has no AI allowance of its own", async () => {
     await expect(setBundleKind(holder.pool, { bundleId: "assistant", kind: "agent", aiAllowanceUsd: "30", administrator: ADMIN })).rejects.toThrow("agent_has_no_ai_allowance");
     await upsertBundle({ id: "big-agent", name: "Big agent", description: "Too dear.", stripePriceId: null, polarProductId: null, monthlyPriceCents: 17950 });

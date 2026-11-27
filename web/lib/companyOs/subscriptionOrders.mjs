@@ -112,6 +112,8 @@ export async function grantSubscriptionByOrder(client, input) {
   // ST1 plans: every workflow is billed at its list price (the catalog entry's monthly price),
   // kept with the grant; a grant on a box with a plan rides on that plan
   const plan = await liveBoxPlan(client, input.tenantId, input.instanceId, now);
+  // a plan an administrator is ending installs nothing new during its grace: no grant rides on it
+  if (plan && plan.ended_by) throw new OrderError(`box_plan_is_ending:${plan.id}:${new Date(plan.ends_at).toISOString()}`, 409);
   if (plan && String(bundle.rows[0].currency) !== String(plan.currency)) throw new OrderError(`workflow_currency_differs_from_plan:${bundle.rows[0].currency}:${plan.currency}`);
   // one currency per box, also without a plan
   const otherCurrency = await client.query("SELECT COALESCE(s.invoice_currency,b.currency) AS currency FROM company_os_bundle_subscriptions s JOIN company_os_function_bundles b ON b.id=s.bundle_id WHERE s.tenant_id=$1 AND s.instance_id=$2 AND s.billing_provider=$3 AND COALESCE(s.invoice_currency,b.currency)<>$4 LIMIT 1", [input.tenantId, input.instanceId, INVOICE, bundle.rows[0].currency]);
