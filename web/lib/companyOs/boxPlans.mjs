@@ -337,6 +337,10 @@ export async function endPlan(client, input) {
   const admin = administrator(input.administrator);
   const graceDays = Number(input.graceDays);
   if (!Number.isInteger(graceDays) || graceDays < 0 || graceDays > 366) throw new OrderError("grace_days_invalid", 400);
+  // the box's row first (the lock order of assign, grant and end-subscription), then the plan is
+  // read: a grant on the box that committed first is among the subscriptions ended below
+  const owner = await client.query("SELECT tenant_id,instance_id FROM company_os_box_plans WHERE id=$1", [input.boxPlanId]);
+  if (owner.rowCount) await client.query("SELECT 1 FROM company_os_instance_keys WHERE tenant_id=$1 AND instance_id=$2 FOR UPDATE", [owner.rows[0].tenant_id, owner.rows[0].instance_id]);
   const found = await client.query("SELECT * FROM company_os_box_plans WHERE id=$1", [input.boxPlanId]);
   const plan = found.rows[0];
   if (!plan) throw new OrderError("box_plan_not_found", 404);
